@@ -27,7 +27,7 @@ class SettingsViewModel(private val saved: SavedStateHandle,private val owner: S
         combine(owner.generation,attempts) { generation,attempt -> generation to attempt }.collectLatest {
             mutable.value = state.value.copy(phase = SettingsPhase.Loading,error = null)
             try {
-                check(owner.state.first { it !is SubscriptionsUiState.Loading } !is SubscriptionsUiState.Error)
+                check(owner.state.first { it !is SubscriptionsUiState.Loading } .let { it !is SubscriptionsUiState.Error && it !is SubscriptionsUiState.StorageBlocked })
                 owner.settings().collect { value ->
                     if(discardPendingAfterRead) { saved.remove<HashMap<String,String>>("intent"); discardPendingAfterRead = false }
                     val pending = saved.contains("intent")

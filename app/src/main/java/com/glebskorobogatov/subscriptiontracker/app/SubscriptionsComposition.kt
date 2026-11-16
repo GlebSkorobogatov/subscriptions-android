@@ -2,7 +2,7 @@ package com.glebskorobogatov.subscriptiontracker.app
 
 import android.content.Context
 import com.glebskorobogatov.subscriptiontracker.data.integration.SubscriptionUseCases
-import com.glebskorobogatov.subscriptiontracker.data.room.TrackerDatabaseFactory
+import com.glebskorobogatov.subscriptiontracker.data.room.*
 import com.glebskorobogatov.subscriptiontracker.data.settings.DatasetSettingsFactory
 import com.glebskorobogatov.subscriptiontracker.domain.integration.CurrentDate
 import com.glebskorobogatov.subscriptiontracker.ui.subscriptions.*
@@ -25,7 +25,13 @@ class SubscriptionsComposition(context: Context,
     override fun activeDatasetId() = datasetId
     @Volatile private var current: SubscriptionUseCases? = null
     override suspend fun <T> perform(block: suspend (SubscriptionUseCases) -> T): T = withContext(Dispatchers.IO) {
-        gate.withLock { block(checkNotNull(current) { "Session unavailable" }) }
+        gate.withLock {
+            val use = checkNotNull(current) { "Session unavailable" }
+            val id = checkNotNull(datasetId)
+            // Future pointer switches must acquire this same dataset mutation gate first.
+            requireCurrent(id)
+            block(use)
+        }
     }
     override fun settings() = sessionFlow { it.settings }
     override fun finance() = sessionFlow { com.glebskorobogatov.subscriptiontracker.ui.finance.financeSnapshots(it) }
@@ -34,6 +40,7 @@ class SubscriptionsComposition(context: Context,
     private fun <T> sessionFlow(values: (SubscriptionUseCases) -> Flow<T>): Flow<T> = channelFlow {
         val reader = gate.withLock {
             val use = checkNotNull(current) { "Session unavailable" }
+            requireCurrent(checkNotNull(datasetId))
             launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
                 try { values(use).collect { send(it) } }
                 catch (error: Exception) { close(if (error is CancellationException) IllegalStateException("Session closed",error) else error) }
@@ -46,24 +53,39 @@ class SubscriptionsComposition(context: Context,
             }
         }
     }
+    private fun mutationGate(id: java.util.UUID) = com.glebskorobogatov.subscriptiontracker.data.reminders.ReminderChanges.gate(
+        context.getDatabasePath("subscriptions-$id.db").canonicalPath)
+    private fun requireCurrent(id: java.util.UUID) {
+        if (ActiveDataset.guarded(id, activeDataset) { true } != true) throw StorageUnavailable(StorageFailure.STALE_GENERATION)
+    }
     override fun today(): LocalDate = current?.date?.today?.value ?: LocalDate.now()
     private val context = context.applicationContext
 
     override fun observe(refreshes: Flow<Unit>): Flow<SubscriptionsUiState> = flow {
-        val id = activeDataset()
-        val db = TrackerDatabaseFactory.open(context, id)
+        val id = try { activeDataset() } catch (error: Exception) { throw storageFailure(error) }
+        val db = mutationGate(id).withLock {
+            ActiveDataset.guarded(id, activeDataset) { TrackerDatabaseFactory.open(context, id) }
+                ?: throw StorageUnavailable(StorageFailure.STALE_GENERATION)
+        }
         var lease: DatasetSettingsFactory.Lease? = null
         try {
             val settings = DatasetSettingsFactory.acquire(context, id).also { lease = it }
             val changes = com.glebskorobogatov.subscriptiontracker.data.reminders.ReminderChanges(
                 com.glebskorobogatov.subscriptiontracker.data.reminders.ReminderChanges.gate(
-                    context.getDatabasePath("subscriptions-$id.db").canonicalPath), reconcile ?: {})
-            val assets = com.glebskorobogatov.subscriptiontracker.data.assets.AssetStore(context, id)
-            runCatching { assets.sweep(db.assets().all().map { it.relativePath }.toSet()) }
+                    context.getDatabasePath("subscriptions-$id.db").canonicalPath), validate = { requireCurrent(id) }, request = reconcile ?: {})
+            val assets = com.glebskorobogatov.subscriptiontracker.data.assets.AssetStore(context, id, activeDataset)
+            mutationGate(id).withLock {
+                ActiveDataset.guarded(id, activeDataset) {
+                    // A failed query aborts initialization; it must never become an empty set.
+                    val known = db.assets().all().map { it.relativePath }.toSet()
+                    assets.sweep(known)
+                } ?: throw StorageUnavailable(StorageFailure.STALE_GENERATION)
+            }
             val useCases = SubscriptionUseCases(db, settings.repository, CurrentDate(LocalDate.now()), reminderChanges = changes,
                 assetStore = assets)
-            gate.withLock { current = useCases; datasetId = id }
+            gate.withLock { requireCurrent(id); current = useCases; datasetId = id }
             emitAll(observeSession(useCases, refreshes))
+        } catch (error: Exception) { throw storageFailure(error)
         } finally {
             withContext(NonCancellable) {
                 gate.withLock {

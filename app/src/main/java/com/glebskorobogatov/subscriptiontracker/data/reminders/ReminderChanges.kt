@@ -6,8 +6,9 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /** Shared by production writers and background snapshots. No scope or cached user data. */
-class ReminderChanges(val gate: Mutex = Mutex(), private val request: suspend () -> Unit = {}) {
+class ReminderChanges(val gate: Mutex = Mutex(), private val validate: () -> Unit = {}, private val request: suspend () -> Unit = {}) {
     suspend fun <T> write(shouldNotify: (T) -> Boolean = { true }, action: suspend () -> T): T = gate.withLock {
+        validate() // Recheck generation after acquiring the shared mutation gate.
         val result = action()
         // A committed payment/edit must not be reported as failed because enqueue failed.
         withContext(NonCancellable) {

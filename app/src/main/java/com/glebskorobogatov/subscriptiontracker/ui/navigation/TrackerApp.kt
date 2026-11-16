@@ -45,6 +45,10 @@ import kotlinx.serialization.Serializable
 fun TrackerApp(state: SubscriptionsUiState, onRetry: () -> Unit, owner: SubscriptionsViewModel, settingsModel: com.glebskorobogatov.subscriptiontracker.ui.settings.SettingsViewModel,
     notifications: com.glebskorobogatov.subscriptiontracker.notifications.NotificationViewModel? = null,
     onNotificationSettings: () -> Unit = {}) {
+    if (state is SubscriptionsUiState.StorageBlocked) {
+        StorageBlockedScreen(state.failure, onRetry)
+        return
+    }
     val nav = rememberNavController()
     val notificationState = notifications?.state?.collectAsStateWithLifecycle()?.value
     LaunchedEffect(notificationState?.navigation?.sequence) {

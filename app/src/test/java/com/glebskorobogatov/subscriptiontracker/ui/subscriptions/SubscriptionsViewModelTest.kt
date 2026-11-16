@@ -62,4 +62,34 @@ class SubscriptionsViewModelTest {
         runCurrent(); vm.refreshToday(); runCurrent(); vm.refreshToday(); runCurrent()
         assertEquals(1, opened); assertEquals(2, refreshes)
     }
+    @Test fun permanentStorageFailureIsVisibleAndCannotReopenOrMutate() = runTest(dispatcher) {
+        var attempts = 0
+        val vm = model { flow {
+            attempts++
+            throw com.glebskorobogatov.subscriptiontracker.data.room.StorageUnavailable(
+                com.glebskorobogatov.subscriptiontracker.data.room.StorageFailure.INCOMPATIBLE)
+        } }
+        runCurrent()
+        assertEquals(SubscriptionsUiState.StorageBlocked(
+            com.glebskorobogatov.subscriptiontracker.data.room.StorageFailure.INCOMPATIBLE), vm.state.value)
+        repeat(3) { vm.retry(); vm.refreshToday() }
+        runCurrent(); assertEquals(1, attempts)
+        var invoked = false
+        try { vm.perform { invoked = true }; fail("Blocked") } catch (_: IllegalStateException) { }
+        assertFalse(invoked)
+    }
+    @Test fun transientStorageFailureAllowsExplicitRetry() = runTest(dispatcher) {
+        var attempts = 0
+        val vm = model { flow {
+            if (++attempts == 1) throw com.glebskorobogatov.subscriptiontracker.data.room.StorageUnavailable(
+                com.glebskorobogatov.subscriptiontracker.data.room.StorageFailure.TEMPORARY)
+            emit(SubscriptionsUiState.Empty())
+        } }
+        runCurrent()
+        assertTrue(vm.state.value is SubscriptionsUiState.StorageBlocked)
+        vm.retry(); runCurrent()
+        assertEquals(SubscriptionsUiState.Empty(), vm.state.value)
+        assertEquals(2, attempts)
+    }
+
 }

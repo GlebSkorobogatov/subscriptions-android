@@ -58,7 +58,7 @@ class DatasetCompositionTest {
         file.writeText("broken-pointer")
         repeat(2) {
             try { ActiveDataset(directory).getOrCreate(); fail("Expected invalid pointer") }
-            catch (_: IllegalArgumentException) { }
+            catch (_: StorageUnavailable) { }
             assertEquals("broken-pointer", file.readText())
         }
     }
@@ -117,13 +117,8 @@ class DatasetCompositionTest {
             it.version = 99
         }
         repeat(2) {
-            val db = TrackerDatabaseFactory.open(context, id)
-            val lease = DatasetSettingsFactory.acquire(context, id)
-            try {
-                val use = SubscriptionUseCases(db, lease.repository, CurrentDate(day))
-                try { subscriptionStates(use).first(); fail("Expected opening error") }
-                catch (_: IllegalStateException) { }
-            } finally { db.close(); lease.close() }
+            val failure = assertThrows(StorageUnavailable::class.java) { TrackerDatabaseFactory.open(context, id) }
+            assertEquals(StorageFailure.INCOMPATIBLE, failure.failure)
         }
         android.database.sqlite.SQLiteDatabase.openOrCreateDatabase(file, null).use { db ->
             db.rawQuery("SELECT value FROM sentinel", null).use { cursor ->
