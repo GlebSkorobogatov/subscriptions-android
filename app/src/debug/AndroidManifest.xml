@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
+    <application android:label="${debugAppLabel}" tools:replace="android:label">
+        <!-- Shell-only probe, additionally rejects every package except the opt-in test sandbox. -->
+        <receiver android:name=".app.ReminderSystemProbeReceiver" android:exported="true" android:permission="android.permission.DUMP" />
+        <activity android:name=".app.IsolatedMainActivity" android:exported="false" />
+        <activity android:name=".app.LargeFontReviewActivity" android:exported="false" />
+    </application>
+</manifest>

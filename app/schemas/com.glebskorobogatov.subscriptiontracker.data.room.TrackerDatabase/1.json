@@ -1,0 +1,545 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 1,
+    "identityHash": "5853daf1177a57b6b8d5d503a8e6f053",
+    "entities": [
+      {
+        "tableName": "subscriptions",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `accountLabel` TEXT, `priceMinor` INTEGER NOT NULL, `currencyCode` TEXT NOT NULL, `intervalUnit` TEXT NOT NULL, `intervalCount` INTEGER NOT NULL, `renewalMode` TEXT NOT NULL, `lifecycleState` TEXT NOT NULL, `anchorYear` INTEGER NOT NULL, `anchorMonth` INTEGER NOT NULL, `anchorDay` INTEGER NOT NULL, `nextCycleIndex` INTEGER NOT NULL, `oneOffDueDate` INTEGER, `overrideCycleIndex` INTEGER, `currentPeriodStartOverride` INTEGER, `paidAccessEndDate` INTEGER, `cancellationLeadDays` INTEGER, `logoAssetId` TEXT, `catalogLogoId` TEXT, `createdAt` TEXT NOT NULL, `updatedAt` TEXT NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`logoAssetId`) REFERENCES `assets`(`id`) ON UPDATE NO ACTION ON DELETE RESTRICT )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "accountLabel",
+            "columnName": "accountLabel",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "priceMinor",
+            "columnName": "priceMinor",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "currencyCode",
+            "columnName": "currencyCode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "intervalUnit",
+            "columnName": "intervalUnit",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "intervalCount",
+            "columnName": "intervalCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "renewalMode",
+            "columnName": "renewalMode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lifecycleState",
+            "columnName": "lifecycleState",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "anchorYear",
+            "columnName": "anchorYear",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "anchorMonth",
+            "columnName": "anchorMonth",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "anchorDay",
+            "columnName": "anchorDay",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "nextCycleIndex",
+            "columnName": "nextCycleIndex",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "oneOffDueDate",
+            "columnName": "oneOffDueDate",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "overrideCycleIndex",
+            "columnName": "overrideCycleIndex",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "currentPeriodStartOverride",
+            "columnName": "currentPeriodStartOverride",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "paidAccessEndDate",
+            "columnName": "paidAccessEndDate",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "cancellationLeadDays",
+            "columnName": "cancellationLeadDays",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "logoAssetId",
+            "columnName": "logoAssetId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "catalogLogoId",
+            "columnName": "catalogLogoId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_subscriptions_logoAssetId",
+            "unique": false,
+            "columnNames": [
+              "logoAssetId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_subscriptions_logoAssetId` ON `${TABLE_NAME}` (`logoAssetId`)"
+          },
+          {
+            "name": "index_subscriptions_lifecycleState",
+            "unique": false,
+            "columnNames": [
+              "lifecycleState"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_subscriptions_lifecycleState` ON `${TABLE_NAME}` (`lifecycleState`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "assets",
+            "onDelete": "RESTRICT",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "logoAssetId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "payments",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `subscriptionId` TEXT NOT NULL, `operationId` TEXT NOT NULL, `paidOn` INTEGER NOT NULL, `amountMinor` INTEGER NOT NULL, `currencyCode` TEXT NOT NULL, `recordedAt` TEXT NOT NULL, `source` TEXT NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`subscriptionId`) REFERENCES `subscriptions`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "subscriptionId",
+            "columnName": "subscriptionId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "operationId",
+            "columnName": "operationId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "paidOn",
+            "columnName": "paidOn",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "amountMinor",
+            "columnName": "amountMinor",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "currencyCode",
+            "columnName": "currencyCode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "recordedAt",
+            "columnName": "recordedAt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "source",
+            "columnName": "source",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_payments_subscriptionId_paidOn",
+            "unique": false,
+            "columnNames": [
+              "subscriptionId",
+              "paidOn"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_payments_subscriptionId_paidOn` ON `${TABLE_NAME}` (`subscriptionId`, `paidOn`)"
+          },
+          {
+            "name": "index_payments_operationId",
+            "unique": true,
+            "columnNames": [
+              "operationId"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_payments_operationId` ON `${TABLE_NAME}` (`operationId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "subscriptions",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "subscriptionId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "refunds",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `paymentId` TEXT NOT NULL, `refundedOn` INTEGER NOT NULL, `amountMinor` INTEGER NOT NULL, `currencyCode` TEXT NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`paymentId`) REFERENCES `payments`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "paymentId",
+            "columnName": "paymentId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "refundedOn",
+            "columnName": "refundedOn",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "amountMinor",
+            "columnName": "amountMinor",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "currencyCode",
+            "columnName": "currencyCode",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_refunds_paymentId_refundedOn",
+            "unique": false,
+            "columnNames": [
+              "paymentId",
+              "refundedOn"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_refunds_paymentId_refundedOn` ON `${TABLE_NAME}` (`paymentId`, `refundedOn`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "payments",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "paymentId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "reminder_overrides",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`subscriptionId` TEXT NOT NULL, `eventType` TEXT NOT NULL, `mode` TEXT NOT NULL, `offsets` TEXT NOT NULL, PRIMARY KEY(`subscriptionId`, `eventType`), FOREIGN KEY(`subscriptionId`) REFERENCES `subscriptions`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "subscriptionId",
+            "columnName": "subscriptionId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "eventType",
+            "columnName": "eventType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mode",
+            "columnName": "mode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "offsets",
+            "columnName": "offsets",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "subscriptionId",
+            "eventType"
+          ]
+        },
+        "foreignKeys": [
+          {
+            "table": "subscriptions",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "subscriptionId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "notification_delivery_ledger",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `subscriptionId` TEXT NOT NULL, `eventType` TEXT NOT NULL, `eventDate` INTEGER NOT NULL, `offsetDays` INTEGER NOT NULL, `plannedLocalDate` INTEGER NOT NULL, `deliveredAt` TEXT, `state` TEXT NOT NULL, `generation` TEXT NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`subscriptionId`) REFERENCES `subscriptions`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "subscriptionId",
+            "columnName": "subscriptionId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "eventType",
+            "columnName": "eventType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "eventDate",
+            "columnName": "eventDate",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "offsetDays",
+            "columnName": "offsetDays",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "plannedLocalDate",
+            "columnName": "plannedLocalDate",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deliveredAt",
+            "columnName": "deliveredAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "state",
+            "columnName": "state",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "generation",
+            "columnName": "generation",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_notification_delivery_ledger_subscriptionId_eventType_eventDate_offsetDays_generation",
+            "unique": true,
+            "columnNames": [
+              "subscriptionId",
+              "eventType",
+              "eventDate",
+              "offsetDays",
+              "generation"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_notification_delivery_ledger_subscriptionId_eventType_eventDate_offsetDays_generation` ON `${TABLE_NAME}` (`subscriptionId`, `eventType`, `eventDate`, `offsetDays`, `generation`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "subscriptions",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "subscriptionId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "assets",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `relativePath` TEXT NOT NULL, `mimeType` TEXT NOT NULL, `sizeBytes` INTEGER NOT NULL, `sha256` TEXT NOT NULL, `createdAt` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "relativePath",
+            "columnName": "relativePath",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mimeType",
+            "columnName": "mimeType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sizeBytes",
+            "columnName": "sizeBytes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sha256",
+            "columnName": "sha256",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_assets_relativePath",
+            "unique": true,
+            "columnNames": [
+              "relativePath"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_assets_relativePath` ON `${TABLE_NAME}` (`relativePath`)"
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '5853daf1177a57b6b8d5d503a8e6f053')"
+    ]
+  }
+}

@@ -1,0 +1,304 @@
+name: Android integration API 31
+
+on:
+  pull_request:
+    branches: [codex/c-02-datastore-settings, codex/c-03-payment-transactions, codex/c-04-lifecycle-persistence, codex/c-05-refunds, codex/c-06-integration, codex/a-03-navigation, codex/d-01-subscriptions-screen, codex/d-02-subscription-form, codex/d-03-subscription-details, codex/d-04-payment-history, codex/ui-redesign-foundation, codex/ui-01-design-system-navigation, codex/ui-02-subscriptions-screen, codex/ui-03-details-editor, codex/ui-04-payments-history-refunds, codex/ui-05-archive-settings, codex/ui-06-cross-screen-polish, codex/e-01-finance-monthly-forecast, codex/e-02-finance-interactive-chart, codex/f-01-reminder-rules, codex/f-02-workmanager-ledger, codex/f-03-android-notifications, codex/docs-personal-release-rustore-plan, codex/g-01-photo-picker-assets, codex/g-02-offline-logo-catalog, codex/g-03-accessibility-themes-polish]
+    types: [opened, reopened, synchronize, ready_for_review]
+    paths:
+      - '.github/workflows/android-integration.yml'
+      - '.github/scripts/notification-api33-tests.sh'
+      - '.github/scripts/g03-api33-dispatch.sh'
+      - '.github/scripts/reminders-system-regression.py'
+      - 'app/**'
+      - 'gradle/**'
+      - 'gradlew'
+      - 'gradlew.bat'
+      - '*.gradle.kts'
+      - 'gradle.properties'
+      - 'settings.gradle.kts'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-api31-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  integration:
+    if: >-
+      (github.event.pull_request.number == 8 && github.head_ref == 'codex/c-03-payment-transactions' && github.base_ref == 'codex/c-02-datastore-settings') ||
+      (github.head_ref == 'codex/c-04-lifecycle-persistence' && github.base_ref == 'codex/c-03-payment-transactions') ||
+      (github.head_ref == 'codex/c-05-refunds' && github.base_ref == 'codex/c-04-lifecycle-persistence') ||
+      (github.head_ref == 'codex/c-06-integration' && github.base_ref == 'codex/c-05-refunds') ||
+      (github.head_ref == 'codex/a-03-navigation' && github.base_ref == 'codex/c-06-integration') ||
+      (github.head_ref == 'codex/d-01-subscriptions-screen' && github.base_ref == 'codex/a-03-navigation') ||
+      (github.head_ref == 'codex/d-02-subscription-form' && github.base_ref == 'codex/d-01-subscriptions-screen') ||
+      (github.head_ref == 'codex/d-03-subscription-details' && github.base_ref == 'codex/d-02-subscription-form') ||
+      (github.head_ref == 'codex/d-04-payment-history' && github.base_ref == 'codex/d-03-subscription-details') ||
+      (github.head_ref == 'codex/d-05-archive-settings' && github.base_ref == 'codex/d-04-payment-history') ||
+      (github.head_ref == 'codex/ui-01-design-system-navigation' && github.base_ref == 'codex/ui-redesign-foundation') ||
+      (github.head_ref == 'codex/ui-02-subscriptions-screen' && github.base_ref == 'codex/ui-01-design-system-navigation') ||
+      (github.head_ref == 'codex/ui-03-details-editor' && github.base_ref == 'codex/ui-02-subscriptions-screen') ||
+      (github.head_ref == 'codex/ui-04-payments-history-refunds' && github.base_ref == 'codex/ui-03-details-editor') ||
+      (github.head_ref == 'codex/ui-05-archive-settings' && github.base_ref == 'codex/ui-04-payments-history-refunds') ||
+      (github.head_ref == 'codex/ui-06-cross-screen-polish' && github.base_ref == 'codex/ui-05-archive-settings') ||
+      (github.head_ref == 'codex/e-01-finance-monthly-forecast' && github.base_ref == 'codex/ui-06-cross-screen-polish') ||
+      (github.head_ref == 'codex/e-02-finance-interactive-chart' && github.base_ref == 'codex/e-01-finance-monthly-forecast') ||
+      (github.head_ref == 'codex/f-01-reminder-rules' && github.base_ref == 'codex/e-02-finance-interactive-chart') ||
+      (github.head_ref == 'codex/f-02-workmanager-ledger' && github.base_ref == 'codex/f-01-reminder-rules') ||
+      (github.head_ref == 'codex/f-03-android-notifications' && github.base_ref == 'codex/f-02-workmanager-ledger') ||
+      (github.head_ref == 'codex/f-04-reminders-system-regression' && github.base_ref == 'codex/f-03-android-notifications') ||
+      (github.head_ref == 'codex/g-01-photo-picker-assets' && github.base_ref == 'codex/docs-personal-release-rustore-plan') ||
+      (github.head_ref == 'codex/g-02-offline-logo-catalog' && github.base_ref == 'codex/g-01-photo-picker-assets') ||
+      (github.head_ref == 'codex/g-03-accessibility-themes-polish' && github.base_ref == 'codex/g-02-offline-logo-catalog') ||
+      (github.head_ref == 'codex/g-02b-generic-subscription-icons' && github.base_ref == 'codex/g-03-accessibility-themes-polish')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      GRADLE_OPTS: -Dorg.gradle.daemon=false
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Free unused .NET SDK space on the hosted runner
+        shell: bash
+        run: |
+          ci_avd_dir="${ANDROID_AVD_HOME:-${ANDROID_USER_HOME:-$HOME/.android}/avd}"
+          mkdir -p "$ci_avd_dir"
+          df -h "$HOME" "$ci_avd_dir"
+          if [ -d /usr/share/dotnet ]; then
+            du -sh /usr/share/dotnet
+            sudo rm -rf -- /usr/share/dotnet
+          else
+            echo '/usr/share/dotnet is absent; nothing to remove'
+          fi
+          df -h "$HOME" "$ci_avd_dir"
+      - name: Set up Android SDK Command-line Tools
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4
+      - name: Install compile SDK and Build Tools
+        run: |
+          command -v sdkmanager
+          sdkmanager --version
+          sdkmanager 'platforms;android-36' 'build-tools;35.0.0' 'platform-tools'
+      - name: JVM regression tests
+        run: |
+          ./gradlew :app:testDebugUnitTest --no-daemon --max-workers=2 --console=plain
+          python3 - <<'PY'
+          import pathlib, xml.etree.ElementTree as ET
+          reports = [ET.parse(p).getroot() for p in pathlib.Path('app/build/test-results/testDebugUnitTest').glob('TEST-*.xml')]
+          assert reports, 'Missing JVM XML reports'
+          counts = {key: sum(int(r.get(key, 0)) for r in reports) for key in ('tests', 'failures', 'errors', 'skipped')}
+          print('JVM XML summary:', counts)
+          assert counts['tests'] > 0 and counts['failures'] == counts['errors'] == counts['skipped'] == 0
+          PY
+      - name: Debug build, Android test compilation and lint
+        run: ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --max-workers=2 --console=plain
+      - name: Enable KVM for the hosted runner
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Android 12 integration tests
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2 (Node 24)
+        with:
+          api-level: 31
+          target: google_apis
+          arch: x86_64
+          cores: 2
+          ram-size: 2048M
+          disk-size: 2048M
+          pre-emulator-launch-script: >-
+            ci_avd_dir="${ANDROID_AVD_HOME:-${ANDROID_USER_HOME:-$HOME/.android}/avd}"; df -h "$HOME" "$ci_avd_dir"; ci_available_bytes=$(df -B1 --output=avail "$ci_avd_dir" | tail -n 1); if [ "$ci_available_bytes" -lt 10737418240 ]; then echo "Insufficient AVD disk space: $ci_available_bytes bytes available; require 10 GiB including headroom"; exit 1; fi
+          emulator-boot-timeout: 360
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: ./gradlew :app:connectedDebugAndroidTest --no-daemon --max-workers=2 --console=plain
+      - name: Preserve test reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: android-api31-test-reports
+          retention-days: 7
+          if-no-files-found: warn
+          path: |
+            app/build/reports/lint-results-debug.*
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/outputs/connected_android_test_additional_output/
+
+  notifications-api33:
+    if: >-
+      (github.head_ref == 'codex/f-03-android-notifications' && github.base_ref == 'codex/f-02-workmanager-ledger') ||
+      (github.head_ref == 'codex/f-04-reminders-system-regression' && github.base_ref == 'codex/f-03-android-notifications') ||
+      (github.head_ref == 'codex/g-03-accessibility-themes-polish' && github.base_ref == 'codex/g-02-offline-logo-catalog')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      GRADLE_OPTS: -Dorg.gradle.daemon=false
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Free unused .NET SDK space on the hosted runner
+        shell: bash
+        run: |
+          ci_avd_dir="${ANDROID_AVD_HOME:-${ANDROID_USER_HOME:-$HOME/.android}/avd}"
+          mkdir -p "$ci_avd_dir"
+          df -h "$HOME" "$ci_avd_dir"
+          if [ -d /usr/share/dotnet ]; then
+            du -sh /usr/share/dotnet
+            sudo rm -rf -- /usr/share/dotnet
+          else
+            echo '/usr/share/dotnet is absent; nothing to remove'
+          fi
+          df -h "$HOME" "$ci_avd_dir"
+      - name: Set up Android SDK Command-line Tools
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4
+      - name: Install compile SDK and Build Tools
+        run: |
+          command -v sdkmanager
+          sdkmanager --version
+          sdkmanager 'platforms;android-36' 'build-tools;35.0.0' 'platform-tools'
+      - name: Build notification test APKs
+        run: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon --max-workers=2 --console=plain
+      - name: Free unused toolchains after API 33 APK build
+        shell: bash
+        run: |
+          # APKs are complete; this job performs no further native/Gradle compilation.
+          for ci_unused_tool in "$ANDROID_HOME/ndk" /usr/share/swift /opt/hostedtoolcache/CodeQL /usr/local/.ghcup; do
+            if [ -d "$ci_unused_tool" ]; then
+              du -sh "$ci_unused_tool"
+              sudo rm -rf -- "$ci_unused_tool"
+            fi
+          done
+          df -h "$HOME"
+      - name: Enable KVM for the hosted runner
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Android 13 notification integration tests
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2 (Node 24)
+        with:
+          api-level: 33
+          target: google_apis
+          arch: x86_64
+          cores: 2
+          ram-size: 2048M
+          disk-size: 2048M
+          pre-emulator-launch-script: >-
+            ci_avd_dir="${ANDROID_AVD_HOME:-${ANDROID_USER_HOME:-$HOME/.android}/avd}"; df -h "$HOME" "$ci_avd_dir"; ci_available_bytes=$(df -B1 --output=avail "$ci_avd_dir" | tail -n 1); if [ "$ci_available_bytes" -lt 10737418240 ]; then echo "Insufficient AVD disk space: $ci_available_bytes bytes available; require 10 GiB including headroom"; exit 1; fi
+          emulator-boot-timeout: 360
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: bash .github/scripts/g03-api33-dispatch.sh
+      - name: Preserve test reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: android-api33-notification-reports
+          retention-days: 7
+          if-no-files-found: warn
+          path: |
+            app/build/reports/g03-api33/
+            app/build/reports/notifications-api33/
+            app/build/reports/lint-results-debug.*
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/outputs/connected_android_test_additional_output/
+
+  reminders-system-api35:
+    if: (github.head_ref == 'codex/f-04-reminders-system-regression' && github.base_ref == 'codex/f-03-android-notifications')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      GRADLE_OPTS: -Dorg.gradle.daemon=false
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Free unused .NET SDK space on the hosted runner
+        shell: bash
+        run: |
+          ci_avd_dir="${ANDROID_AVD_HOME:-${ANDROID_USER_HOME:-$HOME/.android}/avd}"
+          mkdir -p "$ci_avd_dir"
+          df -h "$HOME" "$ci_avd_dir"
+          if [ -d /usr/share/dotnet ]; then
+            du -sh /usr/share/dotnet
+            sudo rm -rf -- /usr/share/dotnet
+          else
+            echo '/usr/share/dotnet is absent; nothing to remove'
+          fi
+          df -h "$HOME" "$ci_avd_dir"
+      - name: Set up Android SDK Command-line Tools
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4
+      - name: Install compile SDK and Build Tools
+        run: |
+          command -v sdkmanager
+          sdkmanager --version
+          sdkmanager 'platforms;android-36' 'build-tools;35.0.0' 'platform-tools'
+      - name: Build isolated F-04 test app
+        run: ./gradlew :app:assembleDebug -Pf04DeviceTest=true --no-daemon --max-workers=2 --console=plain
+      - name: Free unused toolchains after API 35 APK build
+        shell: bash
+        run: |
+          # APKs are complete; this job performs no further native/Gradle compilation.
+          for ci_unused_tool in "$ANDROID_HOME/ndk" /usr/share/swift /opt/hostedtoolcache/CodeQL /usr/local/.ghcup; do
+            if [ -d "$ci_unused_tool" ]; then
+              du -sh "$ci_unused_tool"
+              sudo rm -rf -- "$ci_unused_tool"
+            fi
+          done
+          df -h "$HOME"
+      - name: Enable KVM for the hosted runner
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Android 15 external system regression
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2 (Node 24)
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          cores: 2
+          ram-size: 2048M
+          disk-size: 2048M
+          pre-emulator-launch-script: >-
+            ci_avd_dir="${ANDROID_AVD_HOME:-${ANDROID_USER_HOME:-$HOME/.android}/avd}"; df -h "$HOME" "$ci_avd_dir"; ci_available_bytes=$(df -B1 --output=avail "$ci_avd_dir" | tail -n 1); if [ "$ci_available_bytes" -lt 10737418240 ]; then echo "Insufficient AVD disk space: $ci_available_bytes bytes available; require 10 GiB including headroom"; exit 1; fi
+          emulator-boot-timeout: 360
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: python3 .github/scripts/reminders-system-regression.py
+      - name: Preserve test reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: android-api35-reminder-system-reports
+          retention-days: 7
+          if-no-files-found: warn
+          path: |
+            app/build/reports/reminders-system-api35/
+            app/build/reports/lint-results-debug.*
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/outputs/connected_android_test_additional_output/

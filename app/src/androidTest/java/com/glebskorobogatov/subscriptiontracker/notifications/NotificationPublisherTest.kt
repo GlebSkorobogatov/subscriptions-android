@@ -1,0 +1,201 @@
+package com.glebskorobogatov.subscriptiontracker.notifications
+
+import android.Manifest
+import android.app.Notification
+import android.app.NotificationManager
+import android.content.Context
+import android.content.Intent
+import android.provider.Settings as AndroidSettings
+import androidx.test.uiautomator.*
+import java.util.regex.Pattern
+import android.os.Build
+import androidx.test.core.app.ApplicationProvider
+import androidx.test.platform.app.InstrumentationRegistry
+import com.glebskorobogatov.subscriptiontracker.background.*
+import com.glebskorobogatov.subscriptiontracker.data.reminders.*
+import com.glebskorobogatov.subscriptiontracker.data.room.*
+import com.glebskorobogatov.subscriptiontracker.data.settings.*
+import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.*
+import com.glebskorobogatov.subscriptiontracker.domain.model.*
+import com.glebskorobogatov.subscriptiontracker.domain.reminders.ReminderRules
+import java.time.*
+import java.util.UUID
+import java.io.File
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.first
+import org.junit.*
+import org.junit.Assert.*
+
+/** Uses the real NotificationManager, Room and F-02 runtime, never a fake publisher. */
+class NotificationPublisherTest {
+    private val context: Context = ApplicationProvider.getApplicationContext()
+    private val manager get() = context.getSystemService(NotificationManager::class.java)
+    private val publisher = AndroidReminderPublisher(context)
+    private lateinit var dataset: UUID
+    private lateinit var db: TrackerDatabase
+    private lateinit var lease: DatasetSettingsFactory.Lease
+    private lateinit var generation: ReminderInfrastructureTest.TestGeneration
+    private lateinit var scheduler: ReminderInfrastructureTest.RecordingScheduler
+    private lateinit var sub: SubscriptionEntity
+    private var instant = Instant.parse("2027-01-01T00:00:00Z")
+    @Before fun open(): Unit = runBlocking {
+        if (Build.VERSION.SDK_INT >= 33) InstrumentationRegistry.getInstrumentation().uiAutomation
+            .grantRuntimePermission(context.packageName, Manifest.permission.POST_NOTIFICATIONS)
+        dataset = UUID.randomUUID(); generation = ReminderInfrastructureTest.TestGeneration(dataset)
+        scheduler = ReminderInfrastructureTest.RecordingScheduler()
+        db = TrackerDatabaseFactory.open(context,dataset); lease = DatasetSettingsFactory.acquire(context,dataset)
+        sub = SubscriptionEntity(UUID.randomUUID(),"Одинаковый сервис","Личный",39900,CurrencyCode.of("RUB"),
+            FrequencyUnit.MONTH,1,RenewalMode.AUTO,LifecycleState.ACTIVE,2027,1,5,0,null,null,null,null,null,null,null,instant,instant)
+        withContext(Dispatchers.IO) { db.subscriptions().insert(sub) }
+        publisher.createChannels()
+    }
+    @After fun close(): Unit = runBlocking {
+        manager.activeNotifications.filter { it.tag?.contains(dataset.toString()) == true }.forEach { manager.cancel(it.tag,it.id) }
+        withContext(Dispatchers.IO) { db.close() }; lease.close()
+        context.deleteDatabase("subscriptions-$dataset.db"); File(context.filesDir,"datastore/settings-$dataset.preferences_pb").delete()
+    }
+    private fun runtime(hook: suspend () -> Unit = {}) = ReminderRuntime(context,scheduler,generation,publisher,
+        { instant }, { ZoneOffset.UTC },hook)
+    private suspend fun publish(): PublicationResult? {
+        val run = runtime(); run.reconcile(); val task = scheduler.tasks.single { it.subscription == sub.id }
+        instant = Instant.parse("2027-01-04T10:00:00Z")
+        return run.process(dataset, sub.id, task.fingerprint)
+    }
+    private fun child(id: UUID = sub.id) = manager.activeNotifications.singleOrNull { it.tag == ReminderScheduling.identity(dataset,id) }
+    private suspend fun await(label: String = "Expected OS notification state", predicate: () -> Boolean) {
+        try { withTimeout(5_000) { while (!predicate()) delay(25) } }
+        catch (e: TimeoutCancellationException) { throw AssertionError("$label: " + manager.activeNotifications.map { it.tag to it.notification.flags },e) }
+    }
+    @Test fun realNotificationUsesFreshTextAndAck(): Unit = runBlocking {
+        assertEquals(PublicationResult.PUBLISHED,publish()); await { child() != null }
+        assertTrue(child()!!.notification.extras.getCharSequence(Notification.EXTRA_BIG_TEXT).toString().contains("Завтра ожидается платёж 399,00 RUB"))
+        assertTrue(db.deliveries().all().all { it.state == DeliveryState.DELIVERED })
+        assertEquals(Notification.VISIBILITY_PRIVATE,child()!!.notification.visibility)
+        assertNotNull(child()!!.notification.publicVersion)
+    }
+    @Test fun russianPluralsDoNotDependOnDeviceLanguage(): Unit {
+        assertEquals("1 день",AndroidReminderWords(context).days(1))
+        assertEquals("2 дня",AndroidReminderWords(context).days(2))
+        assertEquals("5 дней",AndroidReminderWords(context).days(5))
+        assertEquals("21 день",AndroidReminderWords(context).days(21))
+    }
+    @Test fun stableChannelsHaveStandardImportance(): Unit = runBlocking {
+        assertEquals(NotificationManager.IMPORTANCE_DEFAULT,manager.getNotificationChannel(AndroidReminderPublisher.PAYMENTS).importance)
+        assertEquals("Платежи",manager.getNotificationChannel(AndroidReminderPublisher.PAYMENTS).name.toString())
+        assertEquals("Сроки отмены",manager.getNotificationChannel(AndroidReminderPublisher.CANCELLATIONS).name.toString())
+        publisher.createChannels(); assertNotNull(manager.getNotificationChannel(AndroidReminderPublisher.PAYMENTS))
+    }
+    @Test fun replayUpdatesSameSystemIdentity(): Unit = runBlocking {
+        publish(); await { child() != null }
+        val detail = ReminderPresentation(sub.name,Money(sub.priceMinor,sub.currencyCode))
+        val input = com.glebskorobogatov.subscriptiontracker.data.integration.reminderInputs(listOf(sub),emptyList(),Settings())
+        val events = ReminderRules().plan(input,LocalTime.of(9,0),Instant.parse("2027-01-01T00:00:00Z"),ZoneOffset.UTC)
+        val msg = ReminderRules().dueMessages(input,LocalTime.of(9,0),events,instant,ZoneOffset.UTC).single()
+        repeat(2) { assertEquals(PublicationResult.PUBLISHED,publisher.publish(NotificationIdentity(ReminderScheduling.identity(dataset,sub.id)),msg,detail)) }
+        await { child() != null }; assertEquals(1,manager.activeNotifications.count { it.tag == ReminderScheduling.identity(dataset,sub.id) })
+    }
+    @Test fun mixedReasonsUseOneCancellationChannelNotification(): Unit = runBlocking {
+        db.subscriptions().update(sub.copy(cancellationLeadDays = 0)); publish(); await { child() != null }
+        val notification = child()!!.notification
+        assertEquals(AndroidReminderPublisher.CANCELLATIONS,notification.channelId)
+        val text = notification.extras.getCharSequence(Notification.EXTRA_BIG_TEXT).toString()
+        assertTrue(text.contains("платёж")); assertTrue(text.contains("крайний срок"))
+        assertEquals(1,manager.activeNotifications.count { it.tag == ReminderScheduling.identity(dataset,sub.id) })
+    }
+    @Test fun independentChildrenAndStableSummaryAreRemovedWhenDismissed(): Unit = runBlocking {
+        val second = sub.copy(id = UUID.randomUUID(),accountLabel = "Семейный")
+        db.subscriptions().insert(second)
+        val run = runtime(); run.reconcile(); val tasks = scheduler.tasks.toList()
+        instant = Instant.parse("2027-01-04T10:00:00Z")
+        tasks.forEach { run.process(dataset,it.subscription,it.fingerprint) }
+        await("Two real children and summary") { child() != null && child(second.id) != null && manager.activeNotifications.any { it.tag == AndroidReminderPublisher.summaryTag(dataset) } }
+        assertEquals(AndroidReminderPublisher.group(dataset),child()!!.notification.group)
+        child()!!.notification.deleteIntent.send()
+        await("Dismissing one child preserves the other") { child() == null && child(second.id) != null }
+        child(second.id)!!.notification.deleteIntent.send()
+        await("Last child removes summary") { manager.activeNotifications.none { it.tag?.contains(dataset.toString()) == true } }
+    }
+    @Test fun dismissingSummaryDoesNotLeaveOrResurrectChildren(): Unit = runBlocking {
+        val second = sub.copy(id = UUID.randomUUID(),accountLabel = "Семейный")
+        db.subscriptions().insert(second)
+        val run = runtime(); run.reconcile(); val tasks = scheduler.tasks.toList()
+        instant = Instant.parse("2027-01-04T10:00:00Z")
+        tasks.forEach { run.process(dataset,it.subscription,it.fingerprint) }
+        await("Summary is actually posted") { manager.activeNotifications.any { it.tag == AndroidReminderPublisher.summaryTag(dataset) } }
+        manager.activeNotifications.single { it.tag == AndroidReminderPublisher.summaryTag(dataset) }.notification.deleteIntent.send()
+        await("Summary dismissal removes its own children") { manager.activeNotifications.none { it.tag?.contains(dataset.toString()) == true } }
+        run.reconcile()
+        assertTrue(manager.activeNotifications.none { it.tag?.contains(dataset.toString()) == true })
+    }
+    @Test fun archiveCancelsAlreadyPostedNotification(): Unit = runBlocking {
+        publish(); await { child() != null }; db.subscriptions().update(sub.copy(lifecycleState = LifecycleState.ARCHIVED))
+        runtime().reconcile(); await { child() == null }
+    }
+    @Test fun deletionDoesNotNeedLedgerRowToCancelNotification(): Unit = runBlocking {
+        publish(); await { child() != null }; db.subscriptions().delete(sub.id)
+        runtime().reconcile(); await { child() == null }; assertTrue(db.deliveries().all().isEmpty())
+    }
+    @Test fun disabledRenewalCancelsNotification(): Unit = runBlocking {
+        publish(); await { child() != null }; db.subscriptions().update(sub.copy(lifecycleState = LifecycleState.CANCELLATION_SCHEDULED))
+        runtime().reconcile(); await { child() == null }
+    }
+    @Test fun movedDateCancelsNotification(): Unit = runBlocking {
+        publish(); await { child() != null }; db.subscriptions().update(sub.copy(anchorDay = 9))
+        runtime().reconcile(); await { child() == null }
+    }
+    @Test fun changedDeadlineCancelsMixedNotification(): Unit = runBlocking {
+        db.subscriptions().update(sub.copy(cancellationLeadDays = 0)); publish(); await { child() != null }
+        db.subscriptions().update(sub.copy(cancellationLeadDays = 2)); runtime().reconcile(); await { child() == null }
+    }
+    @Test fun currentGenerationCleanupCancelsForeignPostedNotification(): Unit = runBlocking {
+        publish(); await { child() != null }
+        publisher.reconcilePublished(PublishedReminderSnapshot(UUID.randomUUID(),emptyList(),emptyMap(),LocalTime.of(9,0),instant,ZoneOffset.UTC))
+        await { child() == null }
+    }
+    @Test fun generationChangesImmediatelyBeforeApiCannotPublish(): Unit = runBlocking {
+        val run = runtime { generation.id = UUID.randomUUID() }; run.reconcile(); val task = scheduler.tasks.single()
+        instant = Instant.parse("2027-01-04T10:00:00Z")
+        assertNull(run.process(dataset,sub.id,task.fingerprint)); assertNull(child())
+        assertTrue(db.deliveries().all().none { it.state == DeliveryState.DELIVERED })
+    }
+    @Test fun repeatedWorkerDoesNotPostAnotherLogicalMessage(): Unit = runBlocking {
+        val run = runtime(); run.reconcile(); val task = scheduler.tasks.single()
+        instant = Instant.parse("2027-01-04T10:00:00Z")
+        run.process(dataset,sub.id,task.fingerprint); run.process(dataset,sub.id,task.fingerprint)
+        await { child() != null }; assertEquals(1,manager.activeNotifications.count { it.tag == ReminderScheduling.identity(dataset,sub.id) })
+    }
+    @Test fun pendingIntentsUseImmutableDistinctUriIdentity(): Unit = runBlocking {
+        val first = publisher.contentIntent(NotificationRoute(dataset,sub.id))
+        assertTrue(first.isImmutable)
+        assertEquals(first,publisher.contentIntent(NotificationRoute(dataset,sub.id)))
+        assertNotEquals(first,publisher.contentIntent(NotificationRoute(dataset,UUID.randomUUID())))
+        assertNotEquals(first,publisher.contentIntent(NotificationRoute(UUID.randomUUID(),sub.id)))
+    }
+    @Test fun systemChannelBlockIsRespectedWithoutFallbackOrFalseDelivery(): Unit = runBlocking {
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        context.startActivity(Intent(AndroidSettings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+            .putExtra(AndroidSettings.EXTRA_APP_PACKAGE,context.packageName)
+            .putExtra(AndroidSettings.EXTRA_CHANNEL_ID,AndroidReminderPublisher.PAYMENTS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        val selector = By.res(Pattern.compile("(android|com.android.settings):id/switch_widget"))
+        try {
+            val toggle = device.wait(Until.findObject(selector),5_000)
+            assertNotNull("Real Android channel control",toggle); toggle.click()
+            await { !publisher.access().paymentsEnabled }
+            assertEquals(PublicationResult.UNAVAILABLE,publish()); assertNull(child())
+            assertTrue(db.deliveries().all().all { it.state == DeliveryState.PENDING && it.deliveredAt == null })
+            publisher.createChannels(); assertFalse(publisher.access().paymentsEnabled)
+        } finally {
+            if (!publisher.access().paymentsEnabled) device.wait(Until.findObject(selector),5_000)?.click()
+            device.pressBack(); await { publisher.access().paymentsEnabled }
+        }
+    }
+    @Test fun permissionOfferHistorySurvivesStoreReopening(): Unit = runBlocking {
+        val name = "test-notification-offer-$dataset"
+        try {
+            val a = AndroidNotificationEnvironment(context,{ dataset },{},name)
+            assertTrue(withContext(Dispatchers.IO) { a.claimAutomaticOffer() })
+            val b = AndroidNotificationEnvironment(context,{ dataset },{},name)
+            assertFalse(withContext(Dispatchers.IO) { b.claimAutomaticOffer() })
+        } finally { context.deleteSharedPreferences(name) }
+    }
+}

@@ -1,0 +1,29 @@
+<resources>
+    <string name="notification_channel_payments">Платежи</string>
+    <string name="notification_channel_cancellations">Сроки отмены</string>
+    <string name="notification_payment_title">Скоро платёж: %1$s</string>
+    <string name="notification_cancel_title">Срок отмены: %1$s</string>
+    <string name="notification_today">Сегодня</string>
+    <string name="notification_tomorrow">Завтра</string>
+    <string name="notification_in_days">Через %1$s</string>
+    <string name="notification_days_one">%1$d день</string>
+    <string name="notification_days_few">%1$d дня</string>
+    <string name="notification_days_many">%1$d дней</string>
+    <string name="notification_payment_body">%1$s ожидается платёж %2$s %3$s · %4$s</string>
+    <string name="notification_cancel_body">%1$s — крайний срок отмены продления · %2$s. Отмена выполняется у поставщика.</string>
+    <string name="notification_private">Есть актуальное напоминание о подписке</string>
+    <string name="notification_group_title">Напоминания о подписках</string>
+    <string name="notification_group_count">Подписок с напоминаниями: %1$d</string>
+    <string name="notifications_heading">Системные уведомления</string>
+    <string name="notifications_allowed">Уведомления разрешены</string>
+    <string name="notifications_permission_required">Требуется разрешение на уведомления</string>
+    <string name="notifications_system_disabled">Уведомления отключены в системе</string>
+    <string name="notifications_payment_disabled">Канал «Платежи» отключён</string>
+    <string name="notifications_cancel_disabled">Канал «Сроки отмены» отключён</string>
+    <string name="notifications_settings">Настройки уведомлений</string>
+    <string name="notifications_explanation_title">Напоминания о подписках</string>
+    <string name="notifications_explanation">Подписка сохранена. Разрешите уведомления, чтобы получать напоминания о предстоящих платежах и сроках отмены. Отказ не мешает пользоваться приложением.</string>
+    <string name="notifications_continue">Продолжить</string>
+    <string name="notifications_later">Не сейчас</string>
+    <string name="notifications_best_effort">Android может задерживать напоминания. Время задаётся по текущему местному времени устройства.</string>
+</resources>
