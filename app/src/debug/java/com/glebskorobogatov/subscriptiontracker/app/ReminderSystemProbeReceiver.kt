@@ -11,7 +11,7 @@ import com.glebskorobogatov.subscriptiontracker.data.reminders.*
 import com.glebskorobogatov.subscriptiontracker.data.mapping.toDomain
 import com.glebskorobogatov.subscriptiontracker.data.room.*
 import com.glebskorobogatov.subscriptiontracker.data.settings.*
-import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.*
+import com.glebskorobogatov.subscriptiontracker.domain.subscription.*
 import com.glebskorobogatov.subscriptiontracker.domain.model.*
 import com.glebskorobogatov.subscriptiontracker.domain.reminders.ReminderRules
 import java.io.File
@@ -62,11 +62,11 @@ class ReminderSystemProbeReceiver : BroadcastReceiver() {
                 val planned = now.atZone(zone).toLocalDate().minusDays(1).atTime(9,0)
                 val target = planned.toLocalDate().plusDays(1)
                 val subscription = UUID.randomUUID()
-                val row = SubscriptionEntity(subscription,"F04 Test Service","Only fake data",39900,CurrencyCode.of("RUB"),
-                    FrequencyUnit.MONTH,1,RenewalMode.MANUAL,LifecycleState.ACTIVE,target.year,target.monthValue,target.dayOfMonth,
-                    0,null,null,null,null,0,null,null,now,now)
+                val row = SubscriptionEntity(subscription,"F04 Test Service","Only fake data",39900,
+                    FrequencyUnit.MONTH,1,SubscriptionState.ACTIVE,target.year,target.monthValue,target.dayOfMonth,
+                    null,null,null,null,null,null,now,now,null)
                 db.subscriptions().insert(row)
-                settingsLease.repository.update { it.copy(paymentOffsetsDefault = setOf(1)) }
+                settingsLease.repository.update { it.copy(renewalOffsets = setOf(1)) }
                 val settings = settingsLease.repository.settings.first()
                 val ledger = ReminderLedger(db,generation)
                 val earlier = ReminderRules().resolveLocal(planned,zone).toInstant().minusSeconds(60)
@@ -86,13 +86,12 @@ class ReminderSystemProbeReceiver : BroadcastReceiver() {
             return JSONObject().put("fixture",fixture).put("pid",android.os.Process.myPid()).put("zone",ZoneId.systemDefault().id)
                 .put("time",settingsLease.repository.settings.first().reminderLocalTime.toString())
                 .put("currentTarget",db.subscriptions().all().singleOrNull()?.let {
-                    com.glebskorobogatov.subscriptiontracker.domain.calendar.DefaultRenewalCalendar().nextScheduledDate(it.toDomain().schedule).toString() })
+                    SubscriptionDomain().nextDue(it.toDomain().schedule, LocalDate.now()).toString() })
                 .put("rows",JSONArray(db.deliveries().all().map { JSONObject().put("id",it.id.toString())
                     .put("state",it.state.name).put("type",it.eventType.name).put("target",it.eventDate.toString())
                     .put("offset",it.offsetDays).put("claim",it.claimToken?.toString()) }))
                 .put("work",JSONArray(works.map { JSONObject().put("id",it.id.toString()).put("state",it.state.name)
                     .put("delivery",WorkManagerReminderScheduler.DELIVERY in it.tags).put("control",WorkManagerReminderScheduler.RECONCILE in it.tags) }))
-                .put("payments",db.subscriptions().all().sumOf { db.payments().forSubscription(it.id).size })
                 .put("notifications",JSONArray(context.getSystemService(NotificationManager::class.java).activeNotifications.map {
                     JSONObject().put("tag",it.tag).put("id",it.id).put("title",it.notification.extras.getCharSequence(android.app.Notification.EXTRA_TITLE))
                         .put("text",it.notification.extras.getCharSequence(android.app.Notification.EXTRA_BIG_TEXT)) }))

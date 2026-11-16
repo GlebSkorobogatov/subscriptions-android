@@ -1,11 +1,14 @@
 package com.glebskorobogatov.subscriptiontracker.background
 
+import com.glebskorobogatov.subscriptiontracker.domain.calendar.*
+import com.glebskorobogatov.subscriptiontracker.domain.subscription.*
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.*
 import androidx.work.testing.*
 import com.glebskorobogatov.subscriptiontracker.data.reminders.*
 import com.glebskorobogatov.subscriptiontracker.data.room.*
+import com.glebskorobogatov.subscriptiontracker.domain.subscription.*
 import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.*
 import com.glebskorobogatov.subscriptiontracker.domain.model.*
 import java.time.*
@@ -165,12 +168,8 @@ class ReminderWorkManagerTest {
                 reminderChanges = ReminderChanges(ReminderChanges.gate(context.getDatabasePath("subscriptions-$dataset.db").canonicalPath)) {
                     scheduler.requestReconcile()
                 })
-            for (mode in RenewalMode.entries) {
-                cases.createSubscription(com.glebskorobogatov.subscriptiontracker.data.integration.SubscriptionDraft(
-                    UUID.randomUUID(),"Одинаковое имя",mode.name,Money(39900,CurrencyCode.of("RUB")),mode,
-                    com.glebskorobogatov.subscriptiontracker.domain.calendar.RenewalSchedule(
-                        com.glebskorobogatov.subscriptiontracker.domain.calendar.RenewalAnchor.from(LocalDate.of(2027,1,5)),
-                        Frequency(FrequencyUnit.MONTH,1))),now)
+            repeat(2) {
+                cases.createSubscription(com.glebskorobogatov.subscriptiontracker.data.integration.SubscriptionDraft(id = UUID.randomUUID(), name = "Одинаковое имя", accountLabel = "Тест", price = RubPrice(39900), schedule = ScheduleEdit(LocalDate.of(2027,1,5), Frequency(FrequencyUnit.MONTH,1))),now)
             }
             val controls = manager.getWorkInfosForUniqueWork(WorkManagerReminderScheduler.RECONCILE).get(10,TimeUnit.SECONDS)
             assertTrue(controls.isNotEmpty())
@@ -179,7 +178,6 @@ class ReminderWorkManagerTest {
             ReminderRuntime(context,records,access,now = { now },zone = { ZoneOffset.UTC }).reconcile()
             assertEquals(2,records.tasks.size); assertEquals(2,records.tasks.map { it.subscription }.toSet().size)
             assertTrue(db.deliveries().all().none { it.state == DeliveryState.DELIVERED })
-            assertTrue(db.payments().all().isEmpty())
         } finally { db.close(); lease.close() }
     }
 

@@ -5,6 +5,7 @@ import android.database.sqlite.SQLiteConstraintException
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.glebskorobogatov.subscriptiontracker.domain.subscription.*
 import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.*
 import com.glebskorobogatov.subscriptiontracker.domain.model.*
 import java.time.Instant
@@ -22,13 +23,8 @@ class TrackerDatabaseTest {
     private val day = LocalDate.of(2027, 2, 28)
     private val rub = CurrencyCode.of("RUB")
     private fun id() = UUID.randomUUID()
-    private fun subscription() = SubscriptionEntity(id(), "Одинаковое имя", "Аккаунт", Long.MAX_VALUE,
-        rub, FrequencyUnit.MONTH, 1, RenewalMode.AUTO, LifecycleState.ACTIVE, 2027, 1, 31, 1,
-        day.plusDays(1), 1, day.minusDays(20), null, 7, null, "catalog-logo", now, now)
-    private fun payment(s: SubscriptionEntity) = PaymentEntity(id(), s.id, id(), day, Long.MAX_VALUE, rub, now, PaymentSource.MANUAL_HISTORY)
-    private fun refund(p: PaymentEntity) = RefundEntity(id(), p.id, day, 1, rub)
-    private fun reminder(s: SubscriptionEntity) = ReminderOverrideEntity(s.id, ReminderEventType.PAYMENT, ReminderMode.CUSTOM, emptySet())
-    private fun delivery(s: SubscriptionEntity) = NotificationDeliveryEntity(id(), s.id, ReminderEventType.PAYMENT,
+    private fun subscription() = SubscriptionEntity(id = id(), name = "Одинаковое имя", accountLabel = "Аккаунт", priceMinor = Long.MAX_VALUE, intervalUnit = FrequencyUnit.MONTH, intervalCount = 1, state = SubscriptionState.ACTIVE, anchorYear = 2027, anchorMonth = 1, anchorDay = 31, currentPeriodStartOverride = day.minusDays(20), currentPeriodEnd = day, cancelledAccessEndExclusive = null, frozenCancelledPeriodStart = null, logoAssetId = null, catalogLogoId = null, createdAt = now, updatedAt = now, archivedAt = null)
+    private fun delivery(s: SubscriptionEntity) = NotificationDeliveryEntity(id(), s.id, ReminderEventType.RENEWAL,
         day, 1, day.minusDays(1), now, DeliveryState.DELIVERED, id())
     @Test fun sharedAssetSurvivesFirstOwnerAndBecomesUnreferencedAfterLastOwner() {
         val asset = AssetEntity(id(), "assets/${id()}/images/${id()}.png", "image/png", 1, "a".repeat(64), now)
@@ -54,69 +50,66 @@ class TrackerDatabaseTest {
         assertEquals(a, db.subscriptions().find(a.id))
     }
     @Test fun dbT02AllForeignKeysRejectMissingParents() {
-        val s = subscription(); val p = payment(s)
-        assertThrows(SQLiteConstraintException::class.java) { db.payments().insert(p) }
-        assertThrows(SQLiteConstraintException::class.java) { db.refunds().insert(refund(p)) }
-        assertThrows(SQLiteConstraintException::class.java) { db.reminders().insert(reminder(s)) }
+        val s=subscription()
         assertThrows(SQLiteConstraintException::class.java) { db.deliveries().insert(delivery(s)) }
-        assertThrows(SQLiteConstraintException::class.java) { db.subscriptions().insert(s.copy(logoAssetId = id())) }
+        assertThrows(SQLiteConstraintException::class.java) { db.subscriptions().insert(s.copy(logoAssetId=id())) }
     }
     @Test fun dbT03CascadeLeavesOtherSubscriptionAndSharedAssetIntact() {
-        val asset = AssetEntity(id(), "images/logo.png", "image/png", 42, "a".repeat(64), now)
+        val asset=AssetEntity(id(),"images/logo.png","image/png",42,"a".repeat(64),now)
         db.assets().insert(asset)
-        val a = subscription().copy(logoAssetId = asset.id); val b = subscription().copy(logoAssetId = asset.id)
+        val a=subscription().copy(logoAssetId=asset.id); val b=subscription().copy(logoAssetId=asset.id)
         db.subscriptions().insert(a); db.subscriptions().insert(b)
-        val pa = payment(a); val pb = payment(b)
-        db.payments().insert(pa); db.payments().insert(pb)
-        db.refunds().insert(refund(pa)); val rb = refund(pb); db.refunds().insert(rb)
-        db.reminders().insert(reminder(a)); db.reminders().insert(reminder(b))
-        val da = delivery(a); val dbb = delivery(b); db.deliveries().insert(da); db.deliveries().insert(dbb)
+        val first=delivery(a); val second=delivery(b)
+        db.deliveries().insert(first); db.deliveries().insert(second)
         assertThrows(SQLiteConstraintException::class.java) { db.assets().delete(asset.id) }
         db.subscriptions().delete(a.id)
-        assertEquals(listOf(b), db.subscriptions().all()); assertEquals(listOf(pb), db.payments().all())
-        assertEquals(listOf(rb), db.refunds().all()); assertTrue(db.reminders().forSubscription(a.id).isEmpty())
-        assertEquals(listOf(reminder(b)), db.reminders().forSubscription(b.id))
-        assertEquals(listOf(dbb), db.deliveries().all()); assertEquals(asset, db.assets().find(asset.id))
-        db.payments().delete(pb.id); assertTrue(db.refunds().all().isEmpty())
+        assertEquals(listOf(b),db.subscriptions().all()); assertEquals(listOf(second),db.deliveries().all())
+        assertEquals(asset,db.assets().find(asset.id)); assertEquals(1,db.assets().references(asset.id))
     }
-    @Test fun dbT04OperationIdUniqueAcrossSubscriptionsAndUpdateConflictsAbort() {
-        val a = subscription(); val b = subscription(); db.subscriptions().insert(a); db.subscriptions().insert(b)
-        val first = payment(a); val second = payment(b)
-        db.payments().insert(first); db.payments().insert(second)
-        assertThrows(SQLiteConstraintException::class.java) { db.payments().insert(payment(b).copy(operationId = first.operationId)) }
-        assertThrows(SQLiteConstraintException::class.java) { db.payments().update(second.copy(operationId = first.operationId)) }
-        assertEquals(second, db.payments().find(second.id))
+    @Test fun dbT04DeliveryLogicalKeyUniqueAndUpdateConflictsAbort() {
+        val a=subscription(); db.subscriptions().insert(a)
+        val first=delivery(a); val second=first.copy(id=id(),offsetDays=3)
+        db.deliveries().insert(first); db.deliveries().insert(second)
+        assertThrows(SQLiteConstraintException::class.java) { db.deliveries().insert(first.copy(id=id())) }
+        assertThrows(SQLiteConstraintException::class.java) { db.deliveries().update(second.copy(offsetDays=first.offsetDays)) }
+        assertEquals(second,db.deliveries().find(second.id))
     }
     @Test fun dbT05FailureRollsBackWholeTransaction() {
-        val s = subscription(); db.subscriptions().insert(s); val p = payment(s); db.payments().insert(p)
+        val s=subscription(); db.subscriptions().insert(s)
         assertThrows(IllegalStateException::class.java) {
             db.runInTransaction {
-                db.payments().update(p.copy(amountMinor = 10))
-                db.refunds().insert(refund(p))
+                db.subscriptions().update(s.copy(priceMinor=10)); db.deliveries().insert(delivery(s))
                 error("Injected failure")
             }
         }
-        assertEquals(p, db.payments().find(p.id)); assertTrue(db.refunds().all().isEmpty())
+        assertEquals(s,db.subscriptions().find(s.id)); assertTrue(db.deliveries().all().isEmpty())
     }
-    @Test fun reminderAndDeliveryKeysAreUnique() {
-        val s = subscription(); db.subscriptions().insert(s)
-        val r = reminder(s); db.reminders().insert(r)
-        assertThrows(SQLiteConstraintException::class.java) { db.reminders().insert(r) }
-        val custom = r.copy(offsets = setOf(7, 3, 1, 0)); db.reminders().update(custom)
-        assertEquals(listOf(custom), db.reminders().forSubscription(s.id))
-        db.reminders().insert(r.copy(eventType = ReminderEventType.CANCELLATION))
-        val event = delivery(s); db.deliveries().insert(event)
-        assertThrows(SQLiteConstraintException::class.java) { db.deliveries().insert(event.copy(id = id())) }
-        db.deliveries().insert(event.copy(id = id(), generation = id()))
+    @Test fun renewalDeliveryKeysRemainIndependentAcrossGenerations() {
+        val s=subscription(); db.subscriptions().insert(s)
+        val event=delivery(s); db.deliveries().insert(event)
+        assertThrows(SQLiteConstraintException::class.java) { db.deliveries().insert(event.copy(id=id())) }
+        db.deliveries().insert(event.copy(id=id(),generation=id()))
+        assertEquals(2,db.deliveries().all().size)
     }
     @Test fun invalidValuesRejectedBeforeStorage() {
-        val s = subscription(); val p = payment(s)
-        assertThrows(IllegalArgumentException::class.java) { s.copy(priceMinor = 0) }
-        assertThrows(IllegalArgumentException::class.java) { p.copy(amountMinor = -1) }
-        assertThrows(IllegalArgumentException::class.java) { refund(p).copy(amountMinor = 0) }
-        assertThrows(IllegalArgumentException::class.java) { s.copy(intervalCount = 0) }
-        assertThrows(IllegalArgumentException::class.java) { s.copy(overrideCycleIndex = null) }
-        assertThrows(IllegalArgumentException::class.java) { reminder(s).copy(offsets = setOf(2)) }
+        val s=subscription()
+        assertThrows(IllegalArgumentException::class.java) { s.copy(priceMinor=0) }
+        assertThrows(IllegalArgumentException::class.java) { s.copy(priceMinor=-1) }
+        assertThrows(IllegalArgumentException::class.java) { s.copy(intervalCount=0) }
+        assertThrows(IllegalArgumentException::class.java) { s.copy(currentPeriodEnd=null) }
+        assertThrows(IllegalArgumentException::class.java) { delivery(s).copy(offsetDays=2) }
+    }
+    @Test fun freshV5HasOnlyTargetTablesAndGeneratedSchemaColumns() {
+        val sql=db.openHelper.writableDatabase
+        sql.query("SELECT name FROM sqlite_master WHERE type='table'").use { cursor ->
+            val tables=buildSet { while(cursor.moveToNext()) add(cursor.getString(0)) }
+            assertEquals(setOf("subscriptions","assets","notification_delivery_ledger"),tables.filterNot { it.startsWith("sqlite_") || it in setOf("room_master_table","android_metadata","room_table_modification_log") }.toSet())
+        }
+        sql.query("PRAGMA table_info(subscriptions)").use { cursor ->
+            val columns=buildSet { while(cursor.moveToNext()) add(cursor.getString(1)) }
+            assertEquals(setOf("id","name","accountLabel","priceMinor","intervalUnit","intervalCount","state","anchorYear","anchorMonth","anchorDay","currentPeriodStartOverride","currentPeriodEnd","cancelledAccessEndExclusive","frozenCancelledPeriodStart","logoAssetId","catalogLogoId","createdAt","updatedAt","archivedAt"),columns)
+        }
+        assertEquals(5,sql.version)
     }
     @Test fun allTablesRoundTripAndReopenPreserveExactValuesAndDatasetIsolation() {
         val dataset = id(); val other = id()
@@ -126,14 +119,12 @@ class TrackerDatabaseTest {
         val isolated = TrackerDatabaseFactory.open(context, other)
         try {
             val asset = AssetEntity(id(), "images/logo.png", "image/png", 42, "a".repeat(64), now)
-            val s = subscription().copy(logoAssetId = asset.id, paidAccessEndDate = day.plusYears(1))
-            val p = payment(s); val r = refund(p); val rule = reminder(s); val event = delivery(s)
-            disk.assets().insert(asset); disk.subscriptions().insert(s); disk.payments().insert(p)
-            disk.refunds().insert(r); disk.reminders().insert(rule); disk.deliveries().insert(event)
-            disk.close(); disk = TrackerDatabaseFactory.open(context, dataset)
-            assertEquals(s, disk.subscriptions().find(s.id)); assertEquals(p, disk.payments().find(p.id))
-            assertEquals(r, disk.refunds().find(r.id)); assertEquals(asset, disk.assets().find(asset.id))
-            assertEquals(event, disk.deliveries().find(event.id)); assertEquals(listOf(rule), disk.reminders().forSubscription(s.id))
+            val s = subscription().copy(logoAssetId=asset.id)
+            val event=delivery(s)
+            disk.assets().insert(asset); disk.subscriptions().insert(s); disk.deliveries().insert(event)
+            disk.close(); disk=TrackerDatabaseFactory.open(context,dataset)
+            assertEquals(s,disk.subscriptions().find(s.id)); assertEquals(asset,disk.assets().find(asset.id))
+            assertEquals(event,disk.deliveries().find(event.id))
             assertTrue(isolated.subscriptions().all().isEmpty())
         } finally {
             disk.close(); isolated.close()

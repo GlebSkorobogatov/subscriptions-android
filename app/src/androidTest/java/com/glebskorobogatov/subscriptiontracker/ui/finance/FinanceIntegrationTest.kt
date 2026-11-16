@@ -10,6 +10,7 @@ import com.glebskorobogatov.subscriptiontracker.data.settings.*
 import com.glebskorobogatov.subscriptiontracker.domain.integration.CurrentDate
 import com.glebskorobogatov.subscriptiontracker.domain.calendar.*
 import com.glebskorobogatov.subscriptiontracker.domain.forecast.ForecastEngine
+import com.glebskorobogatov.subscriptiontracker.domain.subscription.*
 import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.*
 import com.glebskorobogatov.subscriptiontracker.domain.model.*
 import java.io.File
@@ -42,50 +43,49 @@ class FinanceIntegrationTest {
         db.close(); lease.close(); context.deleteDatabase("subscriptions-$dataset.db").also { _ -> com.glebskorobogatov.subscriptiontracker.fixtures.forgetFixtureInitialization(context, "subscriptions-$dataset.db") }
         File(context.filesDir,"datastore/settings-$dataset.preferences_pb").delete(); Unit
     }
-    private suspend fun create(label: String,currency: CurrencyCode = rub,mode: RenewalMode = RenewalMode.AUTO): SubscriptionEntity {
-        if (currency == rub) return use.createSubscription(SubscriptionDraft(UUID.randomUUID(),"Одинаковое имя",label,
-            Money(100,rub),mode,RenewalSchedule(RenewalAnchor.from(day),Frequency(FrequencyUnit.MONTH,1))),now)
-        // Existing foreign-currency row fixture; never a new application currency choice.
-        val row = SubscriptionEntity(UUID.randomUUID(),"Одинаковое имя",label,100,currency,FrequencyUnit.MONTH,1,
-            mode,LifecycleState.ACTIVE,day.year,day.monthValue,day.dayOfMonth,0,null,null,null,null,null,null,null,now,now)
-        withContext(Dispatchers.IO) { db.subscriptions().insert(row) }; return row
-    }
-    @Test fun fixedRubTwelveMonthsPreserveLegacyCurrenciesAndSurviveReopeningStores() = runBlocking {
-        val a = create("Личный"); val b = create("Семейный",mode = RenewalMode.MANUAL)
-        val legacy = create("Старая запись",CurrencyCode.of("USD"))
-        val actual = withTimeout(5000) { financeSnapshots(use).first() }
+    private suspend fun create(label: String) = use.createSubscription(SubscriptionDraft(UUID.randomUUID(),"Одинаковое имя",label,RubPrice(100),ScheduleEdit(day,Frequency(FrequencyUnit.MONTH,1))),now)
+    @Test fun fixedRubTwelveMonthsAndIndependentSubscriptionsSurviveReopen() = runBlocking {
+        val a=create("Личный"); val b=create("Семейный")
+        val actual=withTimeout(5000) { financeSnapshots(use).first() }
         assertEquals(12,actual.forecast.months.size); assertEquals(rub,actual.currency)
-        assertEquals(ForecastEngine().calendarMonths(use.subscriptions.first().map { it.toDomain() },day,12,rub),actual.forecast)
-        assertTrue(actual.forecast.charges.all { it.currencyCode == rub && it.dueDate >= day })
+        assertEquals(ForecastEngine().calendarMonths(listOf(a,b).map { it.toDomain() },day,12,rub),actual.forecast)
         assertEquals(setOf(a.id,b.id),actual.forecast.charges.map { it.subscriptionId.value }.toSet())
-        assertEquals(setOf("Личный","Семейный"),actual.rows.filter { it.id in setOf(a.id,b.id) }.map { it.accountLabel }.toSet())
-        assertEquals(1,actual.forecast.charges.count { it.subscriptionId.value == b.id })
+        assertEquals(12,actual.forecast.charges.count { it.subscriptionId.value==b.id })
         db.close(); lease.close(); reopen()
-        val restored = withTimeout(5000) { financeSnapshots(use).first() }
-        assertEquals(actual,restored); assertEquals(3,restored.rows.size)
-        withContext(Dispatchers.IO) { assertEquals(legacy,db.subscriptions().find(legacy.id)) }
+        assertEquals(actual,withTimeout(5000) { financeSnapshots(use).first() })
     }
-
-    @Test fun liveEditsDateAndLifecycleUpdateForecastWhileHistoryAndRefundsDoNot() = runBlocking {
-        val a = create("Личный"); val manual = create("Семейный",mode = RenewalMode.MANUAL)
-        val updates = Channel<FinanceSnapshot>(Channel.UNLIMITED)
-        val job = launch { financeSnapshots(use).collect { updates.send(it) } }
-        suspend fun await(predicate: (FinanceSnapshot) -> Boolean) = withTimeout(5000) { updates.receiveAsFlow().first(predicate) }
+    @Test fun livePriceDateAndLifecycleChangesRecomputeOnlyActiveForecasts() = runBlocking {
+        val a=create("Личный"); val b=create("Семейный")
+        val updates=Channel<FinanceSnapshot>(Channel.UNLIMITED)
+        val reader=launch { financeSnapshots(use).collect { updates.send(it) } }
+        suspend fun await(predicate: (FinanceSnapshot)->Boolean) = withTimeout(5000) { updates.receiveAsFlow().first(predicate) }
         try {
-            val first = await { it.forecast.charges.size == 13 }
-            val payment = legacyPayment(db,a,day,100)
-            legacyRefund(db,payment,day,50)
-            assertEquals(first.forecast,financeSnapshots(use).first().forecast)
-            val edited = use.editSubscription(a,SubscriptionEdit(a.name,"Обновлённый",Money(200,rub),a.renewalMode),now.plusSeconds(1))
-            await { it.forecast.totalsByCurrency[rub]?.amountMinor == 2500L && it.rows.any { r -> r.accountLabel == "Обновлённый" } }
-            use.changeLifecycle(edited,LifecycleCommand.Archive,now.plusSeconds(2))
-            await { it.forecast.charges.size == 1 && it.forecast.charges.single().subscriptionId.value == manual.id }
-            use.date.update(day.plusDays(1))
-            await { it.forecast.availableCurrencies.isEmpty() && it.forecast.months.keys.first() == YearMonth.of(2027,2) }
-            withContext(Dispatchers.IO) {
-                assertEquals(listOf(payment),db.payments().forSubscription(a.id))
-                assertEquals(50L,db.refunds().forPayment(payment.id).single().amountMinor)
+            await { it.forecast.charges.size==24 }
+            val edited=use.editSubscription(a,SubscriptionEdit(a.name,"Обновлённый",RubPrice(200)),now.plusSeconds(1))
+            await { it.forecast.totalsByCurrency[rub]?.amountMinor==3600L }
+            use.changeLifecycle(edited,LifecycleCommand.Cancel(),now.plusSeconds(2))
+            await { it.forecast.charges.size==12 && it.forecast.charges.all { c -> c.subscriptionId.value==b.id } }
+            use.changeLifecycle(b,LifecycleCommand.Archive,now.plusSeconds(3))
+            await { it.forecast.charges.isEmpty() }
+        } finally { reader.cancelAndJoin(); updates.close() }
+    }
+    @Test fun concurrentEditsCannotMixPriceLabelsEligibilityAndForecastSnapshots() = runBlocking {
+        val row=create("Первый")
+        val snapshots=mutableListOf<FinanceSnapshot>()
+        val reader=launch { financeSnapshots(use).collect { snapshots+=it } }
+        try {
+            withTimeout(5000) { while(snapshots.isEmpty()) yield() }
+            var current=row
+            repeat(8) { index ->
+                current=use.editSubscription(current,SubscriptionEdit(current.name,"Метка $index",RubPrice(101L+index)),now.plusSeconds(index.toLong()+1))
             }
-        } finally { job.cancelAndJoin(); updates.close() }
+            use.changeLifecycle(current,LifecycleCommand.Cancel(),now.plusSeconds(20))
+            withTimeout(5000) { while(snapshots.last().rows.single().state!=SubscriptionState.CANCELLED) yield() }
+            for (snapshot in snapshots) {
+                val stored=snapshot.rows.single()
+                assertTrue(snapshot.forecast.charges.all { it.amountMinor==stored.priceMinor && it.subscriptionId.value==stored.id })
+                assertEquals(stored.state==SubscriptionState.ACTIVE,snapshot.forecast.charges.isNotEmpty())
+            }
+        } finally { reader.cancelAndJoin() }
     }
 }

@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.test.platform.app.InstrumentationRegistry
 import com.glebskorobogatov.subscriptiontracker.data.settings.Theme
+import com.glebskorobogatov.subscriptiontracker.domain.subscription.*
 import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.*
 import com.glebskorobogatov.subscriptiontracker.domain.model.*
 import com.glebskorobogatov.subscriptiontracker.ui.subscriptions.*
@@ -62,21 +63,15 @@ class SubscriptionsRedesignUiTest {
         compose.runOnIdle { assertEquals(1, adds) }
     }
 
-    @Test fun forecastSeparatesCurrenciesAndKeepsZeroTwoAndThreeDigits() {
-        start(samples.content(active = listOf(samples.video), decision = emptyList(), forecast = listOf(
-            Money(1500, CurrencyCode.of("JPY")), Money(49900, CurrencyCode.of("RUB")),
-            Money(1999, CurrencyCode.of("USD")), Money(12345, CurrencyCode.of("KWD")))))
-        compose.onNodeWithText("Прогноз на 30 дней").assertIsDisplayed()
+    @Test fun forecastRendersExactRubEstimateWithoutForeignCurrencyControls() {
+        start(samples.content(active=listOf(samples.video),cancelledRows=emptyList(),forecast=listOf(Money(65744,CurrencyCode.of("RUB")))))
         compose.onNodeWithTag("forecast_summary").assertTextContains("Ожидаемые расходы, не фактические списания")
-        for (text in listOf("1500 JPY", "499,00 RUB", "19,99 USD", "12,345 KWD")) {
-            compose.onNodeWithTag("forecast_summary").assertTextContains(text, substring = true)
-        }
-        compose.onNodeWithTag("needs_decision_heading").assertDoesNotExist()
+        compose.onNodeWithTag("forecast_summary").assertTextContains("657,44 RUB",substring=true)
+        compose.onNodeWithText("Валюта").assertDoesNotExist()
     }
-
     @Test fun duplicateNamesKeepLabelsDividersAndCorrectUuid() {
         var opened: UUID? = null
-        start(samples.content(decision = emptyList()), onOpen = { opened = it })
+        start(samples.content(cancelledRows = emptyList()), onOpen = { opened = it })
         show(samples.video.id).assertTextContains("Личный").performClick()
         compose.runOnIdle { assertEquals(samples.video.id, opened) }
         compose.onNodeWithTag("subscription_divider_${samples.video.id}", useUnmergedTree = true).assertExists()
@@ -85,29 +80,28 @@ class SubscriptionsRedesignUiTest {
         compose.onNodeWithTag("subscription_divider_${samples.family.id}", useUnmergedTree = true).assertDoesNotExist()
     }
 
-    @Test fun decisionsExplainProblemsAndAwaitingHasAnEmptyTrack() {
-        start(samples.content(active = emptyList(), decision = listOf(samples.issue, samples.awaiting), forecast = emptyList()))
-        compose.onNodeWithTag("forecast_summary").assertTextContains("В ближайшие 30 дней ожидаемых списаний нет")
-        show(samples.issue.id).assertTextContains("Проблема с оплатой").assertTextContains("Проверьте оплату у сервиса.", substring = true)
-        progress(samples.issue.id).assertDoesNotExist()
-        show(samples.awaiting.id).assertTextContains("Ожидает продления").assertTextContains("при необходимости измените будущий график", substring = true)
-        progress(samples.awaiting.id).assertRangeInfoEquals(ProgressBarRangeInfo(0f, 0f..1f))
+    @Test fun cancelledRowsHaveNoProblemOrAwaitingStatus() {
+        start(samples.content(active=emptyList(),cancelledRows=listOf(samples.cancelled,samples.otherCancelled),forecast=emptyList()))
+        show(samples.cancelled.id).assertTextContains("Отменена",substring=true)
+        progress(samples.cancelled.id).assertDoesNotExist()
+        show(samples.otherCancelled.id).assertTextContains("Отменена",substring=true)
+        compose.onNodeWithText("Проблема с оплатой").assertDoesNotExist()
+        compose.onNodeWithText("Ожидает продления").assertDoesNotExist()
         compose.onNodeWithTag("active_subscriptions_heading").assertDoesNotExist()
     }
-
     @Test fun knownAccessIsShownOnceAndUnknownAccessHasNoProgress() {
-        val known = samples.video.copy(status = VisibleStatus.CANCELLATION_SCHEDULED, eventDate = LocalDate.of(2027, 6, 30), remainingDays = 15)
-        val unknown = samples.family.copy(status = VisibleStatus.CANCELLATION_SCHEDULED, eventDate = null, remainingDays = null, remainingFraction = null)
-        start(samples.content(active = listOf(known, unknown), decision = emptyList(), forecast = emptyList()))
-        show(known.id).assertTextContains("Доступ до 30.06.2027 включительно")
-        compose.onAllNodesWithText("Доступ до 30.06.2027 включительно", useUnmergedTree = true).assertCountEquals(1)
+        val known = samples.video.copy(status = SubscriptionState.CANCELLED, eventDate = LocalDate.of(2027, 6, 30), remainingDays = 15)
+        val unknown = samples.family.copy(status = SubscriptionState.CANCELLED, eventDate = null, remainingDays = null, remainingFraction = null)
+        start(samples.content(active = listOf(known, unknown), cancelledRows = emptyList(), forecast = emptyList()))
+        show(known.id).assertTextContains("Доступ до 30.06.2027 (не включая этот день)")
+        compose.onAllNodesWithText("Доступ до 30.06.2027 (не включая этот день)", useUnmergedTree = true).assertCountEquals(1)
         show(unknown.id).assertTextContains("Дата окончания доступа неизвестна")
         progress(unknown.id).assertDoesNotExist()
     }
 
     @Test fun suppliedDomainFractionIsRenderedWithThinProgressAndTextStatus() {
-        start(samples.content(active = listOf(samples.video), decision = emptyList(), forecast = emptyList()))
-        show(samples.video.id).assertTextContains("Автопродление").assertTextContains("Осталось дней: 2")
+        start(samples.content(active = listOf(samples.video), cancelledRows = emptyList(), forecast = emptyList()))
+        show(samples.video.id).assertTextContains("Активна").assertTextContains("Осталось дней: 2")
         progress(samples.video.id).assertRangeInfoEquals(ProgressBarRangeInfo(0.75f, 0f..1f))
         val track = compose.onNodeWithTag("subscription_progress_track_${samples.video.id}", useUnmergedTree = true).fetchSemanticsNode()
         assertEquals("Visible track height must be 4dp", 4f * compose.density.density, track.size.height.toFloat(), 1f)
@@ -116,17 +110,17 @@ class SubscriptionsRedesignUiTest {
 
     @Test fun largeFontKeepsLongNamesAmountsAndToolbarActionsAvailable() {
         val long = samples.video.copy(name = "Очень длинное название семейного видеосервиса", accountLabel = "Отдельный семейный аккаунт",
-            price = Money(Long.MAX_VALUE, CurrencyCode.of("KWD")))
+            price = Money(Long.MAX_VALUE, CurrencyCode.of("RUB")))
         var adds = 0; var settings = 0
-        start(samples.content(active = listOf(long, samples.family), decision = emptyList(), forecast = listOf(long.price, samples.family.price)), scale = 2f,
+        start(samples.content(active = listOf(long, samples.family), cancelledRows = emptyList(), forecast = listOf(long.price, samples.family.price)), scale = 2f,
             theme = Theme.DARK, onAdd = { adds++ }, onSettings = { settings++ })
         compose.onNodeWithContentDescription("Добавить подписку").assertIsDisplayed().performClick()
         compose.onNodeWithContentDescription("Открыть настройки").assertIsDisplayed().performClick()
         compose.runOnIdle { assertEquals(1, adds); assertEquals(1, settings) }
         show(long.id).assertTextContains(long.name)
-        compose.onNodeWithTag("subscriptions_screen").performScrollToNode(hasText(long.price.format() + " KWD"))
+        compose.onNodeWithTag("subscriptions_screen").performScrollToNode(hasText(long.price.format() + " RUB"))
         val layouts = mutableListOf<TextLayoutResult>()
-        compose.onNodeWithText(long.price.format() + " KWD", useUnmergedTree = true).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText(long.price.format() + " RUB", useUnmergedTree = true).performScrollTo().assertIsDisplayed()
             .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
         assertTrue("Scaled amount must expose its layout", layouts.isNotEmpty())
         assertTrue("Scaled amount must not overflow: " + layouts.joinToString { "${it.size}, ${it.multiParagraph.width}x${it.multiParagraph.height}, widthOverflow=${it.didOverflowWidth}, heightOverflow=${it.didOverflowHeight}" },

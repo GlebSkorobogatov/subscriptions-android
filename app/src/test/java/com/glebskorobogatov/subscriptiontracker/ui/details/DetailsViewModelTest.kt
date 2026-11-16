@@ -3,6 +3,7 @@ package com.glebskorobogatov.subscriptiontracker.ui.details
 import androidx.lifecycle.*
 import com.glebskorobogatov.subscriptiontracker.data.integration.*
 import com.glebskorobogatov.subscriptiontracker.data.mapping.SubscriptionSnapshot
+import com.glebskorobogatov.subscriptiontracker.domain.subscription.*
 import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.*
 import com.glebskorobogatov.subscriptiontracker.ui.subscriptions.*
 import kotlinx.coroutines.*
@@ -19,7 +20,7 @@ class DetailsViewModelTest {
     private var number = 0
     @Before fun start() { Dispatchers.setMain(dispatcher) }
     @After fun close() { store.clear(); dispatcher.scheduler.advanceUntilIdle(); Dispatchers.resetMain() }
-    private val detail = SubscriptionDetails(detailsRow(),LifecycleView(VisibleStatus.ACTIVE,null,null))
+    private val detail = SubscriptionDetails(detailsRow(),SubscriptionPeriod(null,null,null))
     private fun model(handle: SavedStateHandle = SavedStateHandle(), values: Flow<SubscriptionDetails?> = flowOf(detail),
         generation: UUID? = null, operation: suspend () -> Unit = { error("Unknown outcome") }): DetailsViewModel {
         val owner = SubscriptionsViewModel(object : SubscriptionsSource {
@@ -66,7 +67,7 @@ class DetailsViewModelTest {
     }
     @Test fun removedAndUnknownSavedActionsAreDiscardedWithoutExecutionOrClearingOtherState() = runTest(dispatcher) {
         var calls = 0
-        for (action in listOf("Payment","MarkIssue","AddPayment","AddRefund","Unknown")) {
+        for (action in listOf("Payment","MarkIssue","AddPayment","AddRefund","ResolveDate","Unknown")) {
             val saved = SavedStateHandle(mapOf("action" to action,"operation" to UUID.randomUUID().toString(),
                 "snapshot" to SubscriptionSnapshot.snapshot(detailsRow()),"sent" to true,
                 "fields" to hashMapOf("amount" to "10"),"unrelatedDraft" to "preserve"))
@@ -102,14 +103,13 @@ class DetailsViewModelTest {
         val vm = model(saved,generation = UUID(0,2),operation = { calls++ }); runCurrent()
         vm.submit(); runCurrent(); assertTrue(vm.state.value.conflicted); assertEquals(0,calls)
     }
-    @Test fun legacyModesAndStatesLoadAndOnlyExistingIssueCanBeResolved() = runTest(dispatcher) {
-        for (row in listOf(detailsRow().copy(renewalMode = RenewalMode.MANUAL),
-            detailsRow().copy(lifecycleState = LifecycleState.PAYMENT_ISSUE),
-            detailsRow().copy(lifecycleState = LifecycleState.CANCELLATION_SCHEDULED))) {
-            val vm = model(values = flowOf(detail.copy(subscription = row))); runCurrent()
+    @Test fun onlyTargetStatesLoadAndCancelledEndEditingIsContextual() = runTest(dispatcher) {
+        for (status in SubscriptionState.entries) {
+            val row=detailsRow().copy(state=status)
+            val vm=model(values=flowOf(detail.copy(subscription=row))); runCurrent()
             assertEquals(DetailsPhase.Content,vm.state.value.phase)
-            vm.open(DetailsAction.ResolveDate)
-            assertEquals(if (row.lifecycleState == LifecycleState.PAYMENT_ISSUE) DetailsAction.ResolveDate else null,vm.state.value.action)
+            vm.open(DetailsAction.EditEnd)
+            assertEquals(if (status==SubscriptionState.CANCELLED) DetailsAction.EditEnd else null,vm.state.value.action)
         }
     }
     @Test fun cancellationDoesNotBecomeUnknownOutcomeErrorOrTriggerRetry() = runTest(dispatcher) {
@@ -119,13 +119,5 @@ class DetailsViewModelTest {
         assertEquals(1,calls); assertNull(vm.state.value.error)
     }
 
-    @Test fun savedReactivationCurrencyChangeIsDiscardedWithoutExecuting() = runTest(dispatcher) {
-        var calls = 0
-        val archived = detailsRow().copy(lifecycleState = LifecycleState.ARCHIVED)
-        val saved = SavedStateHandle(mapOf("action" to "Reactivate","snapshot" to SubscriptionSnapshot.snapshot(archived),
-            "fields" to hashMapOf("currency" to "USD","amount" to "10"),"sent" to true))
-        val vm = model(saved,operation = { calls++ }); runCurrent(); vm.submit(); runCurrent()
-        assertNull(vm.state.value.action); assertFalse(saved.contains("snapshot")); assertEquals(0,calls)
-    }
 
 }

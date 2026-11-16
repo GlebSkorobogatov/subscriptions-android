@@ -3,6 +3,7 @@ package com.glebskorobogatov.subscriptiontracker.ui.finance
 import androidx.lifecycle.*
 import com.glebskorobogatov.subscriptiontracker.domain.calendar.*
 import com.glebskorobogatov.subscriptiontracker.domain.forecast.*
+import com.glebskorobogatov.subscriptiontracker.domain.subscription.*
 import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.*
 import com.glebskorobogatov.subscriptiontracker.domain.model.*
 import java.time.*
@@ -18,14 +19,14 @@ class FinanceViewModelTest {
     private val dispatcher = StandardTestDispatcher()
     private val store = ViewModelStore()
     private var index = 0
-    private val usd = CurrencyCode.of("USD"); private val rub = CurrencyCode.of("RUB")
+    private val rub = CurrencyCode.of("RUB")
     private val day = LocalDate.of(2027,1,15)
     @Before fun start() { Dispatchers.setMain(dispatcher) }
     @After fun end() { store.clear(); dispatcher.scheduler.advanceUntilIdle(); Dispatchers.resetMain() }
-    private fun snapshot(currency: CurrencyCode? = rub,months: Int = 12,subscriptions: List<Subscription> = listOf(sub(usd),sub(rub))): FinanceSnapshot =
+    private fun snapshot(currency: CurrencyCode? = rub,months: Int = 12,subscriptions: List<SubscriptionRecord> = listOf(sub(rub))): FinanceSnapshot =
         FinanceSnapshot(ForecastEngine().calendarMonths(subscriptions,day,months,currency),emptyList())
-    private fun sub(currency: CurrencyCode) = Subscription(SubscriptionId(UUID.nameUUIDFromBytes(currency.value.toByteArray())),
-        RenewalMode.MANUAL,RenewalSchedule(RenewalAnchor.from(day),Frequency(FrequencyUnit.MONTH,1)),Money(12345,currency))
+    private fun sub(currency: CurrencyCode) = SubscriptionRecord(SubscriptionId(UUID.nameUUIDFromBytes(currency.value.toByteArray())),
+        "Сервис",RubPrice(12345),RecurringSchedule(RenewalAnchor.from(day),Frequency(FrequencyUnit.MONTH,1)))
     private fun model(source: FinanceSource,saved: SavedStateHandle = SavedStateHandle()) = FinanceViewModel(saved,source).also { store.put("vm${index++}",it) }
     private inner class Source(val values: MutableStateFlow<FinanceSnapshot>,var failRead: Boolean = false): FinanceSource {
         var calls = 0; var gate: CompletableDeferred<Unit>? = null
@@ -50,7 +51,7 @@ class FinanceViewModelTest {
         val vm = model(source,saved); runCurrent()
         assertEquals(rub,vm.state.value.currency); assertEquals(0,source.calls)
         assertEquals(12,vm.state.value.snapshot!!.horizon)
-        assertEquals(12345L,vm.state.value.snapshot!!.forecast.totalsByCurrency[rub]!!.amountMinor)
+        assertEquals(12345L*12,vm.state.value.snapshot!!.forecast.totalsByCurrency[rub]!!.amountMinor)
         assertFalse(saved.contains("currency")); assertFalse(saved.contains("horizon"))
         assertEquals("preserve",saved.get<String>("unrelated"))
     }
@@ -70,15 +71,15 @@ class FinanceViewModelTest {
     @Test fun overflowIsAnErrorWithNoPartialOrZeroTotal() = runTest(dispatcher) {
         val vm = model(object: FinanceSource {
             override fun observe() = flow<FinanceSnapshot> {
-                emit(snapshot(subscriptions = listOf(sub(rub).copy(price = Money(Long.MAX_VALUE,rub)),
-                    sub(rub).copy(id = SubscriptionId(UUID.randomUUID()),price = Money(1,rub)))))
+                emit(snapshot(subscriptions = listOf(sub(rub).copy(price = RubPrice(Long.MAX_VALUE)),
+                    sub(rub).copy(id = SubscriptionId(UUID.randomUUID()),price = RubPrice(1)))))
             }
         }); runCurrent(); assertEquals(FinancePhase.Error,vm.state.value.phase); assertNull(vm.state.value.snapshot)
     }
     @Test fun removingRubDataDoesNotFallbackToForeignAmountsOrResetValidMonth() = runTest(dispatcher) {
         val source = Source(MutableStateFlow(snapshot())); val vm = model(source); runCurrent()
         vm.selectMonth(YearMonth.of(2027,2))
-        source.values.value = snapshot(subscriptions = listOf(sub(usd))); runCurrent()
+        source.values.value = snapshot(subscriptions = emptyList()); runCurrent()
         assertEquals(FinancePhase.Empty,vm.state.value.phase); assertNull(vm.state.value.currency)
         assertEquals(YearMonth.of(2027,2),vm.state.value.month); assertEquals(0,source.calls)
         assertNull(vm.state.value.snapshot!!.forecast.totalsByCurrency[rub])

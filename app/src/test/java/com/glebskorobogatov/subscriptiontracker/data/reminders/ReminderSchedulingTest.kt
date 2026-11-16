@@ -16,7 +16,7 @@ class ReminderSchedulingTest {
     private val zone = ZoneId.of("Europe/Amsterdam")
     private val now = Instant.parse("2027-01-01T00:00:00Z")
     private fun event(offset: Int = 3, time: LocalTime = LocalTime.of(9, 0)) = PlannedReminder(
-        SubscriptionId(id), ReminderEventType.PAYMENT, LocalDate.of(2027,1,5), offset,
+        SubscriptionId(id), ReminderEventType.RENEWAL, LocalDate.of(2027,1,5), offset,
         LocalDate.of(2027,1,5).minusDays(offset.toLong()).atTime(time))
     @Test fun unchangedInputsProduceSameWorkIdentity() {
         val events = listOf(event(), event(1))

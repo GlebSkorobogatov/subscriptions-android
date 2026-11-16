@@ -9,30 +9,12 @@ import org.junit.Test
 
 class MoneyTest {
     private val rub = CurrencyCode.of("RUB")
-    private val usd = CurrencyCode.of("USD")
-    private val jpy = CurrencyCode.of("JPY")
 
     @Test fun moneyT01ParsesCommaAndFormatsWithoutLoss() {
         assertEquals(49900L, Money.parse("499,00", rub).amountMinor)
-        assertEquals(999L, Money.parse("9,99", usd).amountMinor)
-        assertEquals(1200L, Money.parse("1200", jpy).amountMinor)
         assertEquals("499,00", Money(49900, rub).format())
-        assertEquals("9.99", Money(999, usd).format('.'))
-        assertEquals("1200", Money(1200, jpy).format())
-        assertEquals(Money.parse("9,99", usd), Money.parse("9.99", usd))
     }
 
-    @Test fun moneyT02HandlesThreeAndFourFractionDigits() {
-        for (code in listOf("KWD", "BHD", "TND")) {
-            val currency = CurrencyCode.of(code)
-            assertEquals(3, currency.fractionDigits)
-            assertEquals(1234L, Money.parse("1,234", currency).amountMinor)
-            assertEquals("1,234", Money(1234, currency).format())
-        }
-        val clf = CurrencyCode.of("CLF")
-        assertEquals(4, clf.fractionDigits)
-        assertEquals(12345L, Money.parse("1.2345", clf).amountMinor)
-    }
 
     @Test fun moneyT03RejectsMalformedAndNonpositiveInput() {
         for (text in listOf("", "0", "0,00", "-1", "+1", "1e5", "NaN", "Infinity",
@@ -48,34 +30,21 @@ class MoneyTest {
         for (text in listOf("1.001", "1.000", "0.001")) {
             assertThrows(IllegalArgumentException::class.java) { Money.parse(text, rub) }
         }
-        assertThrows(IllegalArgumentException::class.java) { Money.parse("1.0", jpy) }
-        assertThrows(IllegalArgumentException::class.java) { Money.parse("1.2345", CurrencyCode.of("KWD")) }
+        assertThrows(IllegalArgumentException::class.java) { Money.parse("1.2345", rub) }
         assertThrows(IllegalArgumentException::class.java) { Money.parse("1".repeat(65), rub) }
     }
 
-    @Test fun moneyT04KeepsTotalsInSeparateCurrencies() {
-        val amounts = listOf(Money.parse("499", rub), Money.parse("999", usd), Money.parse("1200", jpy))
-        val totals = amounts.groupBy { it.currency }.mapValues { (currency, entries) ->
-            entries.fold(Money(0, currency)) { sum, value -> sum + value }
-        }
-        assertEquals(mapOf(rub to Money(49900, rub), usd to Money(99900, usd), jpy to Money(1200, jpy)), totals)
-        assertThrows(IllegalArgumentException::class.java) { amounts[0] + amounts[1] }
-        assertThrows(IllegalArgumentException::class.java) { amounts[0] - amounts[1] }
-    }
 
     @Test fun currencyCodesAreValidatedAndHaveValueEquality() {
         assertEquals(rub, CurrencyCode.of("RUB"))
         assertEquals(rub.hashCode(), CurrencyCode.of("RUB").hashCode())
-        assertEquals(2, usd.fractionDigits)
-        assertEquals(0, jpy.fractionDigits)
-        for (code in listOf("rub", "Rub", " RUB", "USD ", "$", "ZZZ", "XXX", "XTS", "", "US")) {
+        for (code in listOf("rub", "Rub", " RUB", "USD", "JPY", "KWD", "USD ", "$", "ZZZ", "XXX", "XTS", "", "US")) {
             assertThrows("Code: $code", IllegalArgumentException::class.java) { CurrencyCode.of(code) }
         }
     }
 
     @Test fun largestLongAmountIsAcceptedExactly() {
         assertEquals(Long.MAX_VALUE, Money.parse("92233720368547758,07", rub).amountMinor)
-        assertEquals(Long.MAX_VALUE, Money.parse("9223372036854775807", jpy).amountMinor)
         assertEquals("92233720368547758,07", Money(Long.MAX_VALUE, rub).format())
     }
 
@@ -83,7 +52,6 @@ class MoneyTest {
         for (text in listOf("92233720368547758,08", "9223372036854775807", "999999999999999999999999")) {
             assertThrows(IllegalArgumentException::class.java) { Money.parse(text, rub) }
         }
-        assertThrows(IllegalArgumentException::class.java) { Money.parse("9223372036854775808", jpy) }
     }
 
     @Test fun additionChecksOverflowAtBoundary() {
@@ -107,7 +75,7 @@ class MoneyTest {
     }
 
     @Test fun parseFormatRoundTripsMinorUnitsAcrossScales() {
-        for (currency in listOf(rub, jpy, CurrencyCode.of("KWD"), CurrencyCode.of("CLF"))) {
+        for (currency in listOf(rub)) {
             for (minor in listOf(1L, 99L, 100L, 10001L, Long.MAX_VALUE)) {
                 val money = Money(minor, currency)
                 for (separator in listOf(',', '.')) assertEquals(money, Money.parse(money.format(separator), currency))

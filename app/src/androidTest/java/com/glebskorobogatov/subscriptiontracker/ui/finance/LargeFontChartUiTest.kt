@@ -16,7 +16,6 @@ import com.glebskorobogatov.subscriptiontracker.app.LargeFontReviewActivity
 import com.glebskorobogatov.subscriptiontracker.data.mapping.toDomain
 import com.glebskorobogatov.subscriptiontracker.data.settings.Theme
 import com.glebskorobogatov.subscriptiontracker.domain.forecast.ForecastEngine
-import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.RenewalMode
 import com.glebskorobogatov.subscriptiontracker.domain.model.CurrencyCode
 import com.glebskorobogatov.subscriptiontracker.ui.design.*
 import com.glebskorobogatov.subscriptiontracker.ui.preview.FinancePreviewData
@@ -41,8 +40,8 @@ class LargeFontChartUiTest {
         }
         orientation(request,expected)
 
-        val currency = CurrencyCode.of("JPY")
-        val row = FinancePreviewData.rows.first().copy(currencyCode = currency,priceMinor = Long.MAX_VALUE,renewalMode = RenewalMode.MANUAL)
+        val currency = CurrencyCode.of("RUB")
+        val row = FinancePreviewData.rows.first().copy(priceMinor = Long.MAX_VALUE,intervalUnit = com.glebskorobogatov.subscriptiontracker.domain.model.FrequencyUnit.YEAR)
         val forecast = ForecastEngine().calendarMonths(listOf(row.toDomain()),FinancePreviewData.day,12,currency)
         var state by mutableStateOf(FinanceUiState(FinancePhase.Content,FinanceSnapshot(forecast,listOf(row)),currency,YearMonth.of(2027,1)))
         var theme by mutableStateOf(Theme.LIGHT)
@@ -59,7 +58,7 @@ class LargeFontChartUiTest {
                     compose.runOnIdle { theme = value }
                     compose.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag("finance_total"))
                     val layouts = mutableListOf<TextLayoutResult>()
-                    compose.onNodeWithTag("finance_total").assertTextEquals("9223372036854775807 JPY")
+                    compose.onNodeWithTag("finance_total").assertTextEquals("92233720368547758,07 RUB")
                         .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
                     assertTrue(layouts.isNotEmpty())
                     layouts.forEach { assertEquals(2f,it.layoutInput.density.fontScale,0.01f); assertFalse(it.hasVisualOverflow) }

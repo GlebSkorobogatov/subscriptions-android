@@ -19,22 +19,10 @@ class StorageConvertersTest {
     @Test fun uuidAndCurrenciesRoundTrip() {
         val id = UUID.fromString("01234567-89ab-cdef-0123-456789abcdef")
         assertEquals(id, converters.textToUuid(converters.uuidToText(id)))
-        for (code in listOf("RUB", "USD", "JPY", "KWD")) {
-            val currency = CurrencyCode.of(code)
-            assertEquals(currency, converters.textToCurrency(converters.currencyToText(currency)))
-        }
+
     }
-    @Test fun offsetsHaveCanonicalRepresentationIncludingDisabled() {
-        assertEquals("", converters.offsetsToText(emptySet()))
-        assertEquals(emptySet<Int>(), converters.textToOffsets(""))
-        assertEquals("0,1,3,7", converters.offsetsToText(setOf(7, 0, 3, 1)))
-        assertEquals(setOf(0, 1, 3, 7), converters.textToOffsets("0,1,3,7"))
-    }
+
     @Test fun invalidStoredValuesAreNotSilentlyNormalized() {
-        for (value in listOf("2", "7,3", "1,1")) {
-            assertThrows(IllegalArgumentException::class.java) { converters.textToOffsets(value) }
-        }
         assertThrows(IllegalArgumentException::class.java) { converters.textToUuid("1-1-1-1-1") }
-        assertThrows(IllegalArgumentException::class.java) { converters.textToCurrency("BAD") }
     }
 }

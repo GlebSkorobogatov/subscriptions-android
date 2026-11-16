@@ -33,9 +33,9 @@ class NotificationRulesTest {
         }
     }
     private fun message(days: Long = 1): ReminderMessage {
-        val event = PlannedReminder(SubscriptionId(id),ReminderEventType.PAYMENT,today.plusDays(days),3,
+        val event = PlannedReminder(SubscriptionId(id),ReminderEventType.RENEWAL,today.plusDays(days),3,
             today.plusDays(days).minusDays(3).atTime(9,0))
-        return ReminderMessage(SubscriptionId(id),today,listOf(CurrentReminderReason(ReminderEventType.PAYMENT,
+        return ReminderMessage(SubscriptionId(id),today,listOf(CurrentReminderReason(ReminderEventType.RENEWAL,
             today.plusDays(days),days,listOf(event))))
     }
     private fun copy(days: Long, code: String = "RUB", minor: Long = 39900) =
@@ -54,8 +54,8 @@ class NotificationRulesTest {
         assertFalse(c.body.contains("крайний срок"))
     }
 
-    @Test fun moneyRetainsJpyZeroPrecision() { assertTrue(copy(1,code="JPY",minor=399).body.contains("399 JPY")) }
-    @Test fun moneyRetainsKwdThreePrecisionAndLargeValues() { assertTrue(copy(1,code="KWD",minor=Long.MAX_VALUE).body.contains("9223372036854775,807 KWD")) }
+    @Test fun moneyRetainsRubKopecks() { assertTrue(copy(1,minor=399).body.contains("3,99 RUB")) }
+    @Test fun moneyRetainsExactLargestRubValue() { assertTrue(copy(1,minor=Long.MAX_VALUE).body.contains("92233720368547758,07 RUB")) }
     @Test fun pendingIdentityIsStableAndGenerationBound() {
         val r = NotificationRoute(generation,id); assertEquals(r,NotificationRoute.parse(r.identity))
         assertEquals(r.identity,NotificationRoute(generation,id).identity)

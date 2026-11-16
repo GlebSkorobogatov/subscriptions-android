@@ -10,7 +10,7 @@ class ReminderChanges(val gate: Mutex = Mutex(), private val validate: () -> Uni
     suspend fun <T> write(shouldNotify: (T) -> Boolean = { true }, action: suspend () -> T): T = gate.withLock {
         validate() // Recheck generation after acquiring the shared mutation gate.
         val result = action()
-        // A committed payment/edit must not be reported as failed because enqueue failed.
+        // A committed subscription edit must not be reported as failed because enqueue failed.
         withContext(NonCancellable) {
             try { if (shouldNotify(result)) withTimeout(5_000) { request() } }
             catch (_: Exception) { /* Durable WorkManager wake / next app start repairs enqueue. */ }

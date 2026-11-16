@@ -4,16 +4,11 @@ import android.content.Context
 import androidx.room.*
 import java.util.UUID
 
-@Database(entities = [SubscriptionEntity::class, PaymentEntity::class, RefundEntity::class,
-    ReminderOverrideEntity::class, NotificationDeliveryEntity::class, AssetEntity::class, RetiredPaymentOperation::class, RetiredRefundId::class],
-    version = 4, exportSchema = true, autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4)])
+@Database(entities = [SubscriptionEntity::class, NotificationDeliveryEntity::class, AssetEntity::class],
+    version = TrackerDatabaseFactory.VERSION, exportSchema = true)
 @TypeConverters(StorageConverters::class)
 abstract class TrackerDatabase : RoomDatabase() {
-    abstract fun retiredPaymentOperations(): RetiredPaymentOperationDao
     abstract fun subscriptions(): SubscriptionDao
-    abstract fun payments(): PaymentDao
-    abstract fun refunds(): RefundDao
-    abstract fun reminders(): ReminderOverrideDao
     abstract fun deliveries(): NotificationDeliveryDao
     abstract fun assets(): AssetDao
 
@@ -35,8 +30,9 @@ abstract class TrackerDatabase : RoomDatabase() {
 
 /** Explicit dataset selection; activation, file cleanup and atomic restore belong to stage H. */
 object TrackerDatabaseFactory {
-    // Change only this policy when R1b.4 narrows supported source versions.
-    internal val supportedVersions = 1..4
+    // v1–v4 are experimental, incompatible files; never migrate or reset them.
+    const val VERSION = 5
+    internal val supportedVersions = VERSION..VERSION
 
     /** Synchronous I/O: callers use Dispatchers.IO and the dataset mutation/pointer guards.
      * Returning means SQLite opened, Room validated/migrated, and integrity was checked.
@@ -63,16 +59,20 @@ object TrackerDatabaseFactory {
                         throw StorageUnavailable(StorageFailure.CORRUPT)
                     consumeCreation() // Durable, one-use right consumed BEFORE any create-capable open.
                 }
-                if (exists && state == InitializationState.AUTHORIZED) consumeCreation()
                 validatedResource(create = { createRoom(!exists) }, validate = { db ->
                     // build() is lazy: generated validation below must not access openHelper.
-                    if (exists) SchemaPreflight.validate(context, file, db::validateSchema, db.schemaHashes())
+                    if (exists) {
+                        SchemaPreflight.validate(context, file, db::validateSchema, db.schemaHashes())
+                        // Reject incompatible files without touching initialization metadata. Creation
+                        // remains forbidden for this existing-file helper even if the file disappears.
+                        if (state == InitializationState.AUTHORIZED) consumeCreation()
+                    }
                     val opened = db.openHelper.writableDatabase
                     db.validateSchema(androidx.sqlite.driver.SupportSQLiteConnection(opened))
                     opened.query("PRAGMA quick_check").use { result ->
                         if (!result.moveToFirst() || result.getString(0) != "ok") throw StorageUnavailable(StorageFailure.CORRUPT)
                     }
-                    ready() // Markerless legacy databases get READY only after both validation phases.
+                    ready() // Markerless compatible databases get READY only after both validation phases.
                 }, close = { it.close() })
             }
         } catch (error: Exception) { throw storageFailure(error) }

@@ -79,7 +79,7 @@ class MonthlyChartUiTest {
         chart(); column(YearMonth.of(2027,2)).assertIsSelected().assertContentDescriptionEquals("февраль 2027. Ожидаемые расходы: 100,00 RUB")
         compose.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag("finance_selected_total"))
         compose.onNodeWithTag("finance_selected_total").assertTextEquals("100,00 RUB")
-        compose.runOnIdle { ui = FinancePreviewData.state(CurrencyCode.of("KWD")) }
-        chart(); column(YearMonth.of(2027,1)).assertContentDescriptionEquals("январь 2027. Ожидаемые расходы: 12,345 KWD")
+        compose.runOnIdle { ui = FinancePreviewData.state(CurrencyCode.of("RUB")) }
+        chart(); column(YearMonth.of(2027,1)).assertContentDescriptionEquals("январь 2027. Ожидаемые расходы: 1098,00 RUB")
     }
 }

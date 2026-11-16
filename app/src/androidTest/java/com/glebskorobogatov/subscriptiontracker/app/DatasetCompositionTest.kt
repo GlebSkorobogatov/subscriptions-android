@@ -8,6 +8,7 @@ import com.glebskorobogatov.subscriptiontracker.data.room.*
 import com.glebskorobogatov.subscriptiontracker.data.settings.*
 import com.glebskorobogatov.subscriptiontracker.domain.calendar.*
 import com.glebskorobogatov.subscriptiontracker.domain.integration.CurrentDate
+import com.glebskorobogatov.subscriptiontracker.domain.subscription.*
 import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.*
 import com.glebskorobogatov.subscriptiontracker.domain.model.*
 import com.glebskorobogatov.subscriptiontracker.ui.subscriptions.*
@@ -41,8 +42,7 @@ class DatasetCompositionTest {
         var lease = DatasetSettingsFactory.acquire(context, id)
         try {
             var use = SubscriptionUseCases(db, lease.repository, CurrentDate(day))
-            val row = use.createSubscription(SubscriptionDraft(UUID.randomUUID(), "Сервис", "Семейный", Money(49900, rub), RenewalMode.AUTO,
-                RenewalSchedule(RenewalAnchor.from(day), Frequency(FrequencyUnit.MONTH, 1))), now)
+            val row = use.createSubscription(SubscriptionDraft(id = UUID.randomUUID(), name = "Сервис", accountLabel = "Семейный", price = RubPrice(49900), schedule = ScheduleEdit(day, Frequency(FrequencyUnit.MONTH, 1))), now)
             use.updateSettings { it.copy(theme = Theme.DARK) }
             db.close(); lease.close()
             val reopened = ActiveDataset(directory).getOrCreate()
@@ -71,15 +71,11 @@ class DatasetCompositionTest {
         val lease = DatasetSettingsFactory.acquire(context, id)
         try {
             val use = SubscriptionUseCases(db, lease.repository, CurrentDate(day))
-            val row = use.createSubscription(SubscriptionDraft(UUID.randomUUID(), "Сервис", null, Money(49900, rub), RenewalMode.AUTO,
-                RenewalSchedule(RenewalAnchor.from(day), Frequency(FrequencyUnit.MONTH, 1))), now)
+            val row = use.createSubscription(SubscriptionDraft(id = UUID.randomUUID(), name = "Сервис", accountLabel = null, price = RubPrice(49900), schedule = ScheduleEdit(day, Frequency(FrequencyUnit.MONTH, 1))), now)
             suspend fun content() = withTimeout(5000) { subscriptionStates(use).first() } as SubscriptionsUiState.Content
             val before = content()
-            val payment = legacyPayment(db,row,day,49900)
-            legacyRefund(db,payment,day,100)
             assertEquals(before, content())
-            use.editSubscription(row, SubscriptionEdit(row.name, null, Money(10000, rub), RenewalMode.AUTO,
-                ScheduleEdit.FutureSeries(day.plusDays(3), Frequency(FrequencyUnit.MONTH, 1))), now)
+            use.editSubscription(row, SubscriptionEdit(name = row.name, accountLabel = null, price = RubPrice(10000), schedule = ScheduleEdit(day.plusDays(3), Frequency(FrequencyUnit.MONTH, 1))), now)
             val after = content()
             assertEquals(day.plusDays(3), after.active.single().eventDate)
             assertEquals(10000L, after.forecast.single().amountMinor)
@@ -92,8 +88,7 @@ class DatasetCompositionTest {
         val lease = DatasetSettingsFactory.acquire(context, id)
         try {
             val use = SubscriptionUseCases(db, lease.repository, CurrentDate(day.minusDays(1)))
-            val row = use.createSubscription(SubscriptionDraft(UUID.randomUUID(), "Сервис", null, Money(49900, rub), RenewalMode.MANUAL,
-                RenewalSchedule(RenewalAnchor.from(day), Frequency(FrequencyUnit.MONTH, 1))), now)
+            val row = use.createSubscription(SubscriptionDraft(id = UUID.randomUUID(), name = "Сервис", accountLabel = null, price = RubPrice(49900), schedule = ScheduleEdit(day, Frequency(FrequencyUnit.MONTH, 1))), now)
             var current = day
             val refreshes = kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.UNLIMITED)
             val states = kotlinx.coroutines.channels.Channel<SubscriptionsUiState>(kotlinx.coroutines.channels.Channel.UNLIMITED)
@@ -104,10 +99,9 @@ class DatasetCompositionTest {
                 assertEquals(row.id, first.active.single().id)
                 current = day.plusDays(1); refreshes.send(Unit)
                 val next = withTimeout(5000) { states.receiveAsFlow().first {
-                    (it as? SubscriptionsUiState.Content)?.needsDecision?.size == 1
+                    (it as? SubscriptionsUiState.Content)?.active?.singleOrNull()?.eventDate == LocalDate.of(2027,2,28)
                 } } as SubscriptionsUiState.Content
-                assertTrue(next.active.isEmpty()); assertTrue(next.forecast.isEmpty())
-                assertTrue(withContext(Dispatchers.IO) { db.payments().forSubscription(row.id).isEmpty() })
+                assertEquals(SubscriptionState.ACTIVE,next.active.single().status); assertTrue(next.cancelled.isEmpty())
             } finally { reader.cancelAndJoin(); refreshes.close(); states.close() }
         } finally { db.close(); lease.close() }
     }

@@ -18,10 +18,10 @@ import java.util.UUID
 
 /** OS state is authoritative; a stored permission flag would become stale. */
 data class NotificationAccess(val runtimeGranted: Boolean, val appEnabled: Boolean,
-    val paymentsEnabled: Boolean) {
-    val usable get() = runtimeGranted && appEnabled && paymentsEnabled
+    val renewalsEnabled: Boolean) {
+    val usable get() = runtimeGranted && appEnabled && renewalsEnabled
     fun allows(message: ReminderMessage) = runtimeGranted && appEnabled && message.reasons.all {
-        it.eventType == ReminderEventType.PAYMENT && paymentsEnabled
+        it.eventType == ReminderEventType.RENEWAL && renewalsEnabled
     }
 }
 class AndroidReminderWords(context: Context) : ReminderWords {

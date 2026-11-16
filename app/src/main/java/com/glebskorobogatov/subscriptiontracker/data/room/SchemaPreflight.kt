@@ -36,8 +36,11 @@ internal object SchemaPreflight {
                 val connection = AndroidSQLiteConnection(native)
                 val schema = JSONObject(context.assets.open("com.glebskorobogatov.subscriptiontracker.data.room.TrackerDatabase/$version.json")
                     .bufferedReader().use { it.readText() }).getJSONObject("database")
-                if (version == 4) currentValidator(connection)
-                validateSnapshot(connection, schema, if (version == 4) currentHashes else emptySet())
+                if (version == TrackerDatabaseFactory.VERSION) currentValidator(connection)
+                validateSnapshot(connection, schema, if (version == TrackerDatabaseFactory.VERSION) currentHashes else emptySet())
+                native.rawQuery("PRAGMA foreign_key_check", null).use {
+                    if (it.moveToFirst()) throw StorageUnavailable(StorageFailure.CORRUPT)
+                }
                 if (before != token()) throw StorageUnavailable(StorageFailure.TEMPORARY)
             }
         }

@@ -87,10 +87,10 @@ class SettingsViewModelTest {
         val original = Settings(theme = Theme.DARK)
         val patch = mapOf("kind" to "payment","day" to "7","enabled" to "true")
         val once = applySetting(original,patch)
-        assertEquals(once,applySetting(once,patch)); assertEquals(setOf(7,3,1),once.paymentOffsetsDefault)
-        assertEquals(original.copy(paymentOffsetsDefault = once.paymentOffsetsDefault),once)
+        assertEquals(once,applySetting(once,patch)); assertEquals(setOf(7,3,1),once.renewalOffsets)
+        assertEquals(original.copy(renewalOffsets = once.renewalOffsets),once)
         var empty = once
         for(day in listOf(7,3,1,0)) empty = applySetting(empty,mapOf("kind" to "payment","day" to day.toString(),"enabled" to "false"))
-        assertTrue(empty.paymentOffsetsDefault.isEmpty())
+        assertTrue(empty.renewalOffsets.isEmpty())
     }
 }

@@ -11,7 +11,7 @@ import com.glebskorobogatov.subscriptiontracker.R
 import com.glebskorobogatov.subscriptiontracker.data.integration.SubscriptionDetails
 import com.glebskorobogatov.subscriptiontracker.data.room.*
 import com.glebskorobogatov.subscriptiontracker.data.settings.Theme
-import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.*
+import com.glebskorobogatov.subscriptiontracker.domain.subscription.*
 import com.glebskorobogatov.subscriptiontracker.domain.model.*
 import com.glebskorobogatov.subscriptiontracker.ui.design.TrackerTheme
 import com.glebskorobogatov.subscriptiontracker.ui.details.*
@@ -23,14 +23,15 @@ import java.util.UUID
 internal object DetailsEditorPreviewData {
     val day = LocalDate.of(2027,3,16)
     val id = UUID.fromString("00000000-0000-0000-0000-000000000031")
-    val row = SubscriptionEntity(id,"Видеосервис","Семейный",79900,CurrencyCode.of("RUB"),
-        FrequencyUnit.MONTH,1,RenewalMode.AUTO,LifecycleState.ACTIVE,2027,1,31,2,null,null,
-        LocalDate.of(2027,3,1),null,3,null,null,Instant.parse("2027-01-31T12:00:00Z"),Instant.parse("2027-03-01T12:00:00Z"))
+    val row = SubscriptionEntity(id,"Видеосервис","Семейный",79900,
+        FrequencyUnit.MONTH,1,SubscriptionState.ACTIVE,2027,1,31,
+        LocalDate.of(2027,3,1),LocalDate.of(2027,3,31),null,null,null,null,
+        Instant.parse("2027-01-31T12:00:00Z"),Instant.parse("2027-03-01T12:00:00Z"),null)
     val details = DetailsUiState(day,DetailsPhase.Content,SubscriptionDetails(row,
-        LifecycleView(VisibleStatus.ACTIVE,LocalDate.of(2027,3,31),0.5)))
+        SubscriptionPeriod(LocalDate.of(2027,3,31),15,0.5)))
     val editor = EditorState(loading = false,fields = mapOf("name" to row.name,"label" to "Семейный","amount" to "799,00",
-        "currency" to "RUB","unit" to "MONTH","count" to "1","mode" to "AUTO","series" to "false","date" to "2027-03-31",
-        "anchorMonth" to "2027-01","anchorDay" to "31","start" to "2027-03-01","end" to ""))
+        "unit" to "MONTH","count" to "1","date" to "2027-03-31",
+        "anchorDay" to "31","start" to "2027-03-01"))
 }
 
 @Composable internal fun DetailsDemo(state: DetailsUiState = DetailsEditorPreviewData.details,theme: Theme = Theme.SYSTEM,

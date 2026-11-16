@@ -69,12 +69,7 @@ class NotificationPermissionUiTest {
         val scheduler = com.glebskorobogatov.subscriptiontracker.background.ReminderInfrastructureTest.RecordingScheduler()
         val generation = com.glebskorobogatov.subscriptiontracker.background.ReminderInfrastructureTest.TestGeneration(dataset)
         var instant = java.time.Instant.parse("2027-01-01T00:00:00Z")
-        val sub = com.glebskorobogatov.subscriptiontracker.data.room.SubscriptionEntity(java.util.UUID.randomUUID(),
-            "Проверка отказа",null,39900,com.glebskorobogatov.subscriptiontracker.domain.model.CurrencyCode.of("RUB"),
-            com.glebskorobogatov.subscriptiontracker.domain.model.FrequencyUnit.MONTH,1,
-            com.glebskorobogatov.subscriptiontracker.domain.lifecycle.RenewalMode.AUTO,
-            com.glebskorobogatov.subscriptiontracker.domain.lifecycle.LifecycleState.ACTIVE,
-            2027,1,5,0,null,null,null,null,null,null,null,instant,instant)
+        val sub = com.glebskorobogatov.subscriptiontracker.data.room.SubscriptionEntity(id = java.util.UUID.randomUUID(), name = "Проверка отказа", accountLabel = null, priceMinor = 39900, intervalUnit = com.glebskorobogatov.subscriptiontracker.domain.model.FrequencyUnit.MONTH, intervalCount = 1, state = com.glebskorobogatov.subscriptiontracker.domain.subscription.SubscriptionState.ACTIVE, anchorYear = 2027, anchorMonth = 1, anchorDay = 5, currentPeriodStartOverride = null, currentPeriodEnd = null, cancelledAccessEndExclusive = null, frozenCancelledPeriodStart = null, logoAssetId = null, catalogLogoId = null, createdAt = instant, updatedAt = instant, archivedAt = null)
         val runtime = com.glebskorobogatov.subscriptiontracker.background.ReminderRuntime(context,scheduler,generation,publisher,
             { instant },{ java.time.ZoneOffset.UTC })
         val selector = By.res(java.util.regex.Pattern.compile("(android|com.android.settings):id/switch_widget"))

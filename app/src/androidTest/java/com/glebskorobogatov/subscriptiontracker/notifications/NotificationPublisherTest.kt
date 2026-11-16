@@ -15,6 +15,7 @@ import com.glebskorobogatov.subscriptiontracker.background.*
 import com.glebskorobogatov.subscriptiontracker.data.reminders.*
 import com.glebskorobogatov.subscriptiontracker.data.room.*
 import com.glebskorobogatov.subscriptiontracker.data.settings.*
+import com.glebskorobogatov.subscriptiontracker.domain.subscription.*
 import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.*
 import com.glebskorobogatov.subscriptiontracker.domain.model.*
 import com.glebskorobogatov.subscriptiontracker.domain.reminders.ReminderRules
@@ -44,8 +45,7 @@ class NotificationPublisherTest {
         dataset = UUID.randomUUID(); generation = ReminderInfrastructureTest.TestGeneration(dataset)
         scheduler = ReminderInfrastructureTest.RecordingScheduler()
         com.glebskorobogatov.subscriptiontracker.fixtures.authorizeFreshFixture(context, dataset); db = TrackerDatabaseFactory.open(context,dataset); lease = DatasetSettingsFactory.acquire(context,dataset)
-        sub = SubscriptionEntity(UUID.randomUUID(),"Одинаковый сервис","Личный",39900,CurrencyCode.of("RUB"),
-            FrequencyUnit.MONTH,1,RenewalMode.AUTO,LifecycleState.ACTIVE,2027,1,5,0,null,null,null,null,null,null,null,instant,instant)
+        sub = SubscriptionEntity(id = UUID.randomUUID(), name = "Одинаковый сервис", accountLabel = "Личный", priceMinor = 39900, intervalUnit = FrequencyUnit.MONTH, intervalCount = 1, state = SubscriptionState.ACTIVE, anchorYear = 2027, anchorMonth = 1, anchorDay = 5, currentPeriodStartOverride = null, currentPeriodEnd = null, cancelledAccessEndExclusive = null, frozenCancelledPeriodStart = null, logoAssetId = null, catalogLogoId = null, createdAt = instant, updatedAt = instant, archivedAt = null)
         withContext(Dispatchers.IO) { db.subscriptions().insert(sub) }
         publisher.createChannels()
     }
@@ -86,7 +86,7 @@ class NotificationPublisherTest {
     }
     @Test fun replayUpdatesSameSystemIdentity(): Unit = runBlocking {
         publish(); await { child() != null }
-        val detail = ReminderPresentation(sub.name,Money(sub.priceMinor,sub.currencyCode))
+        val detail = ReminderPresentation(sub.name,Money(sub.priceMinor,CurrencyCode.of("RUB")))
         val input = com.glebskorobogatov.subscriptiontracker.data.integration.reminderInputs(listOf(sub),Settings())
         val events = ReminderRules().plan(input,LocalTime.of(9,0),Instant.parse("2027-01-01T00:00:00Z"),ZoneOffset.UTC)
         val msg = ReminderRules().dueMessages(input,LocalTime.of(9,0),events,instant,ZoneOffset.UTC).single()
@@ -94,11 +94,11 @@ class NotificationPublisherTest {
         await { child() != null }; assertEquals(1,manager.activeNotifications.count { it.tag == ReminderScheduling.identity(dataset,sub.id) })
     }
     @Test fun legacyCancellationLeadStillUsesOnlyRenewalChannelAndCopy() = runBlocking {
-        db.subscriptions().update(sub.copy(cancellationLeadDays = 0)); publish(); await { child() != null }
+        db.subscriptions().update(sub.copy()); publish(); await { child() != null }
         val notification = child()!!.notification
         assertEquals(AndroidReminderPublisher.PAYMENTS,notification.channelId)
         assertFalse(notification.extras.getCharSequence(android.app.Notification.EXTRA_BIG_TEXT).toString().contains("крайний срок"))
-        assertTrue(db.deliveries().all().all { it.eventType == ReminderEventType.PAYMENT })
+        assertTrue(db.deliveries().all().all { it.eventType == ReminderEventType.RENEWAL })
     }
 
     @Test fun independentChildrenAndStableSummaryAreRemovedWhenDismissed(): Unit = runBlocking {
@@ -127,7 +127,7 @@ class NotificationPublisherTest {
         assertTrue(manager.activeNotifications.none { it.tag?.contains(dataset.toString()) == true })
     }
     @Test fun archiveCancelsAlreadyPostedNotification(): Unit = runBlocking {
-        publish(); await { child() != null }; db.subscriptions().update(sub.copy(lifecycleState = LifecycleState.ARCHIVED))
+        publish(); await { child() != null }; db.subscriptions().update(sub.copy(state = SubscriptionState.ARCHIVED))
         runtime().reconcile(); await { child() == null }
     }
     @Test fun deletionDoesNotNeedLedgerRowToCancelNotification(): Unit = runBlocking {
@@ -135,7 +135,7 @@ class NotificationPublisherTest {
         runtime().reconcile(); await { child() == null }; assertTrue(db.deliveries().all().isEmpty())
     }
     @Test fun disabledRenewalCancelsNotification(): Unit = runBlocking {
-        publish(); await { child() != null }; db.subscriptions().update(sub.copy(lifecycleState = LifecycleState.CANCELLATION_SCHEDULED))
+        publish(); await { child() != null }; db.subscriptions().update(sub.copy(state = SubscriptionState.CANCELLED))
         runtime().reconcile(); await { child() == null }
     }
     @Test fun movedDateCancelsNotification(): Unit = runBlocking {
@@ -143,9 +143,9 @@ class NotificationPublisherTest {
         runtime().reconcile(); await { child() == null }
     }
     @Test fun changingInertLegacyDeadlineDoesNotCancelCurrentRenewal() = runBlocking {
-        db.subscriptions().update(sub.copy(cancellationLeadDays = 0)); publish(); await { child() != null }
+        db.subscriptions().update(sub.copy()); publish(); await { child() != null }
         val original = child()!!.notification.extras.getString("tracker.reminder.post")
-        db.subscriptions().update(sub.copy(cancellationLeadDays = 2)); runtime().reconcile()
+        db.subscriptions().update(sub.copy()); runtime().reconcile()
         assertNotNull(child()); assertEquals(original,child()!!.notification.extras.getString("tracker.reminder.post"))
     }
 
@@ -182,13 +182,13 @@ class NotificationPublisherTest {
         try {
             val toggle = device.wait(Until.findObject(selector),5_000)
             assertNotNull("Real Android channel control",toggle); toggle.click()
-            await { !publisher.access().paymentsEnabled }
+            await { !publisher.access().renewalsEnabled }
             assertEquals(PublicationResult.UNAVAILABLE,publish()); assertNull(child())
             assertTrue(db.deliveries().all().all { it.state == DeliveryState.PENDING && it.deliveredAt == null })
-            publisher.createChannels(); assertFalse(publisher.access().paymentsEnabled)
+            publisher.createChannels(); assertFalse(publisher.access().renewalsEnabled)
         } finally {
-            if (!publisher.access().paymentsEnabled) device.wait(Until.findObject(selector),5_000)?.click()
-            device.pressBack(); await { publisher.access().paymentsEnabled }
+            if (!publisher.access().renewalsEnabled) device.wait(Until.findObject(selector),5_000)?.click()
+            device.pressBack(); await { publisher.access().renewalsEnabled }
         }
     }
     @Test fun permissionOfferHistorySurvivesStoreReopening(): Unit = runBlocking {
@@ -209,7 +209,7 @@ class NotificationPublisherTest {
         val extras = android.os.Bundle().apply {
             putString("tracker.reminder.route",NotificationRoute(dataset,sub.id).identity)
             putString("tracker.reminder.day","2027-01-04")
-            putString("tracker.reminder.presentation","${sub.name}|${sub.priceMinor}|${sub.currencyCode.value}")
+            putString("tracker.reminder.presentation","${sub.name}|${sub.priceMinor}|${CurrencyCode.of("RUB").value}")
             putStringArray("tracker.reminder.events",arrayOf("CANCELLATION|2027-01-05|1|2027-01-04T09:00"))
         }
         val notification = androidx.core.app.NotificationCompat.Builder(context,legacyChannel)

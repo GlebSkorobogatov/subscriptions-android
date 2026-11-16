@@ -13,7 +13,6 @@ import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.glebskorobogatov.subscriptiontracker.R
-import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.RenewalMode
 import com.glebskorobogatov.subscriptiontracker.domain.model.*
 import com.glebskorobogatov.subscriptiontracker.ui.design.*
 import java.time.YearMonth
@@ -72,16 +71,15 @@ import java.util.Locale
                         }
                         val charges = forecast.months[state.month]?.charges.orEmpty().filter { it.currencyCode == currency }
                         if(charges.isEmpty()) item { Text(stringResource(R.string.finance_month_empty),Modifier.testTag("finance_month_empty"),color = TrackerDesign.colors.textSecondary) }
-                        items(charges,key = { "charge_${it.subscriptionId}_${it.cycleIndex}" }) { charge ->
+                        items(charges,key = { "charge_${it.subscriptionId}_${it.dueDate}" }) { charge ->
                             val row = snapshot.rows.firstOrNull { it.id == charge.subscriptionId.value }
-                            Column(Modifier.fillMaxWidth().testTag("finance_charge_${charge.subscriptionId}_${charge.cycleIndex}").padding(vertical = 8.dp),
+                            Column(Modifier.fillMaxWidth().testTag("finance_charge_${charge.subscriptionId}_${charge.dueDate}").padding(vertical = 8.dp),
                                 verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Text(row?.name ?: stringResource(R.string.finance_missing_name),style = MaterialTheme.typography.titleSmall)
                                 row?.accountLabel?.takeIf(String::isNotBlank)?.let { Text(it,color = TrackerDesign.colors.textSecondary) }
                                 FinanceMoney(Money(charge.amountMinor,charge.currencyCode))
                                 Text(stringResource(R.string.finance_expected_date,charge.dueDate.toString()))
-                                Text(stringResource(if(charge.renewalMode == RenewalMode.AUTO) R.string.finance_auto else R.string.finance_manual),
-                                    color = TrackerDesign.colors.textSecondary,style = MaterialTheme.typography.bodySmall)
+
                             }
                             HorizontalDivider(color = TrackerDesign.colors.divider)
                         }

@@ -19,7 +19,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.glebskorobogatov.subscriptiontracker.R
-import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.*
+import com.glebskorobogatov.subscriptiontracker.domain.subscription.*
 import com.glebskorobogatov.subscriptiontracker.domain.model.*
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
@@ -77,44 +77,37 @@ internal fun DetailsPane(state: DetailsUiState, id: UUID, onBack: () -> Unit, on
                                 modifier = Modifier.fillMaxWidth().semantics { heading() })
                             s.accountLabel?.takeIf(String::isNotBlank)?.let { Text(it,color = TrackerDesign.colors.textSecondary,textAlign = TextAlign.Center) }
                             Text(stringResource(R.string.details_plan_price),style = MaterialTheme.typography.bodySmall,color = TrackerDesign.colors.textSecondary)
-                            Text(stringResource(R.string.money_amount,Money(s.priceMinor,s.currencyCode).format(),s.currencyCode.value),
+                            Text(stringResource(R.string.money_amount,RubPrice(s.priceMinor).format(),"RUB"),
                                 style = MaterialTheme.typography.displayLarge,textAlign = TextAlign.Center,modifier = Modifier.fillMaxWidth())
                             Text(stringResource(when(s.intervalUnit) {
                                 FrequencyUnit.DAY -> R.string.frequency_days; FrequencyUnit.WEEK -> R.string.frequency_weeks
                                 FrequencyUnit.MONTH -> R.string.frequency_months; FrequencyUnit.YEAR -> R.string.frequency_years
                             },s.intervalCount),color = TrackerDesign.colors.textSecondary)
                         }
-                        val status = when(detail.lifecycle.status) {
-                            VisibleStatus.ACTIVE -> R.string.details_active; VisibleStatus.AWAITING_RENEWAL -> R.string.status_awaiting
-                            VisibleStatus.PAYMENT_ISSUE -> R.string.status_payment_issue; VisibleStatus.CANCELLATION_SCHEDULED -> R.string.status_cancelled
-                            VisibleStatus.ARCHIVED -> R.string.status_archived
+                        val status = when(s.state) {
+                            SubscriptionState.ACTIVE -> R.string.details_active
+                            SubscriptionState.CANCELLED -> R.string.status_cancelled
+                            SubscriptionState.ARCHIVED -> R.string.status_archived
                         }
-                        val event = if(s.lifecycleState == LifecycleState.CANCELLATION_SCHEDULED) s.paidAccessEndDate else detail.lifecycle.expectedDate
+                        val event = detail.period.due
                         val days = event?.let { ChronoUnit.DAYS.between(state.today,it) }
                         TrackerSummaryCard(Modifier.fillMaxWidth()) {
                             Text(stringResource(status),style = MaterialTheme.typography.titleMedium)
                             if(event != null) {
-                                Text(stringResource(if(s.lifecycleState == LifecycleState.CANCELLATION_SCHEDULED) R.string.access_until else R.string.expected_on,event.toString()))
+                                Text(stringResource(if(s.state == SubscriptionState.CANCELLED) R.string.access_until else R.string.expected_on,event.toString()))
                                 if(days == 0L) Text(stringResource(R.string.event_today))
                                 else if(days != null && days > 0) Text(stringResource(R.string.days_remaining,days))
-                            } else Text(stringResource(if(s.lifecycleState == LifecycleState.CANCELLATION_SCHEDULED) R.string.access_unknown else R.string.event_unknown),
+                            } else Text(stringResource(if(s.state == SubscriptionState.CANCELLED) R.string.access_unknown else R.string.event_unknown),
                                 color = TrackerDesign.colors.textSecondary)
-                            if(detail.lifecycle.status == VisibleStatus.AWAITING_RENEWAL) Text(stringResource(R.string.awaiting_explanation))
-                            if(detail.lifecycle.status == VisibleStatus.PAYMENT_ISSUE) Text(stringResource(R.string.payment_issue_explanation))
-                            val fraction = if(detail.lifecycle.status == VisibleStatus.AWAITING_RENEWAL) 0f else detail.lifecycle.remainingFraction?.toFloat()
+                            val fraction = detail.period.remainingFraction?.toFloat()
                             fraction?.let {
-                                val progressText = stringResource(R.string.progress_status,stringResource(if(detail.lifecycle.status == VisibleStatus.AWAITING_RENEWAL) R.string.status_awaiting else if(detail.lifecycle.status == VisibleStatus.CANCELLATION_SCHEDULED) R.string.status_cancelled else R.string.details_active))
+                                val progressText = stringResource(R.string.progress_status,stringResource(status))
                                 val color = when { days != null && days <= 1 -> TrackerDesign.colors.statusUrgent; days != null && days <= 3 -> TrackerDesign.colors.statusSoon; else -> TrackerDesign.colors.statusCalm }
                                 Box(Modifier.fillMaxWidth().height(TrackerDimensions.progressHeight).testTag("details_progress_track")) {
                                     LinearProgressIndicator(progress = { it },modifier = Modifier.fillMaxSize().testTag("details_progress").semantics { stateDescription = progressText },
                                         color = color,trackColor = TrackerDesign.colors.divider,gapSize = 0.dp,drawStopIndicator = {},strokeCap = androidx.compose.ui.graphics.StrokeCap.Round)
                                 }
                             }
-                        }
-                        TrackerListRow(stringResource(R.string.details_renewal_label),supportingText = stringResource(if(s.renewalMode == RenewalMode.AUTO) R.string.status_auto else R.string.status_manual))
-                        // Cancelled access is already the main event above; display a stored end only once.
-                        s.paidAccessEndDate?.takeIf { s.lifecycleState != LifecycleState.CANCELLATION_SCHEDULED }?.let {
-                            TrackerListRow(stringResource(R.string.access_until,it.toString()))
                         }
                         var management by rememberSaveable { mutableStateOf(false) }
                         val managementState = stringResource(if(management) R.string.ui_expanded else R.string.ui_collapsed)
@@ -127,12 +120,10 @@ internal fun DetailsPane(state: DetailsUiState, id: UUID, onBack: () -> Unit, on
                                     Text(stringResource(label),Modifier.fillMaxWidth(),textAlign = TextAlign.Start)
                                 }
                             }
-                            if(s.lifecycleState == LifecycleState.ACTIVE || s.lifecycleState == LifecycleState.PAYMENT_ISSUE) {
-                                if(s.lifecycleState == LifecycleState.PAYMENT_ISSUE) action(R.string.details_resolve_date,DetailsAction.ResolveDate)
-                                action(R.string.details_disable,DetailsAction.Disable)
-                            }
-                            if(s.lifecycleState != LifecycleState.ARCHIVED) action(R.string.details_archive,DetailsAction.Archive)
-                            else action(R.string.details_reactivate,DetailsAction.Reactivate)
+                            if(s.state == SubscriptionState.ACTIVE) action(R.string.details_disable,DetailsAction.Disable)
+                            if(s.state == SubscriptionState.CANCELLED) action(R.string.details_edit_end,DetailsAction.EditEnd)
+                            if(s.state != SubscriptionState.ARCHIVED) action(R.string.details_archive,DetailsAction.Archive)
+                            if(s.state != SubscriptionState.ACTIVE) action(R.string.details_reactivate,DetailsAction.Reactivate)
                             action(R.string.details_delete,DetailsAction.Delete)
                         }
                         if(state.phase == DetailsPhase.OperationInProgress) CircularProgressIndicator()
@@ -165,7 +156,7 @@ internal fun DetailsActionDialog(state: DetailsUiState, onChange: (String, Strin
     val action = requireNotNull(state.action)
     val busy = state.phase == DetailsPhase.OperationInProgress
     val title = stringResource(when(action) {
-            DetailsAction.ResolveDate -> R.string.details_resolve_date; DetailsAction.Disable -> R.string.details_disable
+            DetailsAction.EditEnd -> R.string.details_edit_end; DetailsAction.Disable -> R.string.details_disable
             DetailsAction.Archive -> R.string.details_archive; DetailsAction.Reactivate -> R.string.details_reactivate; DetailsAction.Delete -> R.string.details_delete
         })
     val scrollTitle = scrollDialogHeading()
@@ -186,28 +177,19 @@ internal fun DetailsActionDialog(state: DetailsUiState, onChange: (String, Strin
                             if(key == "amount") androidx.compose.ui.text.input.KeyboardType.Decimal else androidx.compose.ui.text.input.KeyboardType.Text))
                 }
                 when(action) {
-                    DetailsAction.ResolveDate -> { field("date",R.string.details_next_date); Text(stringResource(R.string.details_no_payment)) }
+                    DetailsAction.EditEnd -> { field("end",R.string.editor_end) }
                     DetailsAction.Disable -> { Text(stringResource(R.string.details_disable_explanation)); field("end",R.string.editor_end) }
                     DetailsAction.Reactivate -> {
                         field("date",R.string.details_next_date); field("amount",R.string.editor_amount)
-                        state.data?.subscription?.let { Text(stringResource(R.string.editor_price_currency,it.currencyCode.value)) }
+                        state.data?.subscription?.let { Text(stringResource(R.string.editor_price_currency,"RUB")) }
                         field("count",R.string.editor_count)
+                        field("anchorDay",R.string.editor_anchor_day)
                         Column { listOf("DAY" to R.string.editor_days,"WEEK" to R.string.editor_weeks,"MONTH" to R.string.editor_months,"YEAR" to R.string.editor_year).forEach { (unit,label) ->
                             FilterChip(state.fields["unit"] == unit,{ onChange("unit",unit) },label = { Text(stringResource(label)) },enabled = !busy)
-                        } }
-                        Column { listOf("AUTO" to R.string.status_auto,"MANUAL" to R.string.status_manual).forEach { (mode,label) ->
-                            FilterChip(state.fields["mode"] == mode,{ onChange("mode",mode) },label = { Text(stringResource(label)) },enabled = !busy)
                         } }
                     }
                     DetailsAction.Delete -> Text(stringResource(R.string.details_delete_warning))
                     DetailsAction.Archive -> Text(stringResource(R.string.details_archive_warning))
-                }
-                if(action == DetailsAction.ResolveDate) {
-                    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).toggleable(state.fields["reanchor"] == "true",
-                        enabled = !busy && !state.frozen,role = Role.Checkbox,onValueChange = { onChange("reanchor",it.toString()) })) {
-                        Checkbox(state.fields["reanchor"] == "true",onCheckedChange = null,enabled = !busy && !state.frozen)
-                        Text(stringResource(R.string.details_reanchor),modifier = Modifier.weight(1f))
-                    }
                 }
                 if(busy) CircularProgressIndicator()
             }

@@ -7,6 +7,8 @@ import com.glebskorobogatov.subscriptiontracker.data.lifecycle.LifecycleConflict
 import com.glebskorobogatov.subscriptiontracker.data.room.SubscriptionEntity
 import com.glebskorobogatov.subscriptiontracker.data.mapping.SubscriptionSnapshot
 import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.*
+import com.glebskorobogatov.subscriptiontracker.domain.subscription.*
+import com.glebskorobogatov.subscriptiontracker.data.mapping.toDomain
 import com.glebskorobogatov.subscriptiontracker.domain.model.*
 import com.glebskorobogatov.subscriptiontracker.ui.subscriptions.*
 import java.time.*
@@ -15,7 +17,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 
 enum class DetailsPhase { Loading, Content, NotFound, Error, OperationInProgress }
-enum class DetailsAction { ResolveDate, Disable, Archive, Reactivate, Delete }
+enum class DetailsAction { Disable, EditEnd, Archive, Reactivate, Delete }
 data class DetailsUiState(val today: LocalDate = LocalDate.now(), val phase: DetailsPhase = DetailsPhase.Loading, val data: Detail? = null,
     val error: Int? = null, val action: DetailsAction? = null, val fields: Map<String,String> = emptyMap(),
     val frozen: Boolean = false, val conflicted: Boolean = false, val deleted: Boolean = false)
@@ -31,12 +33,7 @@ class DetailsViewModel(private val saved: SavedStateHandle, private val owner: S
             return DetailsUiState()
         }
         val legacyFields = saved.get<HashMap<String,String>>("fields").orEmpty()
-        if (action == DetailsAction.Reactivate && legacyFields["currency"]?.let { it != expected().currencyCode.value } == true) {
-            clearSavedDraft(); return DetailsUiState()
-        }
-        val fields = legacyFields.filterKeys {
-            it in setOf("date","end","unit","count","mode","amount","reanchor")
-        }
+        val fields = legacyFields.filterKeys { it in setOf("date","end","unit","count","amount","anchorDay") }
         saved["fields"] = HashMap(fields)
         return DetailsUiState(action = action, fields = fields, frozen = saved["sent"] ?: false)
     }
@@ -67,26 +64,26 @@ class DetailsViewModel(private val saved: SavedStateHandle, private val owner: S
         }
     }
     private fun allowed(row: SubscriptionEntity, action: DetailsAction): Boolean = when (action) {
-        DetailsAction.ResolveDate -> row.lifecycleState == LifecycleState.PAYMENT_ISSUE
-        DetailsAction.Disable -> row.lifecycleState in setOf(LifecycleState.ACTIVE, LifecycleState.PAYMENT_ISSUE)
-        DetailsAction.Archive -> row.lifecycleState != LifecycleState.ARCHIVED
-        DetailsAction.Reactivate -> row.lifecycleState == LifecycleState.ARCHIVED
+        DetailsAction.Disable -> row.state == SubscriptionState.ACTIVE
+        DetailsAction.Archive -> row.state != SubscriptionState.ARCHIVED
+        DetailsAction.Reactivate -> row.state != SubscriptionState.ACTIVE
+        DetailsAction.EditEnd -> row.state == SubscriptionState.CANCELLED
         DetailsAction.Delete -> true
     }
     fun open(action: DetailsAction) {
         if (state.value.phase != DetailsPhase.Content || state.value.action != null) return
         val row = state.value.data?.subscription ?: return
         if (!allowed(row, action)) return
-        val fields = hashMapOf("reanchor" to "false", "amount" to Money(row.priceMinor,row.currencyCode).format(),
-            "date" to owner.today().toString(), "end" to (row.paidAccessEndDate?.toString() ?: ""),
-            "unit" to row.intervalUnit.name, "count" to row.intervalCount.toString(), "mode" to row.renewalMode.name)
+        val fields = hashMapOf("amount" to RubPrice(row.priceMinor).format(),
+            "date" to owner.today().toString(), "end" to (row.cancelledAccessEndExclusive ?: SubscriptionDomain().nextDue(row.toDomain().schedule, owner.today())).toString(),
+            "unit" to row.intervalUnit.name, "count" to row.intervalCount.toString())
         saved["snapshot"] = SubscriptionSnapshot.snapshot(row)
         owner.activeDatasetId()?.let { saved["generation"] = it.toString() }
         saved["fields"] = fields; saved["action"] = action.name
         mutable.value = state.value.copy(action = action,fields = fields,error = null,conflicted = false)
     }
     fun change(key: String, value: String) {
-        if (key == "currency" || state.value.frozen || state.value.phase == DetailsPhase.OperationInProgress) return
+        if (key !in setOf("date", "end", "unit", "count", "amount", "anchorDay") || state.value.frozen || state.value.phase == DetailsPhase.OperationInProgress) return
         val fields = state.value.fields + (key to value)
         saved["fields"] = HashMap(fields)
         mutable.value = state.value.copy(fields = fields,error = null)
@@ -117,12 +114,13 @@ class DetailsViewModel(private val saved: SavedStateHandle, private val owner: S
             generation = saved.get<String>("generation")
             if (generation != null && generation != owner.activeDatasetId()?.toString()) { conflict(); return }
             command = when (action) {
-                DetailsAction.ResolveDate -> LifecycleCommand.ResolveWithDate(LocalDate.parse(fields.getValue("date")), fields["reanchor"] == "true")
-                DetailsAction.Disable -> LifecycleCommand.DisableRenewal(fields["end"]?.takeIf(String::isNotBlank)?.let(LocalDate::parse))
+                DetailsAction.Disable -> LifecycleCommand.Cancel(LocalDate.parse(fields.getValue("end")))
+                DetailsAction.EditEnd -> LifecycleCommand.EditEnd(LocalDate.parse(fields.getValue("end")))
                 DetailsAction.Archive -> LifecycleCommand.Archive
-                DetailsAction.Reactivate -> LifecycleCommand.Reactivate(LocalDate.parse(fields.getValue("date")),
-                    Frequency(FrequencyUnit.valueOf(fields.getValue("unit")),fields.getValue("count").toInt()),
-                    RenewalMode.valueOf(fields.getValue("mode")), Money.parse(fields.getValue("amount"),snapshot.currencyCode))
+                DetailsAction.Reactivate -> LifecycleCommand.Reactivate(RubPrice.parse(fields.getValue("amount")),
+                    ScheduleEdit(LocalDate.parse(fields.getValue("date")),
+                        Frequency(FrequencyUnit.valueOf(fields.getValue("unit")), fields.getValue("count").toInt()),
+                        fields["anchorDay"]?.takeIf(String::isNotBlank)?.toInt()))
                 DetailsAction.Delete -> null
             }
         } catch (_: Exception) { mutable.value = state.value.copy(error = R.string.details_invalid); return }
@@ -140,7 +138,6 @@ class DetailsViewModel(private val saved: SavedStateHandle, private val owner: S
                     deleted = action == DetailsAction.Delete)
             } catch (e: CancellationException) { throw e }
             catch (_: LifecycleConflict) { conflict() }
-            catch (_: com.glebskorobogatov.subscriptiontracker.domain.calendar.CycleConflictException) { rejected(R.string.details_cycle_conflict) }
             catch (_: IllegalArgumentException) { rejected(R.string.details_invalid) }
             catch (_: Exception) {
                 mutable.value = state.value.copy(phase = if (state.value.data == null) DetailsPhase.NotFound else DetailsPhase.Content,

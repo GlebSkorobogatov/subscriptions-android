@@ -95,9 +95,10 @@ internal fun EditorForm(state: EditorState, onChange: (String, String) -> Unit, 
             if (state.conflict) TrackerPrimaryButton(stringResource(R.string.editor_reload), onReload)
             fun value(key: String) = state.fields[key].orEmpty()
             val enabled = !state.saving && !state.importingImage && !state.loadFailure
+            fun editable(key: String) = enabled && (state.scheduleEditable || key !in setOf("count","date","anchorDay","start"))
             @Composable fun field(key: String, label: Int) {
                 TrackerTextField(value(key), { onChange(key, it) }, stringResource(label),
-                    enabled = enabled, errorMessage = state.errors[key]?.let { stringResource(it) },
+                    enabled = editable(key), errorMessage = state.errors[key]?.let { stringResource(it) },
                     inputModifier = Modifier.testTag("field_$key"),
                     keyboardOptions = KeyboardOptions(keyboardType = when (key) {
                         "amount" -> KeyboardType.Decimal; "count", "anchorDay" -> KeyboardType.Number; else -> KeyboardType.Text
@@ -107,7 +108,7 @@ internal fun EditorForm(state: EditorState, onChange: (String, String) -> Unit, 
                 field(key, label)
                 val description = stringResource(R.string.editor_pick_date_for,stringResource(label))
                 TrackerSecondaryButton(stringResource(R.string.editor_pick_date), { onPickDate(key) },
-                    Modifier.testTag("date_picker_$key").semantics { contentDescription = description },enabled = enabled)
+                    Modifier.testTag("date_picker_$key").semantics { contentDescription = description },enabled = editable(key))
             }
             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                 SubscriptionImage(value("name"), if (state.imageRemoved || state.catalogLogoId != null) null else state.logoAssetId,
@@ -121,11 +122,11 @@ internal fun EditorForm(state: EditorState, onChange: (String, String) -> Unit, 
             field("name", R.string.editor_name)
             field("label", R.string.editor_label)
             field("amount", R.string.editor_amount)
-            Text(stringResource(R.string.editor_price_currency,value("currency")),style = MaterialTheme.typography.bodySmall)
+            Text(stringResource(R.string.editor_price_currency,"RUB"),style = MaterialTheme.typography.bodySmall)
             HorizontalDivider(color = TrackerDesign.colors.divider)
             var frequencyMenu by remember { mutableStateOf(false) }
             Box {
-                TrackerSecondaryButton(stringResource(R.string.editor_frequency), { frequencyMenu = true }, enabled = enabled)
+                TrackerSecondaryButton(stringResource(R.string.editor_frequency), { frequencyMenu = true }, enabled = enabled && state.scheduleEditable)
                 DropdownMenu(frequencyMenu, { frequencyMenu = false }) {
                     listOf(Triple(R.string.editor_week,"WEEK","1"), Triple(R.string.editor_month,"MONTH","1"),
                         Triple(R.string.editor_quarter,"MONTH","3"), Triple(R.string.editor_half,"MONTH","6"), Triple(R.string.editor_year,"YEAR","1"),
@@ -139,33 +140,20 @@ internal fun EditorForm(state: EditorState, onChange: (String, String) -> Unit, 
             field("count", R.string.editor_count)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf("DAY" to R.string.editor_days,"WEEK" to R.string.editor_weeks,"MONTH" to R.string.editor_months,"YEAR" to R.string.editor_year).forEach { (unit,label) ->
-                    FilterChip(value("unit") == unit, { onChange("unit",unit) }, label = { Text(stringResource(label)) }, enabled = enabled)
+                    FilterChip(value("unit") == unit, { onChange("unit",unit) }, label = { Text(stringResource(label)) }, enabled = enabled && state.scheduleEditable)
                 }
             }
             date("date", R.string.editor_date)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("AUTO" to R.string.status_auto,"MANUAL" to R.string.status_manual).forEach { (mode,label) ->
-                    FilterChip(value("mode") == mode, { onChange("mode",mode) }, label = { Text(stringResource(label)) }, enabled = enabled)
-                }
-            }
-            Row(Modifier.fillMaxWidth().heightIn(min = TrackerDimensions.minimumTouchTarget)
-                .toggleable(value("series") == "true", enabled = enabled, role = Role.Checkbox,
-                    onValueChange = { onChange("series",it.toString()) }), verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(value("series") == "true",onCheckedChange = null,enabled = enabled)
-                Text(stringResource(R.string.editor_series), Modifier.weight(1f))
-            }
-            Text(stringResource(R.string.editor_next_only), color = TrackerDesign.colors.textSecondary,
-                style = MaterialTheme.typography.bodySmall)
-            state.errors["series"]?.let { Text(stringResource(it),color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
+            if (!state.scheduleEditable) Text(stringResource(R.string.editor_restore_schedule), color = TrackerDesign.colors.textSecondary)
+            Text(stringResource(R.string.editor_series), color = TrackerDesign.colors.textSecondary)
             var expanded by rememberSaveable { mutableStateOf(false) }
             HorizontalDivider(color = TrackerDesign.colors.divider)
             val expandedState = stringResource(if(expanded) R.string.ui_expanded else R.string.ui_collapsed)
             TrackerSecondaryButton(stringResource(R.string.editor_extra), { expanded = !expanded },
                 Modifier.testTag("editor_extra").semantics { stateDescription = expandedState })
             if (expanded) {
-                field("anchorMonth", R.string.editor_anchor_month); field("anchorDay", R.string.editor_anchor_day)
-                date("start", R.string.editor_start); date("end", R.string.editor_end)
+                field("anchorDay", R.string.editor_anchor_day)
+                date("start", R.string.editor_start)
 
             }
             TrackerPrimaryButton(stringResource(if(state.saving) R.string.editor_saving else R.string.editor_save), onSave,

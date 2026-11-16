@@ -27,7 +27,7 @@ class EditorRetryTest {
     @Test fun initialReadErrorRetainsSavedDraft() = runTest(dispatcher) {
         val fields = hashMapOf("name" to "Несохранённая подписка","amount" to "599")
         val owner = SubscriptionsViewModel { flow { error("Cannot open Room") } }; store.put("owner",owner)
-        val vm = EditorViewModel(SavedStateHandle(mapOf("fields" to fields)),owner,UUID.randomUUID()); store.put("editor",vm)
+        val vm = EditorViewModel(SavedStateHandle(mapOf("fields" to fields,"draftVersion" to 5)),owner,UUID.randomUUID()); store.put("editor",vm)
         runCurrent(); assertNotNull(vm.state.value.error); assertEquals(fields,vm.state.value.fields)
     }
 }

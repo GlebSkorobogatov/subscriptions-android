@@ -11,6 +11,7 @@ import com.glebskorobogatov.subscriptiontracker.data.settings.*
 import com.glebskorobogatov.subscriptiontracker.data.lifecycle.LifecycleConflict
 import com.glebskorobogatov.subscriptiontracker.domain.calendar.*
 import com.glebskorobogatov.subscriptiontracker.domain.integration.CurrentDate
+import com.glebskorobogatov.subscriptiontracker.domain.subscription.*
 import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.*
 import com.glebskorobogatov.subscriptiontracker.domain.model.*
 import com.glebskorobogatov.subscriptiontracker.ui.archive.*
@@ -33,12 +34,10 @@ class ArchiveSettingsIntegrationTest {
     private suspend fun reopen() { db = TrackerDatabaseFactory.open(context,dataset); lease = DatasetSettingsFactory.acquire(context,dataset); use = SubscriptionUseCases(db,lease.repository,CurrentDate(day)) }
     private suspend fun clear() { withContext(Dispatchers.Main) { store.clear() }; jobs.forEach { it.join() }; jobs.clear() }
     @After fun close() = runBlocking { clear(); db.close(); lease.close(); context.deleteDatabase("subscriptions-$dataset.db").also { _ -> com.glebskorobogatov.subscriptiontracker.fixtures.forgetFixtureInitialization(context, "subscriptions-$dataset.db") }; File(context.filesDir,"datastore/settings-$dataset.preferences_pb").delete(); Unit }
-    private suspend fun create(label: String = "Личный",overrides: Boolean = false): SubscriptionEntity {
+    private suspend fun create(label: String = "Личный"): SubscriptionEntity {
         val id = UUID.randomUUID()
 
-        val row = use.createSubscription(SubscriptionDraft(id,"Одинаковое имя",label,Money(49900,rub),RenewalMode.AUTO,
-            RenewalSchedule(RenewalAnchor.from(day.plusDays(2)),Frequency(FrequencyUnit.MONTH,1))),now)
-        if (overrides) withContext(Dispatchers.IO) { db.reminders().insert(ReminderOverrideEntity(id,ReminderEventType.PAYMENT,ReminderMode.CUSTOM,setOf(0))) }
+        val row = use.createSubscription(SubscriptionDraft(id = id, name = "Одинаковое имя", accountLabel = label, price = RubPrice(49900), schedule = ScheduleEdit(day.plusDays(2), Frequency(FrequencyUnit.MONTH,1))),now)
         return row
     }
     private fun source() = object: SubscriptionsSource {
@@ -59,13 +58,11 @@ class ArchiveSettingsIntegrationTest {
     private suspend fun details(id: UUID) = withTimeout(5000) { use.details(id).first() }!!
     @Test fun archiveProjectionReactivationPreservesHistoryAndUuidAndRecomputesForecast() = runBlocking {
         val a = create(); val b = create("Семейный")
-        val p = legacyPayment(db,a,day,99900)
-        val r = legacyRefund(db,p,day,30000)
         val archived = use.changeLifecycle(a,LifecycleCommand.Archive,now); use.changeLifecycle(b,LifecycleCommand.Archive,now)
         val owner = owner(source()); val vm = withContext(Dispatchers.Main) { ArchiveViewModel(owner).also { store.put("archive",it) } }
         withTimeout(5000) { vm.state.first { it.rows.size == 2 } }
         assertEquals(setOf(a.id,b.id),vm.state.value.rows.map { it.id }.toSet())
-        val command = LifecycleCommand.Reactivate(day.plusDays(5),Frequency(FrequencyUnit.MONTH,3),RenewalMode.MANUAL,Money(59900,archived.currencyCode))
+        val command = LifecycleCommand.Reactivate(RubPrice(59900), ScheduleEdit(day.plusDays(5),Frequency(FrequencyUnit.MONTH,3)))
         val restored = use.changeLifecycle(archived,command,now.plusSeconds(1))
         withTimeout(5000) { vm.state.first { it.rows.map { row -> row.id } == listOf(b.id) } }
         // Classification and forecast are independent reactive streams: await both updates.
@@ -73,26 +70,20 @@ class ArchiveSettingsIntegrationTest {
             it is SubscriptionsUiState.Content && it.active.singleOrNull()?.id == a.id && it.forecast.isNotEmpty()
         } } as SubscriptionsUiState.Content
         assertEquals("Reactivated subscription must have one forecast currency",1,active.forecast.size)
-        assertEquals(a.id,restored.id); assertEquals(archived.currencyCode,active.forecast.single().currency); assertEquals(59900L,active.forecast.single().amountMinor)
-        withContext(Dispatchers.IO) {
-            assertEquals(listOf(p),db.payments().forSubscription(a.id))
-            assertEquals(listOf(r),db.refunds().forPayment(p.id))
-        }
+        assertEquals(a.id,restored.id); assertEquals(CurrencyCode.of("RUB"),active.forecast.single().currency); assertEquals(59900L,active.active.single().price.amountMinor)
         try { use.changeLifecycle(archived,command,now); fail() } catch(_: LifecycleConflict) { }
         assertEquals(restored,details(a.id).subscription)
     }
     @Test fun globalSettingsPersistAcrossReopenWithoutReadingOrOverwritingLegacyRules() = runBlocking {
-        val row = create(overrides = true); val before = details(row.id)
-        val legacy = withContext(Dispatchers.IO) { db.reminders().forSubscription(row.id) }
+        val row = create(); val before = details(row.id)
         val owner = owner(source()); val vm = settings(owner); loaded(vm)
         suspend fun change(block: () -> Unit) { withContext(Dispatchers.Main) { block() }; loaded(vm) }
         change { vm.setTheme(Theme.DARK) }; change { vm.setOffset(7,true) }; change { vm.setOffset(0,true) }
         val actual = use.settings.first(); assertEquals(Theme.DARK,actual.theme)
-        assertEquals(LocalTime.of(9,0),actual.reminderLocalTime); assertEquals(setOf(7,3,1,0),actual.paymentOffsetsDefault)
+        assertEquals(LocalTime.of(9,0),actual.reminderLocalTime); assertEquals(setOf(7,3,1,0),actual.renewalOffsets)
         assertEquals(before,details(row.id))
         clear(); db.close(); lease.close(); reopen()
         assertEquals(actual,use.settings.first()); assertEquals(before,details(row.id))
-        withContext(Dispatchers.IO) { assertEquals(legacy,db.reminders().forSubscription(row.id)) }
     }
 
     @Test fun failedReadAndLostWriteResponsePreservePreferencesAndRestoreWithoutAutomaticWrite() = runBlocking {
@@ -114,7 +105,7 @@ class ArchiveSettingsIntegrationTest {
         val next = settings(owner,SavedStateHandle(mapOf("intent" to saved.get<HashMap<String,String>>("intent"))))
         withTimeout(5000) { next.state.first { it.phase == SettingsPhase.Content } }; assertEquals(1,writes)
         withContext(Dispatchers.Main) { next.retryWrite() }; loaded(next); assertEquals(2,writes)
-        assertEquals(baseline.copy(paymentOffsetsDefault = setOf(7,3,1)),use.settings.first())
+        assertEquals(baseline.copy(renewalOffsets = setOf(7,3,1)),use.settings.first())
     }
     @Test fun productionSessionRetryKeepsSameDatasetAndReconnectsArchiveAndSettingsBeforeFinalRelease() = runBlocking {
         db.close(); lease.close()
@@ -128,8 +119,7 @@ class ArchiveSettingsIntegrationTest {
         }
         val owner = owner(src); val preferences = settings(owner); loaded(preferences)
         val archived = owner.perform { use ->
-            val s = use.createSubscription(SubscriptionDraft(UUID.randomUUID(),"Сессия",null,Money(49900,rub),RenewalMode.AUTO,
-                RenewalSchedule(RenewalAnchor.from(LocalDate.now()),Frequency(FrequencyUnit.MONTH,1))),Instant.now())
+            val s = use.createSubscription(SubscriptionDraft(id = UUID.randomUUID(), name = "Сессия", accountLabel = null, price = RubPrice(49900), schedule = ScheduleEdit(LocalDate.now(), Frequency(FrequencyUnit.MONTH,1))),Instant.now())
             use.changeLifecycle(s,LifecycleCommand.Archive,Instant.now())
         }
         val archive = withContext(Dispatchers.Main) { ArchiveViewModel(owner).also { store.put("archive",it) } }

@@ -16,7 +16,7 @@ internal fun archiveRows(use: SubscriptionUseCases): Flow<List<SubscriptionEntit
         if(stored.map { it.toDomain() }.associateBy { it.id } == archived.associateBy { it.id }) stored else null
     }.filterNotNull().distinctUntilChanged()
 internal fun sortedArchive(rows: List<SubscriptionEntity>) = rows.sortedWith(
-    compareBy<SubscriptionEntity> { it.name.lowercase(Locale.ROOT) }.thenBy { it.id.toString() })
+    compareBy<SubscriptionEntity, java.time.LocalDate?>(nullsLast(reverseOrder())) { it.archivedAt }.thenBy { it.id.toString() })
 enum class ArchivePhase { Loading, Empty, Content, Error }
 data class ArchiveUiState(val phase: ArchivePhase = ArchivePhase.Loading,val rows: List<SubscriptionEntity> = emptyList())
 
