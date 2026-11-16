@@ -81,6 +81,33 @@ class DefaultRenewalCalendar(private val maxEventsPerQuery: Int = 10_000) : Rene
         }
     }
 
+    /** Previous regular boundary, including the calculated boundary before the first event.
+     * Target schedules have no payment index or one-off overrides; legacy callers retain their API.
+     */
+    fun previousRegularBoundary(schedule: RenewalSchedule, due: LocalDate): LocalDate? {
+        require(schedule.oneOff == null) { "A regular period cannot contain a one-off override" }
+        val index = firstCycleIndexOnOrAfter(schedule, due) ?: return null
+        require(plannedCycleDate(schedule, index) == due) { "Expected a series boundary" }
+        return try {
+            if (index > 0) regularDate(schedule, index - 1) else {
+                val anchor = schedule.anchor
+                val count = schedule.frequency.count.toLong()
+                when (schedule.frequency.unit) {
+                    FrequencyUnit.DAY -> due.minusDays(count)
+                    FrequencyUnit.WEEK -> due.minusDays(Math.multiplyExact(count, 7))
+                    FrequencyUnit.MONTH -> anchor.yearMonth.minusMonths(count).let {
+                        it.atDay(minOf(anchor.day, it.lengthOfMonth()))
+                    }
+                    FrequencyUnit.YEAR -> anchor.yearMonth.minusYears(count).let {
+                        it.atDay(minOf(anchor.day, it.lengthOfMonth()))
+                    }
+                }
+            }
+        } catch (_: DateTimeException) { null
+        } catch (_: ArithmeticException) { null
+        } catch (_: CalendarCalculationException) { null }
+    }
+
     private fun validate(schedule: RenewalSchedule) {
         // A schedule cannot start at an unrepresentable index, even with an overriding date.
         regularDate(schedule, schedule.nextCycleIndex)
