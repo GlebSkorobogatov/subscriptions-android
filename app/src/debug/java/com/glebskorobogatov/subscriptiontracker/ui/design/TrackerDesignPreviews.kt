@@ -43,6 +43,6 @@ private fun FoundationsPreview() {
 private fun ConfirmationPreview() {
     TrackerTheme {
         TrackerConfirmationDialog(stringResource(R.string.details_delete), stringResource(R.string.details_delete_warning),
-            stringResource(R.string.history_confirm_delete), stringResource(R.string.details_cancel), {}, {}, destructive = true)
+            stringResource(R.string.details_confirm), stringResource(R.string.details_cancel), {}, {}, destructive = true)
     }
 }

@@ -1,5 +1,6 @@
 package com.glebskorobogatov.subscriptiontracker.ui.settings
 
+import com.glebskorobogatov.subscriptiontracker.fixtures.*
 import android.content.Context
 import androidx.lifecycle.*
 import androidx.test.core.app.ApplicationProvider
@@ -57,8 +58,8 @@ class ArchiveSettingsIntegrationTest {
     private suspend fun details(id: UUID) = withTimeout(5000) { use.details(id).first() }!!
     @Test fun archiveProjectionReactivationPreservesHistoryAndUuidAndRecomputesForecast() = runBlocking {
         val a = create(); val b = create("Семейный")
-        val p = use.addHistoricalPayment(OperationId.random(),SubscriptionId(a.id),day,Money(99900,rub),now)
-        val r = use.addRefund(RefundEntity(UUID.randomUUID(),p.id,day,30000,rub))
+        val p = legacyPayment(db,a,day,99900)
+        val r = legacyRefund(db,p,day,30000)
         val archived = use.changeLifecycle(a,LifecycleCommand.Archive,now); use.changeLifecycle(b,LifecycleCommand.Archive,now)
         val owner = owner(source()); val vm = withContext(Dispatchers.Main) { ArchiveViewModel(owner).also { store.put("archive",it) } }
         withTimeout(5000) { vm.state.first { it.rows.size == 2 } }
@@ -72,9 +73,10 @@ class ArchiveSettingsIntegrationTest {
         } } as SubscriptionsUiState.Content
         assertEquals("Reactivated subscription must have one forecast currency",1,active.forecast.size)
         assertEquals(a.id,restored.id); assertEquals("USD",active.forecast.single().currency.value); assertEquals(59900L,active.forecast.single().amountMinor)
-        val preserved = details(a.id).history
-        assertEquals("Reactivation must preserve the historical payment",1,preserved.size)
-        val history = preserved.single(); assertEquals(p,history.payment); assertEquals(listOf(r),history.refunds)
+        withContext(Dispatchers.IO) {
+            assertEquals(listOf(p),db.payments().forSubscription(a.id))
+            assertEquals(listOf(r),db.refunds().forPayment(p.id))
+        }
         try { use.changeLifecycle(archived,command,now); fail() } catch(_: LifecycleConflict) { }
         assertEquals(restored,details(a.id).subscription)
     }

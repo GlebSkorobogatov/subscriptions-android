@@ -142,22 +142,8 @@ class AccessibilityUiTest {
         compose.onNodeWithTag("field_name").assertTextContains("Изменённое учебное название")
         compose.onNodeWithText("Сохранить").performScrollTo().performClick()
         awaitStep("editor_save_completed") { compose.onAllNodesWithTag("subscription_editor").fetchSemanticsNodes().isEmpty() }
-        compose.onNodeWithText("История платежей и возвратов").performScrollTo().performClick()
-        awaitStep("history_loaded") { compose.onAllNodesWithTag("history_list").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithTag("history_list").performScrollToNode(hasText("Добавить платёж в историю"))
-        compose.onNodeWithText("Добавить платёж в историю").performClick()
-        compose.onNodeWithTag("history_field_amount").performScrollTo().performTextReplacement("999")
-        compose.onNodeWithText("Сохранить").assertIsDisplayed().performClick()
-        awaitStep("history_save_completed") { compose.onAllNodesWithTag("history_field_date").fetchSemanticsNodes().isEmpty() }
-        awaitStep("history_payment_visible") {
-            try { compose.onNodeWithTag("history_list").performScrollToNode(hasText("Исторический платёж")); true }
-            catch(_: AssertionError) { false }
-        }
-        compose.onNodeWithText("Исторический платёж").assertIsDisplayed().performClick()
-        compose.onNodeWithContentDescription("Действия с платежом").performScrollTo().performClick()
-        compose.onNodeWithText("Удалить платёж").performClick()
-        compose.onNodeWithText("Удалить").assertIsDisplayed(); compose.onNodeWithText("Отмена").performClick()
-        repeat(3) { compose.onNodeWithContentDescription("Назад").performClick() }
+        compose.onNodeWithText("История платежей и возвратов").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Назад").performClick()
         compose.onNodeWithTag("tab_archive").performClick()
         awaitStep("archive_loaded") { compose.onAllNodesWithTag("archive_${archived.id}").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("archive_screen").performScrollToNode(hasTestTag("archive_${archived.id}"))

@@ -1,7 +1,7 @@
 package com.glebskorobogatov.subscriptiontracker.ui.subscriptions
 
 import com.glebskorobogatov.subscriptiontracker.data.integration.SubscriptionUseCases
-import com.glebskorobogatov.subscriptiontracker.data.payment.toDomain
+import com.glebskorobogatov.subscriptiontracker.data.mapping.toDomain
 import com.glebskorobogatov.subscriptiontracker.data.room.SubscriptionEntity
 import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.*
 import com.glebskorobogatov.subscriptiontracker.domain.model.*

@@ -7,7 +7,7 @@ import com.glebskorobogatov.subscriptiontracker.data.room.*
 import com.glebskorobogatov.subscriptiontracker.data.settings.DatasetSettingsFactory
 import com.glebskorobogatov.subscriptiontracker.domain.integration.CurrentDate
 import com.glebskorobogatov.subscriptiontracker.domain.model.*
-import com.glebskorobogatov.subscriptiontracker.domain.payment.*
+import com.glebskorobogatov.subscriptiontracker.fixtures.*
 import java.time.LocalDate
 import java.time.Instant
 import java.util.UUID
@@ -30,6 +30,7 @@ class SubscriptionMigrationIntegrationTest {
                 "com.glebskorobogatov.subscriptiontracker.data.room.TrackerDatabase/$version.json").bufferedReader().use { it.readText() }).getJSONObject("database")
             val subscription = UUID.randomUUID(); val payment = UUID.randomUUID(); val operation = UUID.randomUUID()
             val refund = UUID.randomUUID()
+            val retiredOperation = UUID.randomUUID(); val retiredRefund = UUID.randomUUID()
             try {
                 SQLiteDatabase.openOrCreateDatabase(path, null).use { sql ->
                     val entities = schema.getJSONArray("entities")
@@ -58,28 +59,37 @@ class SubscriptionMigrationIntegrationTest {
                     val date = CurrentDate(LocalDate.of(2027, 1, 31))
                     var use = SubscriptionUseCases(db, lease.repository, date)
                     val details = withTimeout(5000) { use.details(subscription).first() }!!
-                    val original = details.history.single()
-                    assertEquals(payment, original.payment.id); assertEquals(operation, original.payment.operationId)
-                    assertNull(original.payment.requestPayload); assertEquals(699L, original.netExpense.amountMinor)
-                    assertEquals("USD", original.netExpense.currency.value); assertEquals(refund, original.refunds.single().id)
+                    val expectedPayment = PaymentEntity(payment,subscription,operation,LocalDate.ofEpochDay(0),999,
+                        CurrencyCode.of("USD"),Instant.parse("2027-01-01T00:00:00Z"),
+                        com.glebskorobogatov.subscriptiontracker.domain.lifecycle.PaymentSource.MANUAL_HISTORY)
+                    val expectedRefund = RefundEntity(refund,payment,LocalDate.ofEpochDay(0),300,CurrencyCode.of("USD"))
+                    withContext(Dispatchers.IO) {
+                        assertEquals(expectedPayment,db.payments().forSubscription(subscription).single())
+                        assertEquals(expectedRefund,db.refunds().forPayment(payment).single())
+                        // Fixture-only pre-existing v4 technical rows, no application receipt command.
+                        db.retiredPaymentOperations().insert(RetiredPaymentOperation(retiredOperation))
+                        db.retiredPaymentOperations().retireRefund(RetiredRefundId(retiredRefund))
+                    }
                     assertEquals(31, details.subscription.anchorDay)
-                    // Preserve migrated history while creating and retiring other operations in v3.
-                    val extraId = OperationId.random()
-                    val extra = use.addHistoricalPayment(extraId, SubscriptionId(subscription), LocalDate.ofEpochDay(0),
-                        Money(100, CurrencyCode.of("JPY")), Instant.EPOCH)
-                    val extraRefund = use.addRefund(RefundEntity(UUID.randomUUID(), extra.id, LocalDate.ofEpochDay(0), 50, CurrencyCode.of("JPY")))
-                    use.deleteRefund(extraRefund); use.deletePayment(extra, true)
                     db.close(); db = TrackerDatabaseFactory.open(context, dataset)
                     use = SubscriptionUseCases(db, lease.repository, date)
                     assertEquals(details, withTimeout(5000) { use.details(subscription).first() })
                     withContext(Dispatchers.IO) {
                         assertEquals(4, db.openHelper.readableDatabase.version)
-                        assertTrue(db.retiredPaymentOperations().contains(extra.operationId))
-                        assertTrue(db.retiredPaymentOperations().containsRefund(extraRefund.id))
+                        assertEquals(expectedPayment,db.payments().forSubscription(subscription).single())
+                        assertEquals(expectedRefund,db.refunds().forPayment(payment).single())
+                        assertTrue(db.retiredPaymentOperations().contains(retiredOperation))
+                        assertTrue(db.retiredPaymentOperations().containsRefund(retiredRefund))
                         db.openHelper.readableDatabase.query("PRAGMA foreign_key_check").use { assertEquals(0, it.count) }
                     }
-                    try { use.addHistoricalPayment(extraId, SubscriptionId(subscription), LocalDate.ofEpochDay(0),
-                        Money(100, CurrencyCode.of("JPY")), Instant.EPOCH); fail() } catch (_: PaymentConflict) { }
+                    // Only explicit, confirmed deletion of this subscription retires its old operation ids.
+                    use.deleteSubscription(details.subscription,true)
+                    withContext(Dispatchers.IO) {
+                        assertTrue(db.retiredPaymentOperations().contains(operation))
+                        assertTrue(db.payments().forSubscription(subscription).isEmpty())
+                        assertTrue(db.refunds().forPayment(payment).isEmpty())
+                    }
+
                 } finally { db.close(); lease.close() }
             } finally { context.deleteDatabase(name) }
         }

@@ -37,7 +37,6 @@ import kotlinx.serialization.Serializable
 @Serializable data object Archive
 @Serializable data class SubscriptionEditor(val subscriptionId: String? = null)
 @Serializable data class SubscriptionDetails(val subscriptionId: String)
-@Serializable data class PaymentHistory(val subscriptionId: String)
 @Serializable data object Settings
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -70,11 +69,9 @@ fun TrackerApp(state: SubscriptionsUiState, onRetry: () -> Unit, owner: Subscrip
     val settings = destination?.hasRoute<Settings>() == true
     val editor = destination?.hasRoute<SubscriptionEditor>() == true
     val details = destination?.hasRoute<SubscriptionDetails>() == true
-    val history = destination?.hasRoute<PaymentHistory>() == true
     SideEffect { notifications?.visibleSubscription(if (details) entry?.toRoute<SubscriptionDetails>()?.subscriptionId?.let(UUID::fromString) else null) }
-    val secondary = settings || editor || details || history
+    val secondary = settings || editor || details
     val title = when {
-        history -> R.string.history_title
         editor -> if (entry?.toRoute<SubscriptionEditor>()?.subscriptionId != null) R.string.editor_edit_title else R.string.editor_title
         details -> R.string.details_title
         settings -> R.string.settings
@@ -100,8 +97,8 @@ fun TrackerApp(state: SubscriptionsUiState, onRetry: () -> Unit, owner: Subscrip
             stringResource(title),onSettings = { nav.navigate(Settings) { launchSingleTop = true } })
         else if (settings) com.glebskorobogatov.subscriptiontracker.ui.design.TrackerPageHeader(
             stringResource(R.string.settings),onBack = { nav.popBackStack() })
-        else if (!details && !history) TopAppBar(title = { Text(stringResource(title)) }, navigationIcon = {
-            if (secondary) IconButton(onClick = { if (editor || details || history) exitRequest++ else nav.popBackStack() }) {
+        else if (!details) TopAppBar(title = { Text(stringResource(title)) }, navigationIcon = {
+            if (secondary) IconButton(onClick = { if (editor || details) exitRequest++ else nav.popBackStack() }) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.navigate_back))
             }
         }, actions = {
@@ -147,19 +144,7 @@ fun TrackerApp(state: SubscriptionsUiState, onRetry: () -> Unit, owner: Subscrip
                     })
                 com.glebskorobogatov.subscriptiontracker.ui.details.DetailsScreen(model,id,0,
                     onBack = { nav.popBackStack() },onEdit = { nav.navigate(SubscriptionEditor(id.toString())) },
-                    onDeleted = { nav.navigate(Subscriptions) { popUpTo(nav.graph.findStartDestination().id) { inclusive = true }; launchSingleTop = true } },
-                    onHistory = { nav.navigate(PaymentHistory(id.toString())) { launchSingleTop = true } })
-            }
-            composable<PaymentHistory> { backEntry ->
-                val id = UUID.fromString(backEntry.toRoute<PaymentHistory>().subscriptionId)
-                val model: com.glebskorobogatov.subscriptiontracker.ui.history.HistoryViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
-                    viewModelStoreOwner = backEntry, factory = viewModelFactory {
-                        initializer { com.glebskorobogatov.subscriptiontracker.ui.history.HistoryViewModel(createSavedStateHandle(),owner,id) }
-                    })
-                com.glebskorobogatov.subscriptiontracker.ui.history.HistoryScreen(model,exitRequest,
-                    onBack = { nav.popBackStack() },onMissing = { nav.navigate(Subscriptions) {
-                        popUpTo(nav.graph.findStartDestination().id) { inclusive = true }; launchSingleTop = true
-                    } })
+                    onDeleted = { nav.navigate(Subscriptions) { popUpTo(nav.graph.findStartDestination().id) { inclusive = true }; launchSingleTop = true } })
             }
             composable<Finance> { backEntry ->
                 val model: com.glebskorobogatov.subscriptiontracker.ui.finance.FinanceViewModel = androidx.lifecycle.viewmodel.compose.viewModel(

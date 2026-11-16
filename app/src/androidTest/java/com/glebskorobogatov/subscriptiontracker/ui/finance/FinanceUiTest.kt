@@ -1,6 +1,6 @@
 package com.glebskorobogatov.subscriptiontracker.ui.finance
 
-import com.glebskorobogatov.subscriptiontracker.data.payment.toDomain
+import com.glebskorobogatov.subscriptiontracker.data.mapping.toDomain
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.*
 import androidx.compose.foundation.layout.*

@@ -3,7 +3,7 @@ package com.glebskorobogatov.subscriptiontracker.ui.preview
 import android.content.res.Configuration
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.tooling.preview.Preview
-import com.glebskorobogatov.subscriptiontracker.data.payment.toDomain
+import com.glebskorobogatov.subscriptiontracker.data.mapping.toDomain
 import com.glebskorobogatov.subscriptiontracker.data.settings.Theme
 import com.glebskorobogatov.subscriptiontracker.domain.forecast.ForecastEngine
 import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.RenewalMode

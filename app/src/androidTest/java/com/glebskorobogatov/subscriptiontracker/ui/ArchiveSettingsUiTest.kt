@@ -66,10 +66,8 @@ class ArchiveSettingsUiTest {
         compose.onNodeWithContentDescription("Назад").performClick()
         compose.onNodeWithTag("tab_archive").assertIsSelected()
     }
-    @Test fun archiveReactivationPreservesUuidHistoryAndUpdatesActiveForecast() {
+    @Test fun archiveReactivationPreservesUuidAndUpdatesActiveForecast() {
         createAndOpen()
-        compose.onNodeWithText("Подтвердить оплату").performScrollTo().performClick(); confirm()
-        compose.waitUntil(5000) { compose.onAllNodesWithText("Подтверждённых платежей нет").fetchSemanticsNodes().isEmpty() }
         archiveAndReturn(); compose.onNodeWithTag("tab_archive").performClick()
         compose.waitUntil(5000) { compose.onAllNodesWithText("Личный тест").fetchSemanticsNodes().isNotEmpty() }
         val archiveMatcher = SemanticsMatcher("archive UUID card") { it.config.getOrElse(SemanticsProperties.TestTag) { "" }.matches(Regex("archive_[0-9a-f-]{36}")) }
@@ -88,7 +86,7 @@ class ArchiveSettingsUiTest {
         compose.onNodeWithText("Ручное продление").performScrollTo().performClick(); confirm()
         compose.waitUntil(5000) { compose.onAllNodesWithText("Возобновить подписку").fetchSemanticsNodes().isEmpty() }
         compose.onNodeWithText("599,00 USD").assertExists()
-        compose.onAllNodes(hasText("Оплата ",substring = true)).assertCountEquals(1)
+        compose.onAllNodes(hasText("Оплата ",substring = true)).assertCountEquals(0)
         compose.onNodeWithContentDescription("Назад").performClick()
         compose.waitUntil(5000) { compose.onAllNodesWithText("В архиве пока пусто").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("tab_subscriptions").performClick()

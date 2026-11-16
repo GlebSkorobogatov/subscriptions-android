@@ -2,7 +2,6 @@ package com.glebskorobogatov.subscriptiontracker.domain.lifecycle
 
 import com.glebskorobogatov.subscriptiontracker.domain.calendar.*
 import com.glebskorobogatov.subscriptiontracker.domain.model.*
-import com.glebskorobogatov.subscriptiontracker.domain.payment.*
 import com.glebskorobogatov.subscriptiontracker.domain.forecast.ForecastEngine
 import java.time.LocalDate
 import org.junit.Assert.*
@@ -14,25 +13,12 @@ class LifecycleCommandsTest {
     private val s = Subscription(SubscriptionId.random(), RenewalMode.AUTO,
         RenewalSchedule(RenewalAnchor.from(today), frequency), Money(100, CurrencyCode.of("RUB")))
     private val rules = LifecycleCommands()
-    @Test fun lifeT06MarkIssueRequiresAutoAndExcludesForecast() {
-        val issue = rules.apply(s, LifecycleCommand.MarkPaymentIssue)
-        assertEquals(LifecycleState.PAYMENT_ISSUE, issue.state)
+    @Test fun existingIssueIsExcludedFromForecastWithoutCreatingAnotherIssue() {
+        val issue = s.copy(state = LifecycleState.PAYMENT_ISSUE)
         assertTrue(ForecastEngine().next30Days(listOf(issue), today).charges.isEmpty())
-        assertThrows(InvalidTransition::class.java) { rules.apply(s.copy(mode = RenewalMode.MANUAL), LifecycleCommand.MarkPaymentIssue) }
-    }
-    @Test fun lifeT07PaymentRestoresActiveAndConsumesOneCycle() {
-        val issue = rules.apply(s, LifecycleCommand.MarkPaymentIssue)
-        val command = PaymentCommand(OperationId.random(), s.id, today, s.price, PaymentSource.CONFIRMED_RENEWAL,
-            expectedSchedule = s.schedule, expectedMode = s.mode, selectedNext = today.plusMonths(1), expectedState = LifecycleState.PAYMENT_ISSUE)
-        val result = PaymentRules().apply(issue, command, today)
-        assertEquals(LifecycleState.ACTIVE, result.subscription.state)
-        assertEquals(1L, result.subscription.schedule.nextCycleIndex)
-        assertNotNull(result.paymentIntent)
-        assertNotEquals(command.payload(), command.copy(expectedState = LifecycleState.ACTIVE).payload())
-        assertThrows(InvalidTransition::class.java) { PaymentRules().apply(s, command, today) }
     }
     @Test fun lifeT08T09DateOrArchiveResolvesIssueWithoutPaymentCommand() {
-        val issue = rules.apply(s, LifecycleCommand.MarkPaymentIssue)
+        val issue = s.copy(state = LifecycleState.PAYMENT_ISSUE)
         val moved = rules.apply(issue, LifecycleCommand.ResolveWithDate(today.plusDays(2)))
         assertEquals(LifecycleState.ACTIVE, moved.state)
         assertEquals(today.plusDays(2), DefaultRenewalCalendar().nextScheduledDate(moved.schedule))

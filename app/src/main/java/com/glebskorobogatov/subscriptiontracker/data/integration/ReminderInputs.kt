@@ -1,6 +1,6 @@
 package com.glebskorobogatov.subscriptiontracker.data.integration
 
-import com.glebskorobogatov.subscriptiontracker.data.payment.toDomain
+import com.glebskorobogatov.subscriptiontracker.data.mapping.toDomain
 import com.glebskorobogatov.subscriptiontracker.data.room.ReminderEventType
 import com.glebskorobogatov.subscriptiontracker.data.room.ReminderOverrideEntity
 import com.glebskorobogatov.subscriptiontracker.data.room.SubscriptionEntity

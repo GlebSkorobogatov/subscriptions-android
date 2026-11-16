@@ -22,6 +22,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.util.UUID
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
@@ -122,4 +123,29 @@ class OfflineIconCatalogIntegrationTest {
         assertEquals("generic-video", db.subscriptions().find(created.id)?.catalogLogoId)
         assertEquals(renamed.priceMinor, chosen.priceMinor)
     }
+    @Test fun confirmedDeletionPreservesSharedImageAndOtherHistoryUntilLastOwner() = fixture { db, use, context ->
+        val image = use.stageImage(source(context))
+        val first = use.createSubscription(draft(UUID.randomUUID(),logo = image),Instant.EPOCH)
+        val other = first.copy(id = UUID.randomUUID(),name = "Другой владелец")
+        db.subscriptions().insert(other)
+        val p = com.glebskorobogatov.subscriptiontracker.fixtures.legacyPayment(db,first,LocalDate.of(2027,1,1))
+        val r = com.glebskorobogatov.subscriptiontracker.fixtures.legacyRefund(db,p,LocalDate.of(2027,1,1))
+        val otherPayment = com.glebskorobogatov.subscriptiontracker.fixtures.legacyPayment(db,other,LocalDate.of(2027,1,1))
+        val file = requireNotNull(use.assetFile(image))
+        try { use.deleteSubscription(first,false); fail() } catch (_: IllegalArgumentException) { }
+        assertTrue(file.exists()); assertEquals(p,db.payments().find(p.id)); assertEquals(r,db.refunds().find(r.id))
+        val edited = use.editSubscription(first,SubscriptionEdit(first.name,"Обновлено",Money(200,CurrencyCode.of("RUB")),first.renewalMode),Instant.ofEpochSecond(1))
+        try { use.deleteSubscription(first,true); fail() } catch (_: com.glebskorobogatov.subscriptiontracker.data.lifecycle.LifecycleConflict) { }
+        assertTrue(file.exists()); assertEquals(p,db.payments().find(p.id))
+        use.deleteSubscription(edited,true)
+        assertTrue(file.exists()); assertNotNull(use.assetFile(image))
+        assertNull(db.payments().find(p.id)); assertNull(db.refunds().find(r.id))
+        assertEquals(otherPayment,db.payments().find(otherPayment.id))
+        assertTrue(db.retiredPaymentOperations().contains(p.operationId))
+        assertFalse(db.retiredPaymentOperations().contains(otherPayment.operationId))
+        assertFalse(use.forecast30Days.first().charges.any { it.subscriptionId.value == first.id })
+        use.deleteSubscription(other,true)
+        assertFalse(file.exists()); assertNull(use.assetFile(image))
+    }
+
 }

@@ -70,16 +70,12 @@ class CalendarTypesTest {
         assertEquals(UUID.fromString(raw), id.value)
         assertEquals(raw, id.toString())
         assertEquals(id, SubscriptionId.parse(raw.uppercase()))
-        assertEquals(raw, PaymentId.parse(raw).toString())
-        assertEquals(raw, RefundId.parse(raw).toString())
-        assertEquals(raw, OperationId.parse(raw).toString())
-        assertNotEquals(id as Any, PaymentId.parse(raw) as Any)
         val generated = SubscriptionId.random()
         assertEquals(generated, SubscriptionId.parse(generated.toString()))
     }
 
     @Test fun identifiersRejectMalformedAndAbbreviatedUuids() {
-        val parsers: List<(String) -> Any> = listOf(SubscriptionId::parse, PaymentId::parse, RefundId::parse, OperationId::parse)
+        val parsers: List<(String) -> Any> = listOf(SubscriptionId::parse)
         for (parse in parsers) for (text in listOf("", "not-a-uuid", "1-1-1-1-1", " 123e4567-e89b-12d3-a456-426614174000")) {
             assertThrows(IllegalArgumentException::class.java) { parse(text) }
         }

@@ -17,11 +17,9 @@ class LifecycleTest {
 
     @Test fun lifeT01AutoAdvancesExpectedDateWithoutPaymentOrMutation() {
         val s = subscription(RenewalMode.AUTO)
-        val history = listOf(service.addHistoricalPayment(s, OperationId.random(), d("2027-10-15"), price).paymentIntent)
         assertEquals(d("2027-12-15"), service.view(s, today).expectedDate)
         assertEquals(LifecycleState.ACTIVE, s.state)
         assertEquals(0L, s.schedule.nextCycleIndex)
-        assertEquals(d("2027-10-15"), history.single()!!.paidOn)
     }
     @Test fun lifeT02ManualTomorrowTodayYesterday() {
         val s = subscription()
@@ -32,39 +30,12 @@ class LifecycleTest {
         assertEquals(VisibleStatus.AWAITING_RENEWAL, service.view(s, today).status)
         assertNull(service.view(s, today).expectedDate)
     }
-    @Test fun lifeT03LatePaymentSuggestsActualDatePlusInterval() {
-        val s = subscription()
-        assertEquals(d("2027-12-20"), service.suggestNextDate(s, today))
-        val result = service.confirmRenewal(s, OperationId.random(), today, price, d("2027-12-20"))
-        assertEquals(today, result.paymentIntent!!.paidOn)
-        assertEquals(d("2027-12-20"), service.view(result.subscription, today).expectedDate)
-        assertEquals(s.schedule.anchor, result.subscription.schedule.anchor)
-    }
-    @Test fun lifeT04SelectedNextDateIsIndependentOfActualPayment() {
-        val result = service.confirmRenewal(subscription(), OperationId.random(), today, price, d("2027-12-15"))
-        assertEquals(today, result.paymentIntent!!.paidOn)
-        assertEquals(d("2027-12-15"), service.view(result.subscription, today).expectedDate)
-    }
-    @Test fun lifeT05HistoricalPaymentDoesNotResolveOverdue() {
-        val s = subscription()
-        val result = service.addHistoricalPayment(s, OperationId.random(), d("2027-11-15"), price)
-        assertEquals(s, result.subscription)
-        assertEquals(PaymentSource.MANUAL_HISTORY, result.paymentIntent!!.source)
-        assertEquals(VisibleStatus.AWAITING_RENEWAL, service.view(result.subscription, today).status)
-    }
     @Test fun issueIsExplicitAndResolvedByDateWithoutPayment() {
-        val issue = service.markPaymentIssue(subscription(RenewalMode.AUTO)).subscription
+        val issue = subscription(RenewalMode.AUTO).copy(state = LifecycleState.PAYMENT_ISSUE)
         assertNull(service.view(issue, today).expectedDate)
         val result = service.resolveWithDate(issue, d("2027-11-25"))
-        assertNull(result.paymentIntent)
         assertEquals(LifecycleState.ACTIVE, result.subscription.state)
         assertEquals(d("2027-11-25"), service.view(result.subscription, today).expectedDate)
-    }
-    @Test fun issueCanResolveWithPaymentIntent() {
-        val issue = service.markPaymentIssue(subscription(RenewalMode.AUTO)).subscription
-        val result = service.resolveWithPayment(issue, OperationId.random(), today, price, d("2027-12-15"))
-        assertEquals(LifecycleState.ACTIVE, result.subscription.state)
-        assertEquals(PaymentSource.CONFIRMED_RENEWAL, result.paymentIntent!!.source)
     }
     @Test fun cancellationKeepsKnownOrUnknownAccessAndNeverAutoArchives() {
         for (end in listOf(null, d("2027-11-21"))) {
@@ -86,13 +57,11 @@ class LifecycleTest {
     }
     @Test fun invalidTransitionsFail() {
         val s = subscription()
-        assertThrows(InvalidTransition::class.java) { service.markPaymentIssue(s) }
         assertThrows(InvalidTransition::class.java) { service.resolveWithDate(s, today) }
         assertThrows(InvalidTransition::class.java) { service.reactivate(s, s.mode, s.schedule, price) }
         val archived = service.archive(s).subscription
         assertThrows(InvalidTransition::class.java) { service.archive(archived) }
         assertThrows(InvalidTransition::class.java) { service.cancelRenewal(archived) }
-        assertThrows(InvalidTransition::class.java) { service.confirmRenewal(archived, OperationId.random(), today, price, today.plusMonths(1)) }
     }
     @Test fun calT14AutoDueIsInclusive() {
         val s = subscription(RenewalMode.AUTO)

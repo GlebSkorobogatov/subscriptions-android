@@ -8,7 +8,7 @@ import java.util.UUID
 interface SubscriptionDao {
     @Transaction
     @Query("SELECT * FROM subscriptions WHERE id = :id")
-    fun observeHistory(id: UUID): kotlinx.coroutines.flow.Flow<SubscriptionHistory?>
+    fun observeDetails(id: UUID): kotlinx.coroutines.flow.Flow<SubscriptionWithReminders?>
     @Query("SELECT * FROM subscriptions ORDER BY id")
     fun observeAll(): kotlinx.coroutines.flow.Flow<List<SubscriptionEntity>>
     @Insert fun insert(value: SubscriptionEntity)

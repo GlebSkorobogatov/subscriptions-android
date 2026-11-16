@@ -1,5 +1,6 @@
 package com.glebskorobogatov.subscriptiontracker.app
 
+import com.glebskorobogatov.subscriptiontracker.fixtures.*
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.glebskorobogatov.subscriptiontracker.data.integration.*
@@ -74,8 +75,8 @@ class DatasetCompositionTest {
                 RenewalSchedule(RenewalAnchor.from(day), Frequency(FrequencyUnit.MONTH, 1))), now)
             suspend fun content() = withTimeout(5000) { subscriptionStates(use).first() } as SubscriptionsUiState.Content
             val before = content()
-            val payment = use.addHistoricalPayment(OperationId.random(), SubscriptionId(row.id), day, Money(49900, rub), now)
-            use.addRefund(RefundEntity(UUID.randomUUID(), payment.id, day, 100, rub))
+            val payment = legacyPayment(db,row,day,49900)
+            legacyRefund(db,payment,day,100)
             assertEquals(before, content())
             use.editSubscription(row, SubscriptionEdit(row.name, null, Money(10000, rub), RenewalMode.AUTO,
                 ScheduleEdit.FutureSeries(day.plusDays(3), Frequency(FrequencyUnit.MONTH, 1))), now)
@@ -106,7 +107,7 @@ class DatasetCompositionTest {
                     (it as? SubscriptionsUiState.Content)?.needsDecision?.size == 1
                 } } as SubscriptionsUiState.Content
                 assertTrue(next.active.isEmpty()); assertTrue(next.forecast.isEmpty())
-                assertTrue(use.details(row.id).first()!!.history.isEmpty())
+                assertTrue(withContext(Dispatchers.IO) { db.payments().forSubscription(row.id).isEmpty() })
             } finally { reader.cancelAndJoin(); refreshes.close(); states.close() }
         } finally { db.close(); lease.close() }
     }

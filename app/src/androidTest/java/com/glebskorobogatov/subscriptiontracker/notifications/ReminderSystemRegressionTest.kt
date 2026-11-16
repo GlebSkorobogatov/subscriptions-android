@@ -1,6 +1,6 @@
 package com.glebskorobogatov.subscriptiontracker.notifications
 
-import com.glebskorobogatov.subscriptiontracker.data.payment.toDomain
+import com.glebskorobogatov.subscriptiontracker.data.mapping.toDomain
 import android.Manifest
 import android.app.NotificationManager
 import android.content.Context
@@ -191,22 +191,20 @@ class ReminderSystemRegressionTest {
         assertTrue(db.deliveries().all().isEmpty()); assertTrue(scheduler.tasks.isEmpty())
         assertEquals(Settings(),lease.repository.settings.first())
     }
-    @Test fun confirmedPaymentWhileWorkerWaitsInvalidatesOldReminderWithoutDoublePayment(): Unit = runBlocking {
+    @Test fun explicitDateEditWhileWorkerWaitsInvalidatesOldReminderWithoutPayment(): Unit = runBlocking {
         val claimed = CompletableDeferred<Unit>(); val resume = CompletableDeferred<Unit>()
         val run = runtime { claimed.complete(Unit); resume.await() }; run.reconcile()
         val task = scheduler.tasks.single(); now = Instant.parse("2027-01-04T10:00:00Z")
         val worker = async(Dispatchers.IO) { run.process(id,sub.id,task.fingerprint) }
         withTimeout(10_000) { claimed.await() }
         val cases = useCases()
-        val command = com.glebskorobogatov.subscriptiontracker.domain.payment.PaymentCommand(
-            OperationId(UUID.randomUUID()),SubscriptionId(sub.id),LocalDate.of(2027,1,4),Money(sub.priceMinor,sub.currencyCode),
-            PaymentSource.CONFIRMED_RENEWAL,expectedSchedule = sub.toDomain().schedule,expectedMode = sub.renewalMode,
-            selectedNext = LocalDate.of(2027,2,4))
         try {
-            val payment = cases.confirmPayment(sub,command,now)
-            assertEquals(payment,cases.confirmPayment(sub,command,now)) // same operation replay
+            cases.editSubscription(sub,com.glebskorobogatov.subscriptiontracker.data.integration.SubscriptionEdit(
+                sub.name,sub.accountLabel,Money(sub.priceMinor,sub.currencyCode),sub.renewalMode,
+                com.glebskorobogatov.subscriptiontracker.data.integration.ScheduleEdit.FutureSeries(
+                    LocalDate.of(2027,2,4),Frequency(FrequencyUnit.MONTH,1))),now)
             resume.complete(Unit); assertNull(withTimeout(10_000) { worker.await() })
-            assertNull(child()); assertEquals(1,db.payments().forSubscription(sub.id).size)
+            assertNull(child()); assertTrue(db.payments().forSubscription(sub.id).isEmpty())
             assertEquals(LocalDate.of(2027,2,4),db.subscriptions().find(sub.id)!!.toDomain().schedule.let { com.glebskorobogatov.subscriptiontracker.domain.calendar.DefaultRenewalCalendar().nextScheduledDate(it) })
             assertTrue(db.deliveries().all().none { it.eventDate == LocalDate.of(2027,1,5) })
         } finally { resume.complete(Unit) }
@@ -219,7 +217,9 @@ class ReminderSystemRegressionTest {
         val cases = useCases(); val run = runtime()
         val automatic = sub.copy(renewalMode = RenewalMode.AUTO)
         db.subscriptions().update(automatic); run.reconcile(); assertTrue(scheduler.tasks.isNotEmpty())
-        val issue = cases.changeLifecycle(automatic,LifecycleCommand.MarkPaymentIssue,now)
+        // Pre-existing legacy state: the application no longer creates payment issues.
+        val issue = automatic.copy(lifecycleState = LifecycleState.PAYMENT_ISSUE)
+        db.subscriptions().update(issue)
         run.reconcile(); assertTrue(scheduler.tasks.isEmpty()); assertTrue(db.payments().all().isEmpty())
         val archived = cases.changeLifecycle(issue,LifecycleCommand.Archive,now)
         run.reconcile(); assertTrue(scheduler.tasks.isEmpty())

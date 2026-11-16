@@ -5,7 +5,7 @@ import com.glebskorobogatov.subscriptiontracker.R
 import com.glebskorobogatov.subscriptiontracker.data.catalog.OfflineIconCatalog
 import com.glebskorobogatov.subscriptiontracker.data.integration.*
 import com.glebskorobogatov.subscriptiontracker.data.lifecycle.LifecycleConflict
-import com.glebskorobogatov.subscriptiontracker.data.payment.toDomain
+import com.glebskorobogatov.subscriptiontracker.data.mapping.toDomain
 import com.glebskorobogatov.subscriptiontracker.data.room.*
 import com.glebskorobogatov.subscriptiontracker.domain.calendar.*
 import com.glebskorobogatov.subscriptiontracker.domain.model.*

@@ -26,26 +26,21 @@ class DetailsUiTest {
         compose.waitUntil(5000) { compose.onAllNodesWithTag("subscription_editor").fetchSemanticsNodes().isEmpty() }
         compose.onNodeWithTag("subscriptions_screen").performScrollToNode(hasText("Сервис D03"))
         compose.onNodeWithText("Сервис D03").performClick()
-        compose.waitUntil(5000) { compose.onAllNodesWithText("Подтвердить оплату").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(5000) { compose.onAllNodesWithTag("details_management").fetchSemanticsNodes().isNotEmpty() }
         compose.openDetailsManagement()
     }
     private fun confirm() {
         compose.onNodeWithText("Подтвердить").performClick()
         compose.waitUntil(5000) { compose.onAllNodesWithText("Подтвердить").fetchSemanticsNodes().isEmpty() }
     }
-    @Test fun detailsShowRealFieldsAndPaymentRequiresExplicitConfirmation() {
+    @Test fun detailsShowRealFieldsWithEditAndWithoutPaymentOrHistoryActions() {
         createAndOpen()
-        compose.onNodeWithText("Сервис D03").assertExists()
+        compose.onNodeWithText("Подтвердить оплату").assertDoesNotExist()
+        compose.onNodeWithText("История платежей и возвратов").assertDoesNotExist()
         compose.onNodeWithText("499,00 RUB").assertExists()
-        compose.onNodeWithText("Подтверждённых платежей нет").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("Подтвердить оплату").performScrollTo().performClick()
-        compose.onNodeWithTag("details_field_paid").assertExists()
-        compose.onNodeWithTag("details_field_amount").assertExists()
-        compose.onNodeWithTag("details_field_next").assertDoesNotExist()
-        confirm()
-        compose.waitUntil(5000) { compose.onAllNodesWithTag("details_field_paid").fetchSemanticsNodes().isEmpty() }
-        compose.waitUntil(5000) { compose.onAllNodesWithText("Подтверждённых платежей нет").fetchSemanticsNodes().isEmpty() }
-        compose.onNodeWithText("Подтверждённых платежей нет").assertDoesNotExist()
+        compose.onAllNodesWithText("Изменить").onFirst().assertHasClickAction()
+        compose.openDetailsManagement()
+        compose.onNodeWithText("Проблема с оплатой").assertDoesNotExist()
     }
     @Test fun cancelledDeleteKeepsSubscriptionAndConfirmedDeleteReturnsHome() {
         createAndOpen()
@@ -71,53 +66,8 @@ class DetailsUiTest {
         compose.waitUntil(5000) { compose.onAllNodesWithText("Возобновить подписку").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Возобновить подписку").performScrollTo().performClick()
         confirm()
-        compose.waitUntil(5000) { compose.onAllNodesWithText("Подтвердить оплату").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(5000) { compose.onAllNodesWithTag("details_management").fetchSemanticsNodes().isNotEmpty() }
         compose.openDetailsManagement()
-    }
-    @Test fun paymentOperationAndFieldsSurviveRecreation() {
-        createAndOpen()
-        compose.onNodeWithText("Подтвердить оплату").performScrollTo().performClick()
-        compose.onNodeWithTag("details_field_amount").performTextReplacement("599,00")
-        compose.activityRule.scenario.recreate()
-        compose.onNodeWithTag("details_field_amount").assertTextContains("599,00")
-        compose.onNodeWithText("Отмена").performClick()
-    }
-    @Test fun markIssueThenResolveDateDoesNotCreatePayment() {
-        createAndOpen()
-        compose.onNodeWithText("Проблема с оплатой").performScrollTo().performClick()
-        confirm()
-        compose.waitUntil(5000) { compose.onAllNodesWithText("Разрешить проблему изменением даты").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithText("Подтверждённых платежей нет").assertExists()
-        compose.onNodeWithText("Разрешить проблему изменением даты").performScrollTo().performClick()
-        confirm()
-        compose.waitUntil(5000) { compose.onAllNodesWithText("Разрешить проблему изменением даты").fetchSemanticsNodes().isEmpty() }
-        compose.onNodeWithText("Подтверждённых платежей нет").assertExists()
-    }
-    @Test fun lateManualPaymentCanKeepFuturePrice() {
-        createAndOpen(manual = true)
-        compose.onNodeWithText("Ожидает продления").assertExists()
-        compose.onNodeWithText("Подтвердить оплату").performScrollTo().performClick()
-        compose.waitUntil(5000) {
-            compose.onAllNodesWithTag("details_field_next").fetchSemanticsNodes().any { node ->
-                node.config[androidx.compose.ui.semantics.SemanticsProperties.EditableText].text.isNotBlank()
-            }
-        }
-        compose.onNodeWithTag("details_field_amount").performScrollTo().performTextReplacement("599,00")
-        compose.onNodeWithText("Нет, оставить текущую плановую цену").performScrollTo().performClick()
-        confirm()
-        compose.waitUntil(5000) { compose.onAllNodesWithTag("details_field_paid").fetchSemanticsNodes().isEmpty() }
-        compose.onNodeWithText("499,00 RUB").assertExists()
-        compose.waitUntil(5000) { compose.onAllNodesWithText("Подтверждённых платежей нет").fetchSemanticsNodes().isEmpty() }
-        compose.onNodeWithText("Подтверждённых платежей нет").assertDoesNotExist()
-    }
-    @Test fun changedActualAmountCanUpdateFuturePrice() {
-        createAndOpen()
-        compose.onNodeWithText("Подтвердить оплату").performScrollTo().performClick()
-        compose.onNodeWithTag("details_field_amount").performTextReplacement("599,00")
-        compose.onNodeWithText("Да, использовать новую сумму").performScrollTo().performClick()
-        confirm()
-        compose.waitUntil(5000) { compose.onAllNodesWithTag("details_field_paid").fetchSemanticsNodes().isEmpty() }
-        compose.waitUntil(5000) { compose.onAllNodesWithText("599,00 RUB").fetchSemanticsNodes().isNotEmpty() }
     }
     @Test fun unknownAccessEndNeverInventsCountdownOrProgress() {
         createAndOpen()
@@ -136,12 +86,5 @@ class DetailsUiTest {
         } }
         compose.onNodeWithTag("details_progress").assertRangeInfoEquals(androidx.compose.ui.semantics.ProgressBarRangeInfo(0.75f,0f..1f))
     }
-    @Test fun doubleConfirmationCreatesOnePayment() {
-        createAndOpen()
-        compose.onNodeWithText("Подтвердить оплату").performScrollTo().performClick()
-        compose.onNodeWithText("Подтвердить").performTouchInput { doubleClick() }
-        compose.waitUntil(5000) { compose.onAllNodesWithTag("details_field_paid").fetchSemanticsNodes().isEmpty() }
-        compose.waitUntil(5000) { compose.onAllNodes(hasText("Оплата ",substring = true)).fetchSemanticsNodes().isNotEmpty() }
-        compose.onAllNodes(hasText("Оплата ",substring = true)).assertCountEquals(1)
-    }
+
 }

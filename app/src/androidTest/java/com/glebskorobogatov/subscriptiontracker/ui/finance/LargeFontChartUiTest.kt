@@ -13,7 +13,7 @@ import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.unit.dp
 import com.glebskorobogatov.subscriptiontracker.app.LargeFontReviewActivity
-import com.glebskorobogatov.subscriptiontracker.data.payment.toDomain
+import com.glebskorobogatov.subscriptiontracker.data.mapping.toDomain
 import com.glebskorobogatov.subscriptiontracker.data.settings.Theme
 import com.glebskorobogatov.subscriptiontracker.domain.forecast.ForecastEngine
 import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.RenewalMode

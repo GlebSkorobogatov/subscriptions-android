@@ -21,7 +21,6 @@ import com.glebskorobogatov.subscriptiontracker.ui.design.*
 import com.glebskorobogatov.subscriptiontracker.ui.details.*
 import com.glebskorobogatov.subscriptiontracker.ui.editor.*
 import com.glebskorobogatov.subscriptiontracker.ui.finance.*
-import com.glebskorobogatov.subscriptiontracker.ui.history.*
 import com.glebskorobogatov.subscriptiontracker.ui.preview.*
 import com.glebskorobogatov.subscriptiontracker.ui.settings.*
 import com.glebskorobogatov.subscriptiontracker.ui.subscriptions.*
@@ -32,10 +31,8 @@ import kotlin.math.min
 internal enum class ReviewScene {
     Subscriptions, SubscriptionsEmpty, SubscriptionsError, SubscriptionsLong, FinancePlaceholder,
     Details, DetailsCancelled, DetailsLong, EditorCreate, EditorEdit, EditorError,
-    Payment, History, PaymentDetails, Refund, RefundError, FullRefund,
     Archive, ArchiveEmpty, Settings, TimeDialog, DeleteDialog, UnsavedDialog,
-    MarkIssueDialog, ResolveDateDialog, DisableDialog, ReactivateDialog, ArchiveDialog,
-    DeletePaymentDialog, DeleteRefundDialog, HistoricalPaymentDialog, EditPaymentDialog, EditRefundDialog,
+     ResolveDateDialog, DisableDialog, ReactivateDialog, ArchiveDialog,
 }
 internal object ReviewData {
     const val longName = "Очень длинное учебное название семейной подписки"
@@ -51,7 +48,6 @@ internal object ReviewData {
     val cancelled = DetailsEditorPreviewData.details.copy(data = DetailsEditorPreviewData.details.data!!.copy(
         subscription = DetailsEditorPreviewData.row.copy(lifecycleState = LifecycleState.CANCELLATION_SCHEDULED,paidAccessEndDate = LocalDate.of(2027,3,31)),
         lifecycle = LifecycleView(VisibleStatus.CANCELLATION_SCHEDULED,null,0.5)))
-    val fullRefund = PaymentsPreviewData.rubItem.copy(refunds = listOf(PaymentsPreviewData.refund.copy(amountMinor = 99900)),netExpense = Money(0,CurrencyCode.of("RUB")))
 }
 
 /** Logical viewport simulation fits into the host window; it does not change device settings. */
@@ -90,28 +86,15 @@ internal fun ReviewViewport(scene: ReviewScene,theme: Theme = Theme.SYSTEM,fontS
         ReviewScene.EditorCreate -> EditorDemo(theme = theme,editing = false)
         ReviewScene.EditorEdit -> EditorDemo(theme = theme)
         ReviewScene.EditorError -> EditorDemo(ReviewData.editorError,theme)
-        ReviewScene.Payment -> PaymentDemo(theme = theme)
-        ReviewScene.History -> HistoryDemo(theme = theme)
-        ReviewScene.PaymentDetails -> HistoryDemo(PaymentsPreviewData.history.copy(selected = PaymentsPreviewData.rub.id),theme)
-        ReviewScene.Refund -> RefundDemo(theme = theme)
-        ReviewScene.RefundError -> RefundDemo(PaymentsPreviewData.refundForm.copy(errors = mapOf("amount" to R.string.history_refund_rules)),theme)
-        ReviewScene.FullRefund -> HistoryDemo(PaymentsPreviewData.history.copy(selected = PaymentsPreviewData.rub.id,
-            data = PaymentsPreviewData.history.data!!.copy(history = listOf(ReviewData.fullRefund))),theme)
         ReviewScene.Archive -> ArchiveDemo(theme = theme)
         ReviewScene.ArchiveEmpty -> ArchiveDemo(ArchiveUiState(ArchivePhase.Empty),theme)
         ReviewScene.Settings -> SettingsDemo(theme = theme)
         ReviewScene.TimeDialog -> TrackerTheme(theme) { SettingsTimeDialog(ArchiveSettingsPreviewData.settings.copy(timeOpen = true),{_,_ ->},{},{}) }
         ReviewScene.DeleteDialog -> LifecycleReviewDialog(DetailsAction.Delete,theme)
-        ReviewScene.MarkIssueDialog -> LifecycleReviewDialog(DetailsAction.MarkIssue,theme)
         ReviewScene.ResolveDateDialog -> LifecycleReviewDialog(DetailsAction.ResolveDate,theme)
         ReviewScene.DisableDialog -> LifecycleReviewDialog(DetailsAction.Disable,theme)
         ReviewScene.ReactivateDialog -> LifecycleReviewDialog(DetailsAction.Reactivate,theme)
         ReviewScene.ArchiveDialog -> LifecycleReviewDialog(DetailsAction.Archive,theme)
-        ReviewScene.DeletePaymentDialog -> HistoryReviewDialog(HistoryAction.DeletePayment,theme)
-        ReviewScene.DeleteRefundDialog -> HistoryReviewDialog(HistoryAction.DeleteRefund,theme)
-        ReviewScene.HistoricalPaymentDialog -> HistoryReviewDialog(HistoryAction.AddPayment,theme)
-        ReviewScene.EditPaymentDialog -> HistoryReviewDialog(HistoryAction.EditPayment,theme)
-        ReviewScene.EditRefundDialog -> HistoryReviewDialog(HistoryAction.EditRefund,theme)
         ReviewScene.UnsavedDialog -> TrackerTheme(theme) { TrackerConfirmationDialog(stringResource(R.string.editor_unsaved),stringResource(R.string.editor_unsaved_explanation),
             stringResource(R.string.editor_discard),stringResource(R.string.editor_continue),{},{}) }
     }
@@ -125,15 +108,8 @@ internal fun ReviewViewport(scene: ReviewScene,theme: Theme = Theme.SYSTEM,fontS
         lifecycleState = if(archived) LifecycleState.ARCHIVED else if(issue) LifecycleState.PAYMENT_ISSUE else LifecycleState.ACTIVE),
         lifecycle = if(archived) LifecycleView(VisibleStatus.ARCHIVED,null,null) else if(issue) LifecycleView(VisibleStatus.PAYMENT_ISSUE,null,null) else original.data.lifecycle),
         fields = mapOf("date" to "2027-04-16","amount" to "799,00","currency" to "RUB","count" to "1","unit" to "MONTH","mode" to "AUTO","end" to "2027-03-31","reanchor" to "false"))
-    TrackerTheme(theme) { DetailsActionDialog(state,{_,_ ->},{},{},{},{}) }
+    TrackerTheme(theme) { DetailsActionDialog(state,{_,_ ->},{},{},{}) }
 }
-@Composable private fun HistoryReviewDialog(action: HistoryAction,theme: Theme) {
-    val refund = action == HistoryAction.EditRefund || action == HistoryAction.DeleteRefund
-    val state = PaymentsPreviewData.history.copy(selected = PaymentsPreviewData.rub.id,action = action,
-        fields = mapOf("date" to if(refund) "2027-03-02" else "2027-03-01","amount" to if(refund) "300,00" else "999,00","currency" to "RUB"))
-    TrackerTheme(theme) { HistoryDialog(state,{_,_ ->},{},{},{},if(refund) PaymentsPreviewData.refund.id else null) }
-}
-
 @Preview(name = "Аудит • настройки 320 ×2",widthDp = 320,heightDp = 720,fontScale = 2f)
 @Composable private fun ReviewNarrowPreview() = ReviewViewport(ReviewScene.Settings,fontScale = 2f)
 @Preview(name = "Аудит • большие суммы",widthDp = 390,heightDp = 844,uiMode = Configuration.UI_MODE_NIGHT_YES)

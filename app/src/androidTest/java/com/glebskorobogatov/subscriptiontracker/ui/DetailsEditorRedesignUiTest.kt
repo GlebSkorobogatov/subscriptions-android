@@ -54,10 +54,29 @@ class DetailsEditorRedesignUiTest {
         compose.setContent { DetailsDemo(onAction = { actions += it }) }
         compose.onNodeWithText("Удалить подписку").assertDoesNotExist()
         compose.openDetailsManagement()
-        for ((label,action) in listOf("Проблема с оплатой" to DetailsAction.MarkIssue,"Продление отключено" to DetailsAction.Disable,
+        for ((label,action) in listOf("Продление отключено" to DetailsAction.Disable,
             "Архивировать" to DetailsAction.Archive,"Удалить подписку" to DetailsAction.Delete)) {
             compose.onNodeWithText(label).performScrollTo().assertHasClickAction().performClick()
             compose.runOnIdle { assertEquals(action,actions.last()) }
+        }
+    }
+    @Test fun legacyIssueHasOnlyNonFinancialRecoveryAndLegacyModesRemainRenderable() {
+        val state = mutableStateOf(data.details.copy(data = data.details.data!!.copy(
+            subscription = data.row.copy(lifecycleState = LifecycleState.PAYMENT_ISSUE),
+            lifecycle = LifecycleView(VisibleStatus.PAYMENT_ISSUE,null,null))))
+        val actions = mutableListOf<DetailsAction>()
+        compose.setContent { DetailsDemo(state.value,onAction = { actions += it }) }
+        compose.openDetailsManagement()
+        compose.onNodeWithText("Разрешить проблему изменением даты").performScrollTo().performClick()
+        compose.runOnIdle { assertEquals(listOf(DetailsAction.ResolveDate),actions) }
+        compose.onNodeWithText("Подтвердить оплату").assertDoesNotExist()
+        compose.onNodeWithText("История платежей и возвратов").assertDoesNotExist()
+        for (mode in RenewalMode.entries) {
+            compose.runOnIdle { state.value = state.value.copy(data = state.value.data!!.copy(
+                subscription = data.row.copy(renewalMode = mode),lifecycle = LifecycleView(VisibleStatus.ACTIVE,null,null))) }
+            compose.onNodeWithText("Разрешить проблему изменением даты").assertDoesNotExist()
+            compose.onNodeWithText("Проблема с оплатой").assertDoesNotExist()
+            compose.onNodeWithText("Изменить").assertHasClickAction()
         }
     }
     @Test fun archiveKeepsReactivationAndHidesPayment() {
@@ -72,7 +91,7 @@ class DetailsEditorRedesignUiTest {
         compose.setContent { DetailsDemo(data.details.copy(phase = DetailsPhase.OperationInProgress)) }
         compose.onNodeWithContentDescription("Назад").assertIsNotEnabled()
         compose.onNodeWithText("Изменить").assertIsNotEnabled()
-        compose.onNodeWithText("Подтвердить оплату").performScrollTo().assertIsNotEnabled()
+        compose.onAllNodesWithText("Изменить").assertAll(isNotEnabled())
     }
     @Test fun loadingErrorAndNotFoundRemainDistinctAndRetryWorks() {
         val state = mutableStateOf(data.details.copy(phase = DetailsPhase.Loading,data = null))

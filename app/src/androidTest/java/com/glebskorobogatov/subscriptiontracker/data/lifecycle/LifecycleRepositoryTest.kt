@@ -5,10 +5,9 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.glebskorobogatov.subscriptiontracker.data.room.*
-import com.glebskorobogatov.subscriptiontracker.data.payment.*
+import com.glebskorobogatov.subscriptiontracker.data.mapping.*
 import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.*
 import com.glebskorobogatov.subscriptiontracker.domain.model.*
-import com.glebskorobogatov.subscriptiontracker.domain.payment.*
 import java.time.*
 import java.util.UUID
 import kotlinx.coroutines.*
@@ -29,26 +28,23 @@ class LifecycleRepositoryTest {
     @After fun close() { db.close() }
     private suspend fun insert(s: SubscriptionEntity) = withContext(Dispatchers.IO) { db.subscriptions().insert(s) }
     private suspend fun read(s: SubscriptionEntity) = withContext(Dispatchers.IO) { db.subscriptions().find(s.id)!! }
-    private fun payment(s: SubscriptionEntity) = PaymentCommand(OperationId.random(), SubscriptionId(s.id), day,
-        Money(200, s.currencyCode), PaymentSource.CONFIRMED_RENEWAL, true, s.toDomain().schedule, s.renewalMode,
-        day.plusMonths(1), LifecycleState.PAYMENT_ISSUE)
-    @Test fun lifeT06T07IssuePaymentAtomicIdempotentAndConflictingRepeatRejected() = runBlocking {
-        val s = row(); insert(s)
-        val issue = repo.execute(s, LifecycleCommand.MarkPaymentIssue, now)
+    @Test fun existingIssueResolutionIsAtomicAndConcurrentStaleCommandsAreRejected() = runBlocking {
+        val issue = row().copy(lifecycleState = LifecycleState.PAYMENT_ISSUE); insert(issue)
+        val results = coroutineScope { (1..4).map { async {
+            try { repo.execute(issue,LifecycleCommand.ResolveWithDate(day.plusDays(2)),now); true }
+            catch (_: LifecycleConflict) { false }
+        } }.awaitAll() }
+        assertEquals(1,results.count { it }); assertEquals(LifecycleState.ACTIVE,read(issue).lifecycleState)
+        assertEquals(0L,read(issue).nextCycleIndex)
         withContext(Dispatchers.IO) { assertTrue(db.payments().all().isEmpty()) }
-        val command = payment(issue); val payments = PaymentRepository(db)
-        val results = coroutineScope { (1..4).map { async { payments.execute(command, day, now) } }.awaitAll() }
-        assertEquals(1, results.distinct().size)
-        assertEquals(LifecycleState.ACTIVE, read(s).lifecycleState); assertEquals(1L, read(s).nextCycleIndex)
-        try { payments.execute(command.copy(updateFuturePrice = false), day, now); fail() } catch (_: PaymentConflict) { }
-        withContext(Dispatchers.IO) { assertEquals(1, db.payments().all().size) }
     }
     @Test fun lifeT08T09ThreeResolutionPathsKeepHistoryForNonPaymentActions() = runBlocking {
-        val s = row(); insert(s)
-        val issue = repo.execute(s, LifecycleCommand.MarkPaymentIssue, now)
+        val s = row().copy(lifecycleState = LifecycleState.PAYMENT_ISSUE); insert(s)
+        val issue = s
         val moved = repo.execute(issue, LifecycleCommand.ResolveWithDate(day.plusDays(2)), now)
         assertEquals(LifecycleState.ACTIVE, moved.lifecycleState); assertEquals(day.plusDays(2), moved.oneOffDueDate)
-        val issueAgain = repo.execute(moved, LifecycleCommand.MarkPaymentIssue, now)
+        val issueAgain = moved.copy(lifecycleState = LifecycleState.PAYMENT_ISSUE)
+        withContext(Dispatchers.IO) { db.subscriptions().update(issueAgain) }
         assertEquals(LifecycleState.ARCHIVED, repo.execute(issueAgain, LifecycleCommand.Archive, now).lifecycleState)
         withContext(Dispatchers.IO) { assertTrue(db.payments().all().isEmpty()) }
     }
@@ -90,17 +86,17 @@ class LifecycleRepositoryTest {
     }
     @Test fun lifeT17ConcurrentCommandsAndStaleDeletionCannotOverwrite() = runBlocking {
         val s = row(); insert(s)
-        val outcomes = coroutineScope { listOf(LifecycleCommand.MarkPaymentIssue, LifecycleCommand.Archive).map { command ->
+        val outcomes = coroutineScope { listOf(LifecycleCommand.DisableRenewal(day), LifecycleCommand.Archive).map { command ->
             async { try { repo.execute(s, command, now); true } catch (_: LifecycleConflict) { false } }
         }.awaitAll() }
         assertEquals(1, outcomes.count { it })
         try { repo.delete(s, true); fail() } catch (_: LifecycleConflict) { }
     }
-    @Test fun failedPaymentRecoveryRollsBackStateAndHistory() = runBlocking {
-        val s = row(); insert(s); val issue = repo.execute(s, LifecycleCommand.MarkPaymentIssue, now)
+    @Test fun failedLegacyDateResolutionRollsBackStateAndHistory() = runBlocking {
+        val issue = row().copy(lifecycleState = LifecycleState.PAYMENT_ISSUE); insert(issue)
         withContext(Dispatchers.IO) { db.openHelper.writableDatabase.execSQL("CREATE TRIGGER fail_update BEFORE UPDATE ON subscriptions BEGIN SELECT RAISE(ABORT, 'injected'); END") }
-        try { PaymentRepository(db).execute(payment(issue), day, now); fail() } catch (_: android.database.sqlite.SQLiteException) { }
-        assertEquals(issue, read(s)); withContext(Dispatchers.IO) { assertTrue(db.payments().all().isEmpty()) }
+        try { repo.execute(issue,LifecycleCommand.ResolveWithDate(day.plusDays(2)),now); fail() } catch (_: android.database.sqlite.SQLiteException) { }
+        assertEquals(issue,read(issue)); withContext(Dispatchers.IO) { assertTrue(db.payments().all().isEmpty()) }
     }
     @Test fun failedBulkArchiveRollsBackAllRows() = runBlocking {
         val a = row(); val b = row(); insert(a); insert(b)
