@@ -2,7 +2,7 @@ package com.glebskorobogatov.subscriptiontracker.ui.archive
 
 import androidx.lifecycle.*
 import com.glebskorobogatov.subscriptiontracker.data.integration.SubscriptionUseCases
-import com.glebskorobogatov.subscriptiontracker.data.payment.toDomain
+import com.glebskorobogatov.subscriptiontracker.data.mapping.toDomain
 import com.glebskorobogatov.subscriptiontracker.data.room.SubscriptionEntity
 import com.glebskorobogatov.subscriptiontracker.ui.subscriptions.*
 import java.util.Locale

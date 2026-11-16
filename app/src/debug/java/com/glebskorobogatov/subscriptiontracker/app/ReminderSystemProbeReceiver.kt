@@ -8,7 +8,7 @@ import android.app.NotificationManager
 import androidx.work.WorkManager
 import com.glebskorobogatov.subscriptiontracker.background.*
 import com.glebskorobogatov.subscriptiontracker.data.reminders.*
-import com.glebskorobogatov.subscriptiontracker.data.payment.toDomain
+import com.glebskorobogatov.subscriptiontracker.data.mapping.toDomain
 import com.glebskorobogatov.subscriptiontracker.data.room.*
 import com.glebskorobogatov.subscriptiontracker.data.settings.*
 import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.*

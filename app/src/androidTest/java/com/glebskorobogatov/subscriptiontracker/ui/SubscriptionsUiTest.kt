@@ -130,7 +130,7 @@ class SubscriptionsUiTest {
     }
     @Test fun decisionsAreSeparateAndNotDuplicatedInActiveList() {
         val issue = create("Проблема")
-        runBlocking { use.changeLifecycle(issue, LifecycleCommand.MarkPaymentIssue, now) }
+        runBlocking { withContext(Dispatchers.IO) { db.subscriptions().update(issue.copy(lifecycleState = LifecycleState.PAYMENT_ISSUE)) } }
         val manual = create("Просрочена", day.minusDays(1), mode = RenewalMode.MANUAL)
         val active = create("Обычная")
         start(); awaitContent(3)

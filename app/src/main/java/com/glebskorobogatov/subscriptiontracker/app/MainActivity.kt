@@ -82,6 +82,7 @@ open class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        com.glebskorobogatov.subscriptiontracker.ui.navigation.RestoredNavigation.sanitize(savedInstanceState)
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         if (savedInstanceState == null && intent?.action == NotificationRoute.OPEN) notifications.open(intent.dataString)

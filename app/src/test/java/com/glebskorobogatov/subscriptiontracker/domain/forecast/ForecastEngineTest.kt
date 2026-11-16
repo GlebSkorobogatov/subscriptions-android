@@ -64,13 +64,12 @@ class ForecastEngineTest {
         assertEquals((0L..6L).map { d("2027-01-01").plusDays(it * 14) }, result.charges.map { it.dueDate })
         assertEquals(Money(700, rub), result.totalsByCurrency[rub])
     }
-    @Test fun fcT07ManualProducesExactlyOneUntilExplicitConfirmation() {
+    @Test fun fcT07ManualProducesExactlyOneUntilExplicitScheduleEdit() {
         val s = sub(mode = RenewalMode.MANUAL)
         assertEquals(1, engine.calendarMonths(listOf(s), d("2026-12-31"), 12).charges.size)
         assertEquals(1, engine.calendarMonths(listOf(s), d("2027-01-01"), 12).charges.size)
         assertTrue(engine.calendarMonths(listOf(s), d("2027-01-02"), 12).charges.isEmpty())
-        val renewed = SubscriptionLifecycleService().confirmRenewal(s, OperationId(UUID(0, 5)),
-            d("2027-01-02"), s.price, d("2027-02-02")).subscription
+        val renewed = s.copy(schedule = calendar.moveFutureSeries(s.schedule, d("2027-02-02")))
         assertEquals(listOf(d("2027-02-02")), engine.calendarMonths(listOf(renewed), d("2027-01-02"), 12).charges.map { it.dueDate })
     }
     @Test fun fcT08ExcludedStatesRegardlessOfDatesOrPaidAccess() {
@@ -82,18 +81,11 @@ class ForecastEngineTest {
         }
         assertTrue(engine.next30Days(listOf(sub(mode = RenewalMode.MANUAL)), d("2027-01-02")).charges.isEmpty())
     }
-    @Test fun fcT09HistoryIsNotAnInputAndAutoDoesNotCreatePayments() {
-        val s = sub()
-        val history = mutableListOf<PaymentIntent>()
-        val before = engine.next30Days(listOf(s), d("2027-01-01"))
-        assertTrue(history.isEmpty())
-        val result = SubscriptionLifecycleService().addHistoricalPayment(s, OperationId(UUID(0, 5)), d("2027-01-01"), s.price)
-        history += result.paymentIntent!!
-        val refunds = mutableListOf(Money(10, rub)) // External history has no engine input path.
-        assertEquals(before, engine.next30Days(listOf(result.subscription), d("2027-01-01")))
-        assertEquals(1, history.size)
-        assertEquals(listOf(Money(10, rub)), refunds)
-        assertEquals(0L, s.schedule.nextCycleIndex)
+    @Test fun fcT09ForecastLookupNeverMutatesScheduleOrState() {
+        val s = sub(); val original = s.copy()
+        assertEquals(1, engine.next30Days(listOf(s), d("2027-01-01")).charges.size)
+        engine.calendarMonths(listOf(s), d("2037-01-01"), 12)
+        assertEquals(original, s); assertEquals(0L, s.schedule.nextCycleIndex)
     }
     @Test fun fcT10RecalculatesPriceScheduleDateStateAndMode() {
         val s = sub()

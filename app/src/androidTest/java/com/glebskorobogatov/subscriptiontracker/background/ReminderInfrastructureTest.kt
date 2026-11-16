@@ -245,7 +245,7 @@ class ReminderInfrastructureTest {
         assertEquals(0,signals)
         use.updateSettings { it.copy(paymentOffsetsDefault = setOf(0)) }
         assertEquals(1,signals)
-        use.changeLifecycle(sub,LifecycleCommand.MarkPaymentIssue,instant)
+        use.changeLifecycle(sub,LifecycleCommand.Archive,instant)
         assertEquals(2,signals)
         try { use.changeLifecycle(sub,LifecycleCommand.Archive,instant); fail("stale snapshot") }
         catch (_: com.glebskorobogatov.subscriptiontracker.data.lifecycle.LifecycleConflict) { }

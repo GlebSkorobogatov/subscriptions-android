@@ -1,7 +1,7 @@
 package com.glebskorobogatov.subscriptiontracker.data.integration
 
 import com.glebskorobogatov.subscriptiontracker.data.room.*
-import com.glebskorobogatov.subscriptiontracker.data.payment.*
+import com.glebskorobogatov.subscriptiontracker.data.mapping.*
 import com.glebskorobogatov.subscriptiontracker.data.lifecycle.LifecycleConflict
 import com.glebskorobogatov.subscriptiontracker.domain.calendar.*
 import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.*

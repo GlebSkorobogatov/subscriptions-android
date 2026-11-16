@@ -1,15 +1,12 @@
 package com.glebskorobogatov.subscriptiontracker.data.integration
 
 import com.glebskorobogatov.subscriptiontracker.data.room.*
-import com.glebskorobogatov.subscriptiontracker.data.payment.*
+import com.glebskorobogatov.subscriptiontracker.data.mapping.*
 import com.glebskorobogatov.subscriptiontracker.data.lifecycle.*
-import com.glebskorobogatov.subscriptiontracker.data.refund.*
 import com.glebskorobogatov.subscriptiontracker.data.settings.*
 import com.glebskorobogatov.subscriptiontracker.domain.integration.*
 import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.*
 import com.glebskorobogatov.subscriptiontracker.domain.model.*
-import com.glebskorobogatov.subscriptiontracker.domain.payment.*
-import com.glebskorobogatov.subscriptiontracker.domain.refund.*
 import com.glebskorobogatov.subscriptiontracker.domain.forecast.*
 import java.time.*
 import java.util.UUID
@@ -17,18 +14,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.*
 
-data class PaymentHistoryItem(val payment: PaymentEntity, val refunds: List<RefundEntity>, val netExpense: Money)
 data class SubscriptionDetails(val subscription: SubscriptionEntity, val lifecycle: LifecycleView,
-    val history: List<PaymentHistoryItem>, val reminders: List<ReminderOverrideEntity>)
+    val reminders: List<ReminderOverrideEntity>)
 
 /** No owned scope/cache. Caller owns DB and Settings lease; UI may stateIn its own lifecycle scope. */
 class SubscriptionUseCases(
     private val database: TrackerDatabase,
     private val settingsRepository: SettingsRepository,
     val date: CurrentDate,
-    private val payments: PaymentRepository = PaymentRepository(database),
     private val lifecycle: LifecycleRepository = LifecycleRepository(database),
-    private val refunds: RefundRepository = RefundRepository(database),
     private val reminderChanges: com.glebskorobogatov.subscriptiontracker.data.reminders.ReminderChanges = com.glebskorobogatov.subscriptiontracker.data.reminders.ReminderChanges(),
     private val assetStore: com.glebskorobogatov.subscriptiontracker.data.assets.AssetStore? = null,
 ) {
@@ -54,17 +48,10 @@ class SubscriptionUseCases(
         forecast.calendarMonths(rows, today, selection.first, selection.second)
     }.distinctUntilChanged().flowOn(Dispatchers.Default)
 
-    fun details(id: UUID): Flow<SubscriptionDetails?> = combine(database.subscriptions().observeHistory(id), date.today) { row, today ->
-        row?.let {
-            val history = it.payments.sortedWith(compareBy<PaymentWithRefunds> { item -> item.payment.paidOn }.thenBy { item -> item.payment.id.toString() }).map { item ->
-                val p = item.payment
-                val returns = item.refunds.sortedWith(compareBy<RefundEntity> { r -> r.refundedOn }.thenBy { r -> r.id.toString() })
-                PaymentHistoryItem(p, returns, RefundRules().netExpense(PaidAmount(p.paidOn, Money(p.amountMinor, p.currencyCode)),
-                    returns.map { r -> ReturnedAmount(r.refundedOn, Money(r.amountMinor, r.currencyCode)) }, today))
-            }
-            SubscriptionDetails(it.subscription, SubscriptionLifecycleService().view(it.subscription.toDomain(), today), history,
-                it.reminders.sortedBy { r -> r.eventType.name })
-        }
+    /** One transactional Room relation: no payment/refund tables are queried by details. */
+    fun details(id: UUID): Flow<SubscriptionDetails?> = combine(database.subscriptions().observeDetails(id), date.today) { row, today ->
+        row?.let { SubscriptionDetails(it.subscription, SubscriptionLifecycleService().view(it.subscription.toDomain(), today),
+            it.reminders.sortedBy { reminder -> reminder.eventType.name }) }
     }.distinctUntilChanged().flowOn(Dispatchers.Default)
 
     suspend fun stageImage(uri: android.net.Uri): UUID = requireNotNull(assetStore).stage(uri)
@@ -102,28 +89,12 @@ class SubscriptionUseCases(
         })
         orphan?.let { assetStore?.removeFile(it) }
     }
-    suspend fun confirmPayment(expected: SubscriptionEntity, command: PaymentCommand, recordedAt: Instant): PaymentEntity {
-        require(command.source == PaymentSource.CONFIRMED_RENEWAL && command.subscriptionId.value == expected.id)
-        return reminderChanges.write { payments.execute(command, date.today.value, recordedAt, expected) }
-    }
-    suspend fun addHistoricalPayment(operationId: OperationId, subscriptionId: SubscriptionId, paidOn: LocalDate, amount: Money, recordedAt: Instant) =
-        payments.execute(PaymentCommand(operationId, subscriptionId, paidOn, amount, PaymentSource.MANUAL_HISTORY), date.today.value, recordedAt)
-    /** Covers MarkPaymentIssue, ResolveWithDate, DisableRenewal, Archive and Reactivate. */
+    /** Non-payment lifecycle operations; no command can create PAYMENT_ISSUE or financial facts. */
     suspend fun changeLifecycle(expected: SubscriptionEntity, command: LifecycleCommand, changedAt: Instant) = reminderChanges.write { lifecycle.execute(expected, command, changedAt) }
-    suspend fun resolvePaymentIssue(expected: SubscriptionEntity, command: PaymentCommand, recordedAt: Instant): PaymentEntity {
-        require(command.expectedState == LifecycleState.PAYMENT_ISSUE)
-        return confirmPayment(expected, command, recordedAt)
-    }
-    fun suggestNextDate(snapshot: SubscriptionEntity, paidOn: LocalDate): LocalDate = SubscriptionLifecycleService().suggestNextDate(snapshot.toDomain(), paidOn)
     suspend fun deleteSubscription(expected: SubscriptionEntity, confirmed: Boolean) = reminderChanges.write {
         lifecycle.delete(expected, confirmed)
         expected.logoAssetId?.let { runCatching { cleanupAsset(it) } }
     }
-    suspend fun addRefund(value: RefundEntity) = refunds.addRefund(value, date.today.value)
-    suspend fun editRefund(expected: RefundEntity, refundedOn: LocalDate, amount: Money) = refunds.editRefund(expected, refundedOn, amount, date.today.value)
-    suspend fun deleteRefund(expected: RefundEntity) = refunds.deleteRefund(expected, date.today.value)
-    suspend fun editPayment(expected: PaymentEntity, paidOn: LocalDate, amount: Money) = refunds.editPayment(expected, paidOn, amount, date.today.value)
-    suspend fun deletePayment(expected: PaymentEntity, confirmed: Boolean) = refunds.deletePayment(expected, confirmed)
     suspend fun updateSettings(transform: (Settings) -> Settings) {
         reminderChanges.write(shouldNotify = { it }) {
             val before = settingsRepository.settings.first()

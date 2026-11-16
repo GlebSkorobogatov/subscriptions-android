@@ -1,6 +1,6 @@
 package com.glebskorobogatov.subscriptiontracker.data.lifecycle
 
-import com.glebskorobogatov.subscriptiontracker.data.payment.*
+import com.glebskorobogatov.subscriptiontracker.data.mapping.*
 import com.glebskorobogatov.subscriptiontracker.data.room.*
 import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.*
 import java.time.Instant
@@ -34,6 +34,8 @@ class LifecycleRepository(private val database: TrackerDatabase,
         require(confirmed) { "Окончательное удаление требует явного подтверждения" }
         database.runInTransaction(Callable {
             current(expected)
+            // v4 compatibility tombstones only for the explicitly deleted subscription's old rows.
+            // No receipt replay consumer remains; remove these with retired tables in R1b.4.
             database.payments().forSubscription(expected.id).forEach {
                 database.retiredPaymentOperations().insert(RetiredPaymentOperation(it.operationId))
             }

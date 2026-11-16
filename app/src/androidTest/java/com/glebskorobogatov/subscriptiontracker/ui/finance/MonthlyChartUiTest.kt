@@ -5,7 +5,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import com.glebskorobogatov.subscriptiontracker.data.payment.toDomain
+import com.glebskorobogatov.subscriptiontracker.data.mapping.toDomain
 import com.glebskorobogatov.subscriptiontracker.domain.forecast.ForecastEngine
 import com.glebskorobogatov.subscriptiontracker.domain.model.*
 import com.glebskorobogatov.subscriptiontracker.ui.design.TrackerTheme

@@ -8,6 +8,7 @@ import java.time.temporal.ChronoUnit
 enum class RenewalMode { AUTO, MANUAL }
 enum class LifecycleState { ACTIVE, PAYMENT_ISSUE, CANCELLATION_SCHEDULED, ARCHIVED }
 enum class VisibleStatus { ACTIVE, AWAITING_RENEWAL, PAYMENT_ISSUE, CANCELLATION_SCHEDULED, ARCHIVED }
+/** Storage-only discriminator for historical v4 rows, removed with the tables in R1b.4. No payment command consumes it. */
 enum class PaymentSource { CONFIRMED_RENEWAL, MANUAL_HISTORY }
 
 data class Subscription(
@@ -25,10 +26,7 @@ data class Subscription(
     }
 }
 
-/** A request for persistence, never a claim that a transaction has committed. */
-data class PaymentIntent(val operationId: OperationId, val subscriptionId: SubscriptionId,
-    val paidOn: LocalDate, val amount: Money, val source: PaymentSource)
-data class LifecycleResult(val subscription: Subscription, val paymentIntent: PaymentIntent? = null)
+data class LifecycleResult(val subscription: Subscription)
 data class LifecycleView(val status: VisibleStatus, val expectedDate: LocalDate?, val remainingFraction: Double?)
 class InvalidTransition(message: String) : IllegalArgumentException(message)
 
@@ -70,57 +68,11 @@ class SubscriptionLifecycleService(private val calendar: DefaultRenewalCalendar 
         return if (low == 0L) null else calendar.plannedCycleDate(schedule, low - 1)
     }
 
-    fun suggestNextDate(s: Subscription, paidOn: LocalDate): LocalDate =
-        calendar.plannedCycleDate(RenewalSchedule(RenewalAnchor.from(paidOn), s.schedule.frequency), 1)
-
-    /** Manual confirmation consumes one cycle; reanchor must be an explicit choice. */
-    fun confirmRenewal(s: Subscription, operationId: OperationId, paidOn: LocalDate,
-        amount: Money, selectedNext: LocalDate, reanchor: Boolean = false): LifecycleResult {
-        allowed(s.state == LifecycleState.ACTIVE && s.mode == RenewalMode.MANUAL)
-        require(selectedNext > paidOn) { "Next date must follow actual payment date" }
-        val advanced = s.schedule.copy(nextCycleIndex = Math.incrementExact(s.schedule.nextCycleIndex), oneOff = null)
-        val next = if (reanchor) calendar.moveFutureSeries(advanced, selectedNext)
-            else calendar.moveNextOnly(advanced, selectedNext)
-        return LifecycleResult(s.copy(schedule = next, periodStartOverride = null),
-            intent(s, operationId, paidOn, amount, PaymentSource.CONFIRMED_RENEWAL))
-    }
-
-    /** Explicit confirmation of exactly the next unresolved AUTO cycle, never a clock action. */
-    fun confirmAuto(s: Subscription, operationId: OperationId, paidOn: LocalDate, amount: Money): LifecycleResult {
-        allowed(s.state == LifecycleState.ACTIVE && s.mode == RenewalMode.AUTO)
-        val next = s.schedule.copy(nextCycleIndex = Math.incrementExact(s.schedule.nextCycleIndex), oneOff = null)
-        calendar.nextScheduledDate(next)
-        return LifecycleResult(s.copy(schedule = next, periodStartOverride = null),
-            intent(s, operationId, paidOn, amount, PaymentSource.CONFIRMED_RENEWAL))
-    }
-
-    fun addHistoricalPayment(s: Subscription, operationId: OperationId, paidOn: LocalDate, amount: Money) =
-        LifecycleResult(s, intent(s, operationId, paidOn, amount, PaymentSource.MANUAL_HISTORY))
-
-    private fun intent(s: Subscription, id: OperationId, date: LocalDate, amount: Money, source: PaymentSource): PaymentIntent {
-        amount.requirePositive()
-        return PaymentIntent(id, s.id, date, amount, source)
-    }
-
-    fun markPaymentIssue(s: Subscription): LifecycleResult {
-        allowed(s.state == LifecycleState.ACTIVE && s.mode == RenewalMode.AUTO)
-        return LifecycleResult(s.copy(state = LifecycleState.PAYMENT_ISSUE))
-    }
-
+    /** Legacy-only recovery of an existing PAYMENT_ISSUE row; no action creates that state. Removed in R1b.4. */
     fun resolveWithDate(s: Subscription, date: LocalDate, reanchor: Boolean = false): LifecycleResult {
         allowed(s.state == LifecycleState.PAYMENT_ISSUE)
         val next = if (reanchor) calendar.moveFutureSeries(s.schedule, date) else calendar.moveNextOnly(s.schedule, date)
         return LifecycleResult(s.copy(state = LifecycleState.ACTIVE, schedule = next, periodStartOverride = null))
-    }
-
-    fun resolveWithPayment(s: Subscription, operationId: OperationId, paidOn: LocalDate,
-        amount: Money, selectedNext: LocalDate, reanchor: Boolean = false): LifecycleResult {
-        allowed(s.state == LifecycleState.PAYMENT_ISSUE)
-        require(selectedNext > paidOn)
-        val advanced = s.schedule.copy(nextCycleIndex = Math.incrementExact(s.schedule.nextCycleIndex), oneOff = null)
-        val next = if (reanchor) calendar.moveFutureSeries(advanced, selectedNext) else calendar.moveNextOnly(advanced, selectedNext)
-        return LifecycleResult(s.copy(state = LifecycleState.ACTIVE, schedule = next, periodStartOverride = null),
-            intent(s, operationId, paidOn, amount, PaymentSource.CONFIRMED_RENEWAL))
     }
 
     fun cancelRenewal(s: Subscription, paidAccessEnd: LocalDate? = s.paidAccessEnd): LifecycleResult {

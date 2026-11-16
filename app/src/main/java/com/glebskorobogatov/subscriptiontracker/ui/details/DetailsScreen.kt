@@ -37,21 +37,21 @@ import com.glebskorobogatov.subscriptiontracker.data.room.ReminderEventType
 import com.glebskorobogatov.subscriptiontracker.data.room.ReminderMode
 
 @Composable
-fun DetailsScreen(vm: DetailsViewModel, id: UUID, exitRequest: Int, onBack: () -> Unit, onEdit: () -> Unit, onDeleted: () -> Unit, onHistory: () -> Unit) {
+fun DetailsScreen(vm: DetailsViewModel, id: UUID, exitRequest: Int, onBack: () -> Unit, onEdit: () -> Unit, onDeleted: () -> Unit) {
     val state by vm.state.collectAsStateWithLifecycle()
     fun leave() { if (state.phase != DetailsPhase.OperationInProgress && !state.frozen) onBack() }
     BackHandler { if (state.action != null) vm.dismiss() else leave() }
     var lastExit by remember { mutableIntStateOf(exitRequest) }
     LaunchedEffect(exitRequest) { if (lastExit != exitRequest) { lastExit = exitRequest; leave() } }
     LaunchedEffect(state.deleted) { if (state.deleted) onDeleted() }
-    DetailsPane(state, id, { leave() }, onEdit, onDeleted, onHistory, vm::open, vm::refresh)
-    if (state.action != null) DetailsActionDialog(state, vm::change, vm::submit, vm::dismiss, vm::refresh, vm::suggest)
+    DetailsPane(state, id, { leave() }, onEdit, onDeleted, vm::open, vm::refresh)
+    if (state.action != null) DetailsActionDialog(state, vm::change, vm::submit, vm::dismiss, vm::refresh)
 }
 
 /** Read-only presentation adapter; callbacks still enter the existing ViewModel commands. */
 @Composable
 internal fun DetailsPane(state: DetailsUiState, id: UUID, onBack: () -> Unit, onEdit: () -> Unit,
-    onDeleted: () -> Unit, onHistory: () -> Unit, onAction: (DetailsAction) -> Unit, onRefresh: () -> Unit) {
+    onDeleted: () -> Unit, onAction: (DetailsAction) -> Unit, onRefresh: () -> Unit) {
     val enabled = state.phase != DetailsPhase.OperationInProgress && state.action == null
     ProvideTextStyle(MaterialTheme.typography.bodyMedium.copy(
         lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.None))) {
@@ -113,8 +113,6 @@ internal fun DetailsPane(state: DetailsUiState, id: UUID, onBack: () -> Unit, on
                                 }
                             }
                         }
-                        if(s.lifecycleState == LifecycleState.ACTIVE || s.lifecycleState == LifecycleState.PAYMENT_ISSUE)
-                            TrackerPrimaryButton(stringResource(R.string.details_pay), { onAction(DetailsAction.Payment) }, Modifier.fillMaxWidth(),enabled)
                         TrackerListRow(stringResource(R.string.details_renewal_label),supportingText = stringResource(if(s.renewalMode == RenewalMode.AUTO) R.string.status_auto else R.string.status_manual))
                         // Cancelled access is already the main event above; display a stored end only once.
                         s.paidAccessEndDate?.takeIf { s.lifecycleState != LifecycleState.CANCELLATION_SCHEDULED }?.let {
@@ -134,16 +132,6 @@ internal fun DetailsPane(state: DetailsUiState, id: UUID, onBack: () -> Unit, on
                             }
                             TrackerListRow(stringResource(label),supportingText = summary)
                         }
-                        HorizontalDivider(color = TrackerDesign.colors.divider)
-                        TrackerListRow(stringResource(R.string.history_title), supportingText = stringResource(R.string.details_history_link_note),
-                            onClick = if(enabled) onHistory else null)
-                        Text(stringResource(R.string.details_history),style = MaterialTheme.typography.titleMedium,modifier = Modifier.semantics { heading() })
-                        if(detail.history.isEmpty()) Text(stringResource(R.string.details_no_history),color = TrackerDesign.colors.textSecondary)
-                        com.glebskorobogatov.subscriptiontracker.ui.history.historyNewestFirst(detail.history).take(5).forEach { item ->
-                            Text(stringResource(R.string.details_paid,item.payment.paidOn.toString(),Money(item.payment.amountMinor,item.payment.currencyCode).format(),item.payment.currencyCode.value))
-                            item.refunds.forEach { refund -> Text(stringResource(R.string.details_refund,refund.refundedOn.toString(),Money(refund.amountMinor,refund.currencyCode).format(),refund.currencyCode.value)) }
-                        }
-                        HorizontalDivider(color = TrackerDesign.colors.divider)
                         var management by rememberSaveable { mutableStateOf(false) }
                         val managementState = stringResource(if(management) R.string.ui_expanded else R.string.ui_collapsed)
                         TrackerListRow(stringResource(R.string.details_management),Modifier.testTag("details_management").semantics { stateDescription = managementState },
@@ -156,7 +144,6 @@ internal fun DetailsPane(state: DetailsUiState, id: UUID, onBack: () -> Unit, on
                                 }
                             }
                             if(s.lifecycleState == LifecycleState.ACTIVE || s.lifecycleState == LifecycleState.PAYMENT_ISSUE) {
-                                if(s.lifecycleState == LifecycleState.ACTIVE && s.renewalMode == RenewalMode.AUTO) action(R.string.status_payment_issue,DetailsAction.MarkIssue)
                                 if(s.lifecycleState == LifecycleState.PAYMENT_ISSUE) action(R.string.details_resolve_date,DetailsAction.ResolveDate)
                                 action(R.string.details_disable,DetailsAction.Disable)
                             }
@@ -190,11 +177,10 @@ internal fun DetailsPane(state: DetailsUiState, id: UUID, onBack: () -> Unit, on
 
 @Composable
 internal fun DetailsActionDialog(state: DetailsUiState, onChange: (String, String) -> Unit,
-    onSubmit: () -> Unit, onDismiss: () -> Unit, onRefresh: () -> Unit, onSuggest: () -> Unit) {
+    onSubmit: () -> Unit, onDismiss: () -> Unit, onRefresh: () -> Unit) {
     val action = requireNotNull(state.action)
     val busy = state.phase == DetailsPhase.OperationInProgress
     val title = stringResource(when(action) {
-            DetailsAction.Payment -> R.string.details_pay; DetailsAction.MarkIssue -> R.string.status_payment_issue
             DetailsAction.ResolveDate -> R.string.details_resolve_date; DetailsAction.Disable -> R.string.details_disable
             DetailsAction.Archive -> R.string.details_archive; DetailsAction.Reactivate -> R.string.details_reactivate; DetailsAction.Delete -> R.string.details_delete
         })
@@ -216,35 +202,6 @@ internal fun DetailsActionDialog(state: DetailsUiState, onChange: (String, Strin
                             if(key == "amount") androidx.compose.ui.text.input.KeyboardType.Decimal else androidx.compose.ui.text.input.KeyboardType.Text))
                 }
                 when(action) {
-                    DetailsAction.Payment -> {
-                        state.data?.subscription?.let { subscription ->
-                            Text(subscription.name,style = MaterialTheme.typography.titleMedium)
-                            Text(stringResource(R.string.payment_plan_value,Money(subscription.priceMinor,subscription.currencyCode).format(),subscription.currencyCode.value),
-                                color = TrackerDesign.colors.textSecondary)
-                        }
-                        Text(stringResource(R.string.payment_fact_note),color = TrackerDesign.colors.textSecondary)
-                        field("paid",R.string.details_paid_date); field("amount",R.string.payment_actual_label); field("currency",R.string.editor_currency)
-                        if(state.fields["needsNext"] == "true") {
-                            field("next",R.string.details_next_date)
-                            TextButton(onClick = onSuggest,enabled = !busy && !state.frozen) { Text(stringResource(R.string.details_suggest)) }
-                        }
-                        val planned = state.data?.subscription
-                        val samePrice = planned != null && runCatching {
-                            Money.parse(state.fields["amount"].orEmpty(),CurrencyCode.of(state.fields["currency"].orEmpty())) == Money(planned.priceMinor,planned.currencyCode)
-                        }.getOrDefault(false)
-                        if(!samePrice) {
-                        Text(stringResource(R.string.details_price_question))
-                        listOf("keep" to R.string.details_price_keep,"update" to R.string.details_price_update).forEach { (choice,label) ->
-                            Row(Modifier.fillMaxWidth().semantics(mergeDescendants = true) {}.selectable(
-                                selected = state.fields["priceChoice"] == choice,enabled = !busy && !state.frozen,
-                                role = Role.RadioButton,onClick = { onChange("priceChoice",choice) }).heightIn(min = TrackerDimensions.minimumTouchTarget),
-                                verticalAlignment = Alignment.CenterVertically) {
-                                RadioButton(selected = state.fields["priceChoice"] == choice,onClick = null,enabled = !busy && !state.frozen)
-                                Text(stringResource(label),Modifier.weight(1f))
-                            }
-                        }
-                        }
-                    }
                     DetailsAction.ResolveDate -> { field("date",R.string.details_next_date); Text(stringResource(R.string.details_no_payment)) }
                     DetailsAction.Disable -> { Text(stringResource(R.string.details_disable_explanation)); field("end",R.string.editor_end) }
                     DetailsAction.Reactivate -> {
@@ -259,9 +216,8 @@ internal fun DetailsActionDialog(state: DetailsUiState, onChange: (String, Strin
                     }
                     DetailsAction.Delete -> Text(stringResource(R.string.details_delete_warning))
                     DetailsAction.Archive -> Text(stringResource(R.string.details_archive_warning))
-                    DetailsAction.MarkIssue -> Text(stringResource(R.string.details_issue_warning))
                 }
-                if(action == DetailsAction.ResolveDate || action == DetailsAction.Payment && state.fields["needsNext"] == "true") {
+                if(action == DetailsAction.ResolveDate) {
                     Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).toggleable(state.fields["reanchor"] == "true",
                         enabled = !busy && !state.frozen,role = Role.Checkbox,onValueChange = { onChange("reanchor",it.toString()) })) {
                         Checkbox(state.fields["reanchor"] == "true",onCheckedChange = null,enabled = !busy && !state.frozen)

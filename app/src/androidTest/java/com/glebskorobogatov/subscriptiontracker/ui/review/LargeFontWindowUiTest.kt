@@ -36,26 +36,24 @@ class LargeFontWindowUiTest {
     @Test fun landscapeDialogsKeepConfirmationAndCancelReachableAtLargeFont() {
         orient(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE,Configuration.ORIENTATION_LANDSCAPE)
         try {
-            val scene = mutableStateOf(ReviewScene.Payment);var density = 1f
+            val scene = mutableStateOf(ReviewScene.ReactivateDialog);var density = 1f
             compose.setContent { ReviewViewport(scene.value,Theme.DARK,2f,onDensity = { density = it }) }
             val artifacts = ReviewArtifacts("landscape-dark")
             for((s,action,cancel) in listOf(
-                Triple(ReviewScene.Payment,"Подтвердить","Отмена"),Triple(ReviewScene.RefundError,"Сохранить","Отмена"),
+
                 Triple(ReviewScene.TimeDialog,"Применить время","Отмена"),Triple(ReviewScene.DeleteDialog,"Подтвердить","Отмена"),
-                Triple(ReviewScene.MarkIssueDialog,"Подтвердить","Отмена"),Triple(ReviewScene.ResolveDateDialog,"Подтвердить","Отмена"),
+                Triple(ReviewScene.ResolveDateDialog,"Подтвердить","Отмена"),
                 Triple(ReviewScene.DisableDialog,"Подтвердить","Отмена"),Triple(ReviewScene.ReactivateDialog,"Подтвердить","Отмена"),
-                Triple(ReviewScene.ArchiveDialog,"Подтвердить","Отмена"),Triple(ReviewScene.DeletePaymentDialog,"Удалить","Отмена"),
-                Triple(ReviewScene.DeleteRefundDialog,"Удалить","Отмена"),
+                Triple(ReviewScene.ArchiveDialog,"Подтвердить","Отмена"),
+
                 Triple(ReviewScene.UnsavedDialog,text(R.string.editor_discard),text(R.string.editor_continue)))) {
                 compose.runOnIdle { scene.value = s }
-                if(s == ReviewScene.Payment) nativeScale(compose.onNodeWithText(text(R.string.details_pay)))
                 compose.onNodeWithText(action).assertIsDisplayed().assertHasClickAction()
                 compose.onNodeWithText(cancel).assertIsDisplayed().assertHasClickAction()
                 val field = when(s) {
-                    ReviewScene.Payment,ReviewScene.ReactivateDialog -> "details_field_amount"
+                    ReviewScene.ReactivateDialog -> "details_field_amount"
                     ReviewScene.ResolveDateDialog -> "details_field_date"
                     ReviewScene.DisableDialog -> "details_field_end"
-                    ReviewScene.RefundError -> "history_field_amount"
                     ReviewScene.TimeDialog -> "settings_hours"
                     else -> null
                 }
@@ -101,7 +99,7 @@ class LargeFontWindowUiTest {
         compose.setContent { ReviewViewport(scene.value,theme,font,onDensity = { density = it }) }
         val name = theme.name.lowercase();val artifacts = ReviewArtifacts("portrait-$name-f$font")
         val scenes = if(font == 1f) ReviewScene.entries else listOf(ReviewScene.SubscriptionsLong,ReviewScene.DetailsLong,
-            ReviewScene.EditorError,ReviewScene.Settings,ReviewScene.RefundError,ReviewScene.Archive)
+            ReviewScene.EditorError,ReviewScene.Settings,ReviewScene.Archive)
         for(s in scenes) {
             compose.runOnIdle { scene.value = s }
             when(s) {
@@ -110,7 +108,6 @@ class LargeFontWindowUiTest {
                 ReviewScene.DetailsLong -> compose.onNodeWithText("${Long.MAX_VALUE} JPY").performScrollTo()
                 else -> Unit
             }
-            if(s == ReviewScene.RefundError) nativeScale(compose.onNodeWithText(text(R.string.history_add_refund)))
             artifacts.capture(compose,s,name,font,density)
             if(s == ReviewScene.SubscriptionsLong) {
                 compose.onNodeWithTag("subscriptions_screen").performScrollToNode(hasTestTag("subscription_${ReviewData.longRow.id}"))

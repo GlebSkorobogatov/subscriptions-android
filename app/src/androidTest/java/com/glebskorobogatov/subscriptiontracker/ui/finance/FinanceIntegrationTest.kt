@@ -1,9 +1,10 @@
 package com.glebskorobogatov.subscriptiontracker.ui.finance
 
+import com.glebskorobogatov.subscriptiontracker.fixtures.*
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.glebskorobogatov.subscriptiontracker.data.integration.*
-import com.glebskorobogatov.subscriptiontracker.data.payment.toDomain
+import com.glebskorobogatov.subscriptiontracker.data.mapping.toDomain
 import com.glebskorobogatov.subscriptiontracker.data.room.*
 import com.glebskorobogatov.subscriptiontracker.data.settings.*
 import com.glebskorobogatov.subscriptiontracker.domain.integration.CurrentDate
@@ -29,9 +30,12 @@ class FinanceIntegrationTest {
     private val day = LocalDate.of(2027,1,31)
     private val now = Instant.parse("2027-01-31T12:00:00Z")
     private val rub = CurrencyCode.of("RUB")
-    @Before fun open() = runBlocking { reopen() }
+    @Before fun open() = runBlocking {
+        authorizeFreshFixture(context, dataset)
+        reopen()
+    }
     private suspend fun reopen() {
-        com.glebskorobogatov.subscriptiontracker.fixtures.authorizeFreshFixture(context, dataset); db = TrackerDatabaseFactory.open(context,dataset); lease = DatasetSettingsFactory.acquire(context,dataset)
+        db = TrackerDatabaseFactory.open(context,dataset); lease = DatasetSettingsFactory.acquire(context,dataset)
         use = SubscriptionUseCases(db,lease.repository,CurrentDate(day))
     }
     @After fun close() = runBlocking {
@@ -68,17 +72,19 @@ class FinanceIntegrationTest {
         suspend fun await(predicate: (FinanceSnapshot) -> Boolean) = withTimeout(5000) { updates.receiveAsFlow().first(predicate) }
         try {
             val first = await { it.forecast.charges.size == 4 }
-            val payment = use.addHistoricalPayment(OperationId.random(),SubscriptionId(a.id),day,Money(100,rub),now)
-            use.addRefund(RefundEntity(UUID.randomUUID(),payment.id,day,50,rub))
+            val payment = legacyPayment(db,a,day,100)
+            legacyRefund(db,payment,day,50)
             assertEquals(first.forecast,financeSnapshots(use).first().forecast)
             val edited = use.editSubscription(a,SubscriptionEdit(a.name,"Обновлённый",Money(200,rub),a.renewalMode),now.plusSeconds(1))
             await { it.forecast.totalsByCurrency[rub]?.amountMinor == 700L && it.rows.any { r -> r.accountLabel == "Обновлённый" } }
-            use.changeLifecycle(edited,LifecycleCommand.MarkPaymentIssue,now.plusSeconds(2))
+            use.changeLifecycle(edited,LifecycleCommand.Archive,now.plusSeconds(2))
             await { it.forecast.charges.size == 1 && it.forecast.charges.single().subscriptionId.value == manual.id }
             use.date.update(day.plusDays(1))
             await { it.forecast.availableCurrencies.isEmpty() && it.forecast.months.keys.first() == YearMonth.of(2027,2) }
-            assertEquals(1,use.details(a.id).first()!!.history.size)
-            assertEquals(50L,use.details(a.id).first()!!.history.single().netExpense.amountMinor)
+            withContext(Dispatchers.IO) {
+                assertEquals(listOf(payment),db.payments().forSubscription(a.id))
+                assertEquals(50L,db.refunds().forPayment(payment.id).single().amountMinor)
+            }
         } finally { job.cancelAndJoin(); updates.close() }
     }
 }

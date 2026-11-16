@@ -181,7 +181,7 @@ class ArchiveSettingsRedesignUiTest {
         var backs = 0
         compose.setContent { SettingsDemo(onBack = { backs++ }) }
         compose.onNodeWithText("Данные").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("Подписки и история хранятся на этом устройстве. Экспорт и импорт появятся на этапе резервного копирования.")
+        compose.onNodeWithText("Подписки, настройки и изображения хранятся на этом устройстве.")
             .assert(SemanticsMatcher.keyNotDefined(SemanticsActions.OnClick))
         compose.onNodeWithTag("settings_version").performScrollTo().assertTextEquals("Версия 0.1")
         compose.onNodeWithTag("bottom_navigation").assertDoesNotExist()

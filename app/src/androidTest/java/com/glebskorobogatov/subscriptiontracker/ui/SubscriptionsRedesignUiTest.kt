@@ -90,7 +90,7 @@ class SubscriptionsRedesignUiTest {
         compose.onNodeWithTag("forecast_summary").assertTextContains("В ближайшие 30 дней ожидаемых списаний нет")
         show(samples.issue.id).assertTextContains("Проблема с оплатой").assertTextContains("Проверьте оплату у сервиса.", substring = true)
         progress(samples.issue.id).assertDoesNotExist()
-        show(samples.awaiting.id).assertTextContains("Ожидает продления").assertTextContains("оплата не подтверждена", substring = true)
+        show(samples.awaiting.id).assertTextContains("Ожидает продления").assertTextContains("при необходимости измените будущий график", substring = true)
         progress(samples.awaiting.id).assertRangeInfoEquals(ProgressBarRangeInfo(0f, 0f..1f))
         compose.onNodeWithTag("active_subscriptions_heading").assertDoesNotExist()
     }

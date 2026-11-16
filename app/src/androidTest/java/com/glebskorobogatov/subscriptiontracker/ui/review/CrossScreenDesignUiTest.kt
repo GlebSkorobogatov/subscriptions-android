@@ -172,7 +172,7 @@ class CrossScreenDesignUiTest {
         compose.setContent { ReviewViewport(scene.value,theme,font,onDensity = { density = it }) }
         val name = theme.name.lowercase();val artifacts = ReviewArtifacts("portrait-$name-f$font")
         val scenes = if(font == 1f) ReviewScene.entries else listOf(ReviewScene.SubscriptionsLong,ReviewScene.DetailsLong,
-            ReviewScene.EditorError,ReviewScene.Settings,ReviewScene.RefundError,ReviewScene.Archive)
+            ReviewScene.EditorError,ReviewScene.Settings,ReviewScene.Archive)
         for(s in scenes) {
             compose.runOnIdle { scene.value = s }
             when(s) {

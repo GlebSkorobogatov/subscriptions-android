@@ -5,7 +5,6 @@ import com.glebskorobogatov.subscriptiontracker.domain.model.*
 import java.time.LocalDate
 
 sealed interface LifecycleCommand {
-    data object MarkPaymentIssue : LifecycleCommand
     data class ResolveWithDate(val nextDate: LocalDate, val reanchor: Boolean = false) : LifecycleCommand
     /** Null means preserve a known end; never infer an unknown end. */
     data class DisableRenewal(val paidAccessEnd: LocalDate? = null) : LifecycleCommand
@@ -15,7 +14,6 @@ sealed interface LifecycleCommand {
 
 class LifecycleCommands(private val service: SubscriptionLifecycleService = SubscriptionLifecycleService()) {
     fun apply(s: Subscription, command: LifecycleCommand): Subscription = when (command) {
-        LifecycleCommand.MarkPaymentIssue -> service.markPaymentIssue(s).subscription
         is LifecycleCommand.ResolveWithDate -> service.resolveWithDate(s, command.nextDate, command.reanchor).subscription
         is LifecycleCommand.DisableRenewal -> service.cancelRenewal(s, command.paidAccessEnd ?: s.paidAccessEnd).subscription
         LifecycleCommand.Archive -> service.archive(s).subscription
