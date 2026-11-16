@@ -40,6 +40,8 @@ android {
         compose = true
     }
 
+    // Read-only preflight uses the unchanged Room snapshots as its historical source of truth.
+    sourceSets.getByName("main").assets.srcDir("schemas")
     sourceSets.getByName("androidTest").assets.srcDir("schemas")
 
     // Give the JVM smoke test the actual manifest and string resources.

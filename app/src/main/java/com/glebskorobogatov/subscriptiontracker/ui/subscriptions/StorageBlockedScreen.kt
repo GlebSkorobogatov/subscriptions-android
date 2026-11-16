@@ -23,7 +23,7 @@ fun StorageBlockedScreen(failure: StorageFailure, retry: () -> Unit) {
             modifier = Modifier.semantics { heading() })
         Text(stringResource(when (failure) {
             StorageFailure.INCOMPATIBLE -> R.string.storage_incompatible
-            StorageFailure.CORRUPT, StorageFailure.INVALID_POINTER -> R.string.storage_corrupt
+            StorageFailure.CORRUPT, StorageFailure.INVALID_POINTER, StorageFailure.LOST_DATABASE, StorageFailure.INITIALIZATION_UNCERTAIN -> R.string.storage_corrupt
             StorageFailure.TEMPORARY -> R.string.storage_temporary
             else -> R.string.storage_unknown
         }), Modifier.semantics { liveRegion = LiveRegionMode.Polite })

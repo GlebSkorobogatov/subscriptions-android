@@ -36,14 +36,14 @@ class ReminderInfrastructureTest {
 
     @Before fun open(): Unit = runBlocking {
         dataset = UUID.randomUUID(); access = TestGeneration(dataset); scheduler = RecordingScheduler()
-        db = TrackerDatabaseFactory.open(context,dataset); lease = DatasetSettingsFactory.acquire(context,dataset)
+        com.glebskorobogatov.subscriptiontracker.fixtures.authorizeFreshFixture(context, dataset); db = TrackerDatabaseFactory.open(context,dataset); lease = DatasetSettingsFactory.acquire(context,dataset)
         sub = SubscriptionEntity(UUID.randomUUID(),"Одинаковое имя","Личный",49900,CurrencyCode.of("RUB"),
             FrequencyUnit.MONTH,1,RenewalMode.AUTO,LifecycleState.ACTIVE,2027,1,5,0,null,null,null,null,null,null,null,instant,instant)
         withContext(Dispatchers.IO) { db.subscriptions().insert(sub) }
     }
     @After fun close(): Unit = runBlocking {
         withContext(Dispatchers.IO) { db.close() }; lease.close()
-        context.deleteDatabase("subscriptions-$dataset.db")
+        context.deleteDatabase("subscriptions-$dataset.db").also { _ -> com.glebskorobogatov.subscriptiontracker.fixtures.forgetFixtureInitialization(context, "subscriptions-$dataset.db") }
         context.preferencesFile(dataset).delete()
     }
     private fun Context.preferencesFile(id: UUID) = java.io.File(filesDir,"datastore/settings-$id.preferences_pb")

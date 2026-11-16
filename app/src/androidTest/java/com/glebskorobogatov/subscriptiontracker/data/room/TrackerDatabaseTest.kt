@@ -120,6 +120,8 @@ class TrackerDatabaseTest {
     }
     @Test fun allTablesRoundTripAndReopenPreserveExactValuesAndDatasetIsolation() {
         val dataset = id(); val other = id()
+        com.glebskorobogatov.subscriptiontracker.fixtures.authorizeFreshFixture(context, dataset)
+        com.glebskorobogatov.subscriptiontracker.fixtures.authorizeFreshFixture(context, other)
         var disk = TrackerDatabaseFactory.open(context, dataset)
         val isolated = TrackerDatabaseFactory.open(context, other)
         try {
@@ -135,7 +137,7 @@ class TrackerDatabaseTest {
             assertTrue(isolated.subscriptions().all().isEmpty())
         } finally {
             disk.close(); isolated.close()
-            context.deleteDatabase("subscriptions-$dataset.db"); context.deleteDatabase("subscriptions-$other.db")
+            context.deleteDatabase("subscriptions-$dataset.db").also { _ -> com.glebskorobogatov.subscriptiontracker.fixtures.forgetFixtureInitialization(context, "subscriptions-$dataset.db") }; context.deleteDatabase("subscriptions-$other.db").also { _ -> com.glebskorobogatov.subscriptiontracker.fixtures.forgetFixtureInitialization(context, "subscriptions-$other.db") }
         }
     }
 }

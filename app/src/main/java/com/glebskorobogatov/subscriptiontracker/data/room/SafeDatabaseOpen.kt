@@ -7,12 +7,15 @@ import java.io.IOException
 import kotlinx.coroutines.CancellationException
 
 /** Room must keep its callbacks, but neither SQLite's corruption callback nor helper recovery may delete files. */
-internal class PreservingOpenHelperFactory : SupportSQLiteOpenHelper.Factory {
+internal class PreservingOpenHelperFactory(private val allowCreate: Boolean = false) : SupportSQLiteOpenHelper.Factory {
     override fun create(configuration: SupportSQLiteOpenHelper.Configuration): SupportSQLiteOpenHelper {
         val original = configuration.callback
         val callback = object : SupportSQLiteOpenHelper.Callback(original.version) {
             override fun onConfigure(db: SupportSQLiteDatabase) = original.onConfigure(db)
-            override fun onCreate(db: SupportSQLiteDatabase) = original.onCreate(db)
+            override fun onCreate(db: SupportSQLiteDatabase) {
+                if (!allowCreate) throw StorageUnavailable(StorageFailure.LOST_DATABASE)
+                original.onCreate(db)
+            }
             override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = original.onUpgrade(db, oldVersion, newVersion)
             override fun onDowngrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = original.onDowngrade(db, oldVersion, newVersion)
             override fun onOpen(db: SupportSQLiteDatabase) = original.onOpen(db)
@@ -34,7 +37,7 @@ internal fun storageFailure(error: Exception): StorageUnavailable {
     if (error is StorageUnavailable) return error
     val failure = when (error) {
         is SQLiteDatabaseCorruptException -> StorageFailure.CORRUPT
-        is SQLiteDiskIOException, is SQLiteFullException, is SQLiteDatabaseLockedException,
+        is android.system.ErrnoException, is SQLiteReadOnlyDatabaseException, is SQLiteDiskIOException, is SQLiteFullException, is SQLiteDatabaseLockedException,
         is SQLiteTableLockedException, is SQLiteCantOpenDatabaseException, is IOException -> StorageFailure.TEMPORARY
         // These are Room's specific validation diagnostics, not arbitrary IllegalStateExceptions.
         is IllegalStateException -> if (listOf("Room cannot verify the data integrity", "Migration didn't properly handle",

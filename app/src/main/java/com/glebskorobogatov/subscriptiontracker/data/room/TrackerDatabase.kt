@@ -21,11 +21,16 @@ abstract class TrackerDatabase : RoomDatabase() {
      * This reads metadata only and never invokes create/drop/migration callbacks.
      */
     @android.annotation.SuppressLint("RestrictedApi") // Room 2.8 generated delegate is pinned; reuse its exact validator, not a duplicate schema.
-    internal fun validateOpenedSchema() {
+    internal fun validateSchema(connection: androidx.sqlite.SQLiteConnection) {
         val delegate = createOpenDelegate() as RoomOpenDelegate
-        val result = delegate.onValidateSchema(androidx.sqlite.driver.SupportSQLiteConnection(openHelper.writableDatabase))
+        val result = delegate.onValidateSchema(connection)
         if (!result.isValid) throw StorageUnavailable(StorageFailure.INCOMPATIBLE)
     }
+    @android.annotation.SuppressLint("RestrictedApi") // Both hashes are accepted by this pinned Room delegate.
+    internal fun schemaHashes(): Set<String> = (createOpenDelegate() as RoomOpenDelegate).let {
+        setOf(it.identityHash, it.legacyIdentityHash)
+    }
+
 }
 
 /** Explicit dataset selection; activation, file cleanup and atomic restore belong to stage H. */
@@ -36,37 +41,40 @@ object TrackerDatabaseFactory {
     /** Synchronous I/O: callers use Dispatchers.IO and the dataset mutation/pointer guards.
      * Returning means SQLite opened, Room validated/migrated, and integrity was checked.
      */
-    fun open(context: Context, datasetId: UUID): TrackerDatabase {
+    fun open(context: Context, datasetId: UUID): TrackerDatabase = open(context, datasetId) { fresh ->
+        Room.databaseBuilder(context.applicationContext, TrackerDatabase::class.java, "subscriptions-$datasetId.db")
+            .openHelperFactory(PreservingOpenHelperFactory(allowCreate = fresh)).build()
+    }
+
+    /** Test seam changes only the lazy Room builder; all production safety phases are shared. */
+    internal fun open(context: Context, datasetId: UUID, createRoom: (Boolean) -> TrackerDatabase): TrackerDatabase {
         try {
-            val name = "subscriptions-$datasetId.db"
-            val file = context.getDatabasePath(name)
-            if (!file.exists()) {
-                // A missing DB alongside retained dataset data is not a clean installation.
-                val settings = java.io.File(context.filesDir, "datastore/settings-$datasetId.preferences_pb")
-                val assets = java.io.File(context.filesDir, "assets/$datasetId")
-                if (settings.exists() || assets.exists() || java.io.File(file.path + "-wal").exists() ||
-                    java.io.File(file.path + "-shm").exists()) throw StorageUnavailable(StorageFailure.CORRUPT)
-            } else {
-                // Read-only, no CREATE_IF_NECESSARY. An existing empty/foreign file is not a new install.
-                android.database.sqlite.SQLiteDatabase.openDatabase(file.path, null,
-                    android.database.sqlite.SQLiteDatabase.OPEN_READONLY,
-                    android.database.DatabaseErrorHandler { throw StorageUnavailable(StorageFailure.CORRUPT) }).use { probe ->
-                    probe.rawQuery("PRAGMA quick_check", null).use { result ->
+            return InitializationJournal(context.filesDir, datasetId).locked {
+                val name = "subscriptions-$datasetId.db"
+                val file = context.getDatabasePath(name)
+                val state = read() // Corrupt or interrupted metadata is never overwritten.
+                val exists = file.exists()
+                if (!exists) {
+                    InitializationRecord.mayCreate(state)
+                    val settings = java.io.File(context.filesDir, "datastore/settings-$datasetId.preferences_pb")
+                    val assets = java.io.File(context.filesDir, "assets/$datasetId")
+                    if (settings.exists() || assets.exists() || java.io.File(file.path + "-wal").exists() ||
+                        java.io.File(file.path + "-shm").exists() || java.io.File(file.path + "-journal").exists())
+                        throw StorageUnavailable(StorageFailure.CORRUPT)
+                    consumeCreation() // Durable, one-use right consumed BEFORE any create-capable open.
+                }
+                if (exists && state == InitializationState.AUTHORIZED) consumeCreation()
+                validatedResource(create = { createRoom(!exists) }, validate = { db ->
+                    // build() is lazy: generated validation below must not access openHelper.
+                    if (exists) SchemaPreflight.validate(context, file, db::validateSchema, db.schemaHashes())
+                    val opened = db.openHelper.writableDatabase
+                    db.validateSchema(androidx.sqlite.driver.SupportSQLiteConnection(opened))
+                    opened.query("PRAGMA quick_check").use { result ->
                         if (!result.moveToFirst() || result.getString(0) != "ok") throw StorageUnavailable(StorageFailure.CORRUPT)
                     }
-                    if (probe.version !in supportedVersions) throw StorageUnavailable(StorageFailure.INCOMPATIBLE)
-                }
+                    ready() // Markerless legacy databases get READY only after both validation phases.
+                }, close = { it.close() })
             }
-            return validatedResource(create = {
-                Room.databaseBuilder(context.applicationContext, TrackerDatabase::class.java, name)
-                    .openHelperFactory(PreservingOpenHelperFactory()).build()
-            }, validate = { db ->
-                val opened = db.openHelper.writableDatabase // build() alone is not readiness.
-                db.validateOpenedSchema()
-                opened.query("PRAGMA quick_check").use { result ->
-                    if (!result.moveToFirst() || result.getString(0) != "ok") throw StorageUnavailable(StorageFailure.CORRUPT)
-                }
-            }, close = { it.close() })
         } catch (error: Exception) { throw storageFailure(error) }
     }
 }

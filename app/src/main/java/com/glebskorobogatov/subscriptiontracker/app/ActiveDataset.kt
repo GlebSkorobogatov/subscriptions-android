@@ -21,12 +21,16 @@ class ActiveDataset(private val directory: File) {
             fun children(file: File): List<File> = if (!file.exists()) emptyList() else
                 (file.listFiles() ?: throw java.io.IOException("Cannot inspect retained storage")).toList()
             val retained = File(pointer.baseFile.path + ".new").exists() ||
+                children(File(directory, com.glebskorobogatov.subscriptiontracker.data.room.InitializationJournal.DIRECTORY)).isNotEmpty() ||
                 children(File(directory, "assets")).isNotEmpty() ||
                 children(File(directory, "datastore")).any { it.name.startsWith("settings-") } ||
                 children(File(directory.parentFile, "databases")).any { it.name.startsWith("subscriptions-") }
             if (retained) throw com.glebskorobogatov.subscriptiontracker.data.room.StorageUnavailable(
                 com.glebskorobogatov.subscriptiontracker.data.room.StorageFailure.INVALID_POINTER)
             val id = UUID.randomUUID()
+            // Durable creation authority precedes the pointer. A crash before pointer publication
+            // leaves retained metadata and blocks generating a replacement UUID.
+            com.glebskorobogatov.subscriptiontracker.data.room.InitializationJournal(directory, id).locked { authorizeFresh() }
             val output = pointer.startWrite()
             try {
                 output.write(id.toString().toByteArray(Charsets.UTF_8))

@@ -26,11 +26,11 @@ class NotificationNavigationUiTest {
         sub = SubscriptionEntity(UUID.randomUUID(),"Целевая подписка","Проверка UUID",39900,CurrencyCode.of("RUB"),
             FrequencyUnit.MONTH,1,RenewalMode.AUTO,LifecycleState.ACTIVE,date.year,date.monthValue,date.dayOfMonth,0,
             null,null,null,null,null,null,null,Instant.now(),Instant.now())
-        val db = TrackerDatabaseFactory.open(context,dataset)
+        com.glebskorobogatov.subscriptiontracker.fixtures.authorizeFreshFixture(context, dataset); val db = TrackerDatabaseFactory.open(context,dataset)
         try { db.subscriptions().insert(sub) } finally { db.close() }
     }
     @After fun clean(): Unit {
-        context.deleteDatabase("subscriptions-$dataset.db")
+        context.deleteDatabase("subscriptions-$dataset.db").also { _ -> com.glebskorobogatov.subscriptiontracker.fixtures.forgetFixtureInitialization(context, "subscriptions-$dataset.db") }
         java.io.File(context.filesDir,"datastore/settings-$dataset.preferences_pb").delete()
         context.deleteSharedPreferences("test-notification-offer-$dataset")
     }

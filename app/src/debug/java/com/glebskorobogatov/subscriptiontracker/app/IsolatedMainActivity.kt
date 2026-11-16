@@ -13,6 +13,10 @@ class IsolatedMainActivity : MainActivity() {
     private lateinit var dataset: UUID
     override fun onCreate(savedInstanceState: Bundle?) {
         dataset = savedInstanceState?.getString("test_dataset")?.let(UUID::fromString) ?: intent.getStringExtra("test_dataset")?.let(UUID::fromString) ?: UUID.randomUUID()
+        if (savedInstanceState == null && intent.getStringExtra("test_dataset") == null) {
+            // Explicit new synthetic generation, before the test host can create its database.
+            com.glebskorobogatov.subscriptiontracker.data.room.InitializationJournal(filesDir, dataset).locked { authorizeFresh() }
+        }
         super.onCreate(savedInstanceState)
     }
     override fun createNotificationEnvironment(): com.glebskorobogatov.subscriptiontracker.notifications.NotificationEnvironment {
@@ -42,6 +46,9 @@ class IsolatedMainActivity : MainActivity() {
                 withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) {
                     context.deleteSharedPreferences("test-notification-offer-$id")
                     context.deleteDatabase("subscriptions-$id.db")
+                    // Teardown of this synthetic test generation, never production recovery.
+                    for (extension in listOf("state", "next", "lock"))
+                        File(context.filesDir, "${com.glebskorobogatov.subscriptiontracker.data.room.InitializationJournal.DIRECTORY}/$id.$extension").delete()
                     File(context.filesDir, "datastore/settings-$id.preferences_pb").delete()
                 }
             }

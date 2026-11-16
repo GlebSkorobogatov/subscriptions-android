@@ -26,8 +26,8 @@ class RefundRepositoryTest {
     private val day = LocalDate.of(2027, 11, 10)
     private val now = Instant.parse("2027-11-10T12:00:00Z")
     private val rub = CurrencyCode.of("RUB")
-    @Before fun open() { dataset = UUID.randomUUID(); db = TrackerDatabaseFactory.open(context, dataset); repo = RefundRepository(db) }
-    @After fun close() { db.close(); context.deleteDatabase("subscriptions-$dataset.db") }
+    @Before fun open() { dataset = UUID.randomUUID(); com.glebskorobogatov.subscriptiontracker.fixtures.authorizeFreshFixture(context, dataset); db = TrackerDatabaseFactory.open(context, dataset); repo = RefundRepository(db) }
+    @After fun close() { db.close(); context.deleteDatabase("subscriptions-$dataset.db").also { _ -> com.glebskorobogatov.subscriptiontracker.fixtures.forgetFixtureInitialization(context, "subscriptions-$dataset.db") } }
     private suspend fun setup(): Pair<SubscriptionEntity, PaymentEntity> = withContext(Dispatchers.IO) {
         val s = SubscriptionEntity(UUID.randomUUID(), "Тест", null, 999, rub, FrequencyUnit.MONTH, 1,
             RenewalMode.AUTO, LifecycleState.ACTIVE, 2027, 11, 10, 0, null, null, null, null, null, null, null, now, now)
