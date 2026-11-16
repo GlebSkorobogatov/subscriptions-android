@@ -61,12 +61,12 @@ class SubscriptionUseCasesTest {
             assertEquals(s, withTimeout(5000) { values.receive() }!!.subscription)
             val selectTables = queries.filter { it.trimStart().startsWith("SELECT",true) }.joinToString(" ").lowercase()
             assertTrue(selectTables.contains("from subscriptions"))
-            assertTrue(selectTables.contains("reminder_overrides"))
+            assertFalse(selectTables.contains("reminder_overrides"))
             assertFalse(Regex("from\\s+[`\"]?(payments|refunds)\\b").containsMatchIn(selectTables))
             val p = legacyPayment(db, s, day); val r = legacyRefund(db, p, day, 300)
             assertNull(withTimeoutOrNull(300) { values.receive() })
             assertNull(withTimeoutOrNull(300) { events.receive() })
-            val updated = use.editSubscription(s, edit(s).copy(price = Money(1000, CurrencyCode.of("USD"))), now.plusSeconds(1))
+            val updated = use.editSubscription(s, edit(s).copy(price = Money(1000, s.currencyCode)), now.plusSeconds(1))
             assertNotEquals(initial, withTimeout(5000) { events.receive() })
             assertEquals(updated, withTimeout(5000) { values.receiveAsFlow().first { it?.subscription == updated } }!!.subscription)
             withContext(Dispatchers.IO) { assertEquals(p,db.payments().find(p.id)); assertEquals(r,db.refunds().find(r.id)) }
@@ -96,10 +96,10 @@ class SubscriptionUseCasesTest {
         val cancelled = use.changeLifecycle(resolved, LifecycleCommand.DisableRenewal(day.plusDays(2)), now)
         use.refreshToday(day.plusDays(2), now); assertEquals(cancelled, details(auto.id).subscription)
         use.refreshToday(day.plusDays(3), now)
-        val archived = details(auto.id).subscription
-        assertEquals(LifecycleState.ARCHIVED, archived.lifecycleState)
-        val active = use.changeLifecycle(archived, LifecycleCommand.Reactivate(day.plusMonths(1), Frequency(FrequencyUnit.YEAR, 1), RenewalMode.AUTO, Money(100, CurrencyCode.of("JPY"))), now)
-        assertEquals("JPY", use.forecastMonths(12).first().availableCurrencies.single().value)
+        assertEquals(cancelled,details(auto.id).subscription)
+        val archived = use.changeLifecycle(cancelled,LifecycleCommand.Archive,now)
+        val active = use.changeLifecycle(archived, LifecycleCommand.Reactivate(day.plusMonths(1), Frequency(FrequencyUnit.YEAR, 1), RenewalMode.AUTO, Money(100,archived.currencyCode)), now)
+        assertEquals(archived.currencyCode,use.forecastMonths(12).first().availableCurrencies.single())
         assertEquals(active, details(auto.id).subscription)
     }
     @Test fun legacyRowsAndSettingsSurviveReopeningWithoutFinancialUseCases() = runBlocking {
@@ -155,48 +155,45 @@ class SubscriptionUseCasesTest {
         assertFalse(succeeds { use.deleteSubscription(s,true) })
         withContext(Dispatchers.IO) { assertTrue(db.payments().all().isEmpty()) }
     }
-    @Test fun settingsFlowUpdatesWithoutOverwritingCustomReminders() = runBlocking {
+    @Test fun globalSettingsUpdateWithoutReadingOrOverwritingLegacyRules() = runBlocking {
         val s = create()
-        val custom = ReminderOverrideEntity(s.id, ReminderEventType.PAYMENT, ReminderMode.CUSTOM, emptySet())
-        val inherited = ReminderOverrideEntity(s.id, ReminderEventType.CANCELLATION, ReminderMode.INHERIT_GLOBAL, emptySet())
-        withContext(Dispatchers.IO) { db.reminders().insert(custom); db.reminders().insert(inherited) }
-        val values = Channel<Settings>(Channel.UNLIMITED)
-        val collector = launch { use.settings.collect { values.send(it) } }
+        val custom = ReminderOverrideEntity(s.id,ReminderEventType.PAYMENT,ReminderMode.CUSTOM,emptySet())
+        val cancellation = ReminderOverrideEntity(s.id,ReminderEventType.CANCELLATION,ReminderMode.CUSTOM,setOf(7))
+        withContext(Dispatchers.IO) { db.reminders().insert(custom); db.reminders().insert(cancellation) }
+        val values = Channel<Settings>(Channel.UNLIMITED); val collector = launch { use.settings.collect { values.send(it) } }
         try {
             withTimeout(5000) { values.receive() }
-            use.updateSettings { it.copy(paymentOffsetsDefault = setOf(0), cancellationOffsetsDefault = setOf(7),
-                chartHorizonMonths = 6, selectedChartCurrency = rub) }
+            use.updateSettings { it.copy(paymentOffsetsDefault = setOf(0)) }
             val changed = withTimeout(5000) { values.receiveAsFlow().first { it.paymentOffsetsDefault == setOf(0) } }
-            assertEquals(setOf(7), changed.cancellationOffsetsDefault)
-            assertEquals(emptySet<Int>(), effectiveOffsets(changed, ReminderEventType.PAYMENT, custom))
-            assertEquals(setOf(7), effectiveOffsets(changed, ReminderEventType.CANCELLATION, inherited))
-            assertEquals(setOf(custom, inherited), details(s.id).reminders.toSet())
-            assertEquals(use.forecastMonths(6, rub).first(), use.selectedChart.first())
+            assertEquals(setOf(0),reminderInputs(listOf(s),changed).single().paymentOffsets)
+            withContext(Dispatchers.IO) { assertEquals(setOf(custom,cancellation),db.reminders().forSubscription(s.id).toSet()) }
+            assertEquals(use.forecastMonths(12,rub).first(),use.selectedChart.first())
         } finally { collector.cancelAndJoin() }
     }
-    @Test fun editorExtrasAndIndependentRulesCommitTogetherAndConflictOnRules() = runBlocking {
+
+    @Test fun editorExtrasPreserveInertLegacyRulesAndConflictOnFullRow() = runBlocking {
         val row = create()
-        val rules = listOf(ReminderOverrideEntity(row.id, ReminderEventType.PAYMENT, ReminderMode.CUSTOM, emptySet()),
-            ReminderOverrideEntity(row.id, ReminderEventType.CANCELLATION, ReminderMode.CUSTOM, setOf(7,3)))
-        val extra = SubscriptionExtras(day.minusDays(20), day.plusDays(10), 7, rules)
-        val updated = use.editSubscription(row, edit(row).copy(extras = extra, expectedReminders = emptyList()), now.plusSeconds(1))
+        val rule = ReminderOverrideEntity(row.id,ReminderEventType.PAYMENT,ReminderMode.CUSTOM,emptySet())
+        withContext(Dispatchers.IO) { db.reminders().insert(rule) }
+        val extra = SubscriptionExtras(day.minusDays(20),day.plusDays(10))
+        val updated = use.editSubscription(row,edit(row).copy(extras = extra),now.plusSeconds(1))
         val detail = details(row.id)
-        assertEquals(rules.toSet(),detail.reminders.toSet())
         assertEquals(extra.periodStart,detail.subscription.currentPeriodStartOverride)
         assertEquals(extra.paidAccessEnd,detail.subscription.paidAccessEndDate)
         use.updateSettings { it.copy(paymentOffsetsDefault = setOf(0)) }
-        assertEquals(rules.toSet(),details(row.id).reminders.toSet())
-        assertFalse(succeeds { use.editSubscription(updated, edit(updated).copy(extras = extra, expectedReminders = emptyList()), now.plusSeconds(2)) })
+        withContext(Dispatchers.IO) { assertEquals(listOf(rule),db.reminders().forSubscription(row.id)) }
+        assertFalse(succeeds { use.editSubscription(row,edit(row).copy(extras = extra),now.plusSeconds(2)) })
+        assertEquals(updated,details(row.id).subscription)
     }
-    @Test fun invalidReminderBatchRollsBackSubscriptionAndUuidIsPreservedOnValidEdit() = runBlocking {
+
+    @Test fun invalidCurrencyEditRollsBackAndValidEditPreservesUuid() = runBlocking {
         val row = create()
-        val wrong = ReminderOverrideEntity(UUID.randomUUID(),ReminderEventType.PAYMENT,ReminderMode.CUSTOM,setOf(1))
-        assertFalse(succeeds { use.editSubscription(row,edit(row).copy(name = "Другой",extras = SubscriptionExtras(null,null,null,listOf(wrong))),now) })
+        assertFalse(succeeds { use.editSubscription(row,edit(row).copy(name = "Другой",price = Money(1234,CurrencyCode.of("KWD"))),now) })
         assertEquals(row,details(row.id).subscription)
-        val changed = use.editSubscription(row,edit(row).copy(name = "Другой",price = Money(1234,CurrencyCode.of("KWD"))),now.plusSeconds(1))
-        assertEquals(row.id,changed.id)
-        assertEquals(1,use.subscriptions.first().size)
+        val changed = use.editSubscription(row,edit(row).copy(name = "Другой",price = Money(1234,rub)),now.plusSeconds(1))
+        assertEquals(row.id,changed.id); assertEquals(1,use.subscriptions.first().size)
     }
+
     @Test fun editorPriceEditLeavesOtherPlanAndLegacyHistoryUntouched() = runBlocking {
         val a = create(RenewalMode.MANUAL); val b = create(RenewalMode.MANUAL)
         val p = legacyPayment(db,a,day)
@@ -220,10 +217,11 @@ class SubscriptionUseCasesTest {
         use.refreshToday(day.plusDays(3),now)
         assertEquals(LifecycleState.CANCELLATION_SCHEDULED,details(a.id).subscription.lifecycleState)
         use.refreshToday(day.plusDays(4),now)
-        val archived = details(a.id).subscription
-        assertEquals(LifecycleState.ARCHIVED,archived.lifecycleState)
+        val cancelled = details(a.id).subscription
+        assertEquals(LifecycleState.CANCELLATION_SCHEDULED,cancelled.lifecycleState)
+        val archived = use.changeLifecycle(cancelled,LifecycleCommand.Archive,now)
         withContext(Dispatchers.IO) { assertEquals(refund,db.refunds().find(refund.id)) }
-        val active = use.changeLifecycle(archived,LifecycleCommand.Reactivate(day.plusDays(30),Frequency(FrequencyUnit.MONTH,1),RenewalMode.MANUAL,Money(200,CurrencyCode.of("JPY"))),now)
+        val active = use.changeLifecycle(archived,LifecycleCommand.Reactivate(day.plusDays(30),Frequency(FrequencyUnit.MONTH,1),RenewalMode.MANUAL,Money(200,archived.currencyCode)),now)
         assertEquals(a.id,active.id); withContext(Dispatchers.IO) { assertEquals(p,db.payments().find(p.id)) }
         use.deleteSubscription(active,true)
         assertNull(use.details(a.id).first()); assertEquals(other,details(other.id).subscription)
@@ -237,32 +235,65 @@ class SubscriptionUseCasesTest {
         withContext(Dispatchers.IO) { assertTrue(db.payments().all().isEmpty()) }
     }
 
-    @Test fun detailsRelationNeverCombinesSubscriptionAndRemindersFromDifferentTransactions() = runBlocking {
+    @Test fun detailsNeverReadOrExposeLegacyRulesAndRemainReactiveOnDelete() = runBlocking {
         val s = create()
-        val events = Channel<SubscriptionDetails?>(Channel.UNLIMITED)
-        val reader = launch { use.details(s.id).collect { events.send(it) } }
+        val rule = ReminderOverrideEntity(s.id,ReminderEventType.PAYMENT,ReminderMode.CUSTOM,setOf(0))
+        val values = Channel<SubscriptionDetails?>(Channel.UNLIMITED)
+        val reader = launch { use.details(s.id).collect { values.send(it) } }
         try {
-            withTimeout(5000) { events.receive() }
-            withContext(Dispatchers.IO) {
-                repeat(12) { index ->
-                    db.runInTransaction {
-                        db.subscriptions().update(s.copy(name = "revision-$index"))
-                        db.reminders().delete(s.id,ReminderEventType.PAYMENT)
-                        db.reminders().insert(ReminderOverrideEntity(s.id,ReminderEventType.PAYMENT,ReminderMode.CUSTOM,setOf(listOf(0,1,3,7)[index % 4])))
-                    }
-                }
-            }
-            withTimeout(5000) {
-                events.receiveAsFlow().first { value ->
-                    val detail = requireNotNull(value)
-                    val index = detail.subscription.name.removePrefix("revision-").toInt()
-                    assertEquals(setOf(listOf(0,1,3,7)[index % 4]),detail.reminders.single { it.eventType == ReminderEventType.PAYMENT }.offsets)
-                    index == 11
-                }
-            }
-            use.deleteSubscription(details(s.id).subscription,true)
-            withTimeout(5000) { events.receiveAsFlow().first { it == null } }
-        } finally { reader.cancelAndJoin(); events.close() }
+            assertEquals(s,withTimeout(5000) { values.receive() }!!.subscription)
+            queries.clear()
+            withContext(Dispatchers.IO) { db.reminders().insert(rule) }
+            assertNull(withTimeoutOrNull(300) { values.receive() })
+            assertFalse(queries.any { it.trimStart().startsWith("SELECT",true) && it.contains("reminder_overrides",true) })
+            withContext(Dispatchers.IO) { assertEquals(rule,db.reminders().forSubscription(s.id).single()) }
+            val edited = use.editSubscription(s,edit(s).copy(name = "Обновлено"),now.plusSeconds(1))
+            withTimeout(5000) { values.receiveAsFlow().first { it?.subscription == edited } }
+            use.deleteSubscription(edited,true)
+            withTimeout(5000) { values.receiveAsFlow().first { it == null } }
+        } finally { reader.cancelAndJoin(); values.close() }
+    }
+
+    @Test fun repeatedDateRefreshNeverArchivesOrRestoresAnyExistingState() = runBlocking {
+        val originals = LifecycleState.entries.map { state ->
+            val row = create().copy(lifecycleState = state,paidAccessEndDate = day.minusDays(1))
+            withContext(Dispatchers.IO) { db.subscriptions().update(row) }; row
+        }
+        repeat(3) { use.refreshToday(day.plusYears(it.toLong()+1),now.plusSeconds(it.toLong())) }
+        withContext(Dispatchers.IO) {
+            assertEquals(originals.toSet(),db.subscriptions().all().toSet())
+            assertTrue(db.payments().all().isEmpty())
+        }
+        val cancelled = originals.single { it.lifecycleState == LifecycleState.CANCELLATION_SCHEDULED }
+        val archived = use.changeLifecycle(cancelled,LifecycleCommand.Archive,now)
+        val active = use.changeLifecycle(archived,LifecycleCommand.Reactivate(day.plusDays(1),Frequency(FrequencyUnit.MONTH,1),RenewalMode.AUTO,Money(999,rub)),now.plusSeconds(1))
+        assertEquals(cancelled.id,active.id); assertEquals(LifecycleState.ACTIVE,active.lifecycleState)
+    }
+
+    @Test fun foreignLegacyPriceRetainsCurrencyAcrossEditArchiveRestoreAndReopen() = runBlocking {
+        val legacy = create().copy(currencyCode = CurrencyCode.of("USD"),priceMinor = 1234)
+        withContext(Dispatchers.IO) { db.subscriptions().update(legacy) }
+        val p = legacyPayment(db,legacy,day)
+        val updated = use.editSubscription(legacy,edit(legacy).copy(name = "Старая запись",price = Money(2345,legacy.currencyCode)),now.plusSeconds(1))
+        assertFalse(succeeds { use.editSubscription(updated,edit(updated).copy(price = Money(2345,rub)),now.plusSeconds(2)) })
+        val archived = use.changeLifecycle(updated,LifecycleCommand.Archive,now.plusSeconds(2))
+        val active = use.changeLifecycle(archived,LifecycleCommand.Reactivate(day.plusMonths(1),Frequency(FrequencyUnit.MONTH,1),RenewalMode.AUTO,Money(2345,legacy.currencyCode)),now.plusSeconds(3))
+        db.close(); lease.close(); db = TrackerDatabaseFactory.open(context,dataset); lease = DatasetSettingsFactory.acquire(context,dataset)
+        use = SubscriptionUseCases(db,lease.repository,CurrentDate(day))
+        assertEquals(active,details(legacy.id).subscription); assertEquals("USD",active.currencyCode.value)
+        withContext(Dispatchers.IO) { assertEquals(p,db.payments().find(p.id)) }
+        assertTrue(use.selectedChart.first().charges.none { it.subscriptionId.value == legacy.id })
+    }
+
+    @Test fun startupAndResumeDateRefreshKeepMutationGuardAndRequestReconciliationWithoutRoomWrites() = runBlocking {
+        val row = create(); var signals = 0; var validations = 0
+        val cases = SubscriptionUseCases(db,lease.repository,CurrentDate(day),
+            reminderChanges = com.glebskorobogatov.subscriptiontracker.data.reminders.ReminderChanges(
+                validate = { validations++ },request = { signals++ }))
+        cases.refreshToday(day.plusDays(1),now); cases.refreshToday(day.plusDays(2),now)
+        assertEquals(2,signals); assertEquals(2,validations)
+        assertEquals(day.plusDays(2),cases.date.today.value)
+        withContext(Dispatchers.IO) { assertEquals(row,db.subscriptions().find(row.id)); assertTrue(db.payments().all().isEmpty()) }
     }
 
 }

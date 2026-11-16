@@ -57,6 +57,8 @@ class ReminderRuntime(
         }
     }
 
+    suspend fun requestCurrentReconcile() = scheduler.requestReconcile()
+
     suspend fun reconcile(expected: UUID? = null) = withContext(Dispatchers.IO) {
         val id = generation.current()
         if (expected != null && expected != id) {

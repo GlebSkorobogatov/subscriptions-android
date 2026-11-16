@@ -44,7 +44,7 @@ class LargeFontChartUiTest {
         val currency = CurrencyCode.of("JPY")
         val row = FinancePreviewData.rows.first().copy(currencyCode = currency,priceMinor = Long.MAX_VALUE,renewalMode = RenewalMode.MANUAL)
         val forecast = ForecastEngine().calendarMonths(listOf(row.toDomain()),FinancePreviewData.day,12,currency)
-        var state by mutableStateOf(FinanceUiState(FinancePhase.Content,FinanceSnapshot(forecast,listOf(row),12,currency),currency,YearMonth.of(2027,1)))
+        var state by mutableStateOf(FinanceUiState(FinancePhase.Content,FinanceSnapshot(forecast,listOf(row)),currency,YearMonth.of(2027,1)))
         var theme by mutableStateOf(Theme.LIGHT)
         var density = 1f
         compose.setContent { density = LocalDensity.current.density

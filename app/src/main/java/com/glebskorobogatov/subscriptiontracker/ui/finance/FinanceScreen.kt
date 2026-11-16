@@ -22,12 +22,11 @@ import java.util.Locale
 
 @Composable fun FinanceScreen(model: FinanceViewModel) {
     val state by model.state.collectAsStateWithLifecycle()
-    FinancePane(state,model::selectHorizon,model::selectCurrency,model::selectMonth,model::retry)
+    FinancePane(state,model::selectMonth,model::retry)
 }
 
 @OptIn(ExperimentalLayoutApi::class)
-@Composable internal fun FinancePane(state: FinanceUiState,onHorizon: (Int) -> Unit = {},
-    onCurrency: (CurrencyCode) -> Unit = {},onMonth: (YearMonth) -> Unit = {},onRetry: () -> Unit = {}) {
+@Composable internal fun FinancePane(state: FinanceUiState,onMonth: (YearMonth) -> Unit = {},onRetry: () -> Unit = {}) {
     val snapshot = state.snapshot
     val currency = state.currency
     val forecast = snapshot?.forecast
@@ -48,32 +47,11 @@ import java.util.Locale
                     TrackerSecondaryButton(stringResource(R.string.retry_loading),onRetry)
                 } }
                 else -> {
-                    item {
-                        Text(stringResource(R.string.finance_period),style = MaterialTheme.typography.titleSmall)
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            for(months in listOf(3,6,12)) FilterChip(snapshot?.horizon == months,{ onHorizon(months) },
-                                label = { Text(stringResource(R.string.finance_month_count,months)) },enabled = !state.saving,
-                                modifier = Modifier.testTag("finance_horizon_$months"))
-                        }
-                        if(state.saveError) {
-                            Text(stringResource(R.string.finance_save_error),color = TrackerDesign.colors.error,
-                                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
-                            TrackerSecondaryButton(stringResource(R.string.retry_loading),onRetry)
-                        }
-                        if(state.saving) LinearProgressIndicator(Modifier.fillMaxWidth())
-                    }
                     if(state.phase == FinancePhase.Empty) item {
                         Text(stringResource(R.string.finance_empty),Modifier.testTag("finance_empty"),style = MaterialTheme.typography.titleLarge)
                         Text(stringResource(R.string.finance_empty_explanation),color = TrackerDesign.colors.textSecondary)
                     }
                     if(currency != null && forecast != null) {
-                        item {
-                            Text(stringResource(R.string.finance_currency),style = MaterialTheme.typography.titleSmall)
-                            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                forecast.availableCurrencies.forEach { code -> FilterChip(code == currency,{ onCurrency(code) },
-                                    label = { Text(code.value) },enabled = !state.saving,modifier = Modifier.testTag("finance_currency_${code.value}")) }
-                            }
-                        }
                         item {
                             TrackerSummaryCard(Modifier.fillMaxWidth()) {
                                 Text(stringResource(R.string.finance_expected_total),style = MaterialTheme.typography.titleSmall)

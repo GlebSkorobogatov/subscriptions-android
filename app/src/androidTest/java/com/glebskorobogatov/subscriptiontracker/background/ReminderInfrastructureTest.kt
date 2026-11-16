@@ -95,7 +95,7 @@ class ReminderInfrastructureTest {
     }
     @Test fun archiveInvalidatesClaimImmediatelyBeforePublication(): Unit = runBlocking {
         late(runtime(hook = { db.subscriptions().update(sub.copy(lifecycleState = LifecycleState.ARCHIVED)) }))
-        assertEquals(0,publications.get()); assertTrue(db.deliveries().all().isEmpty())
+        assertEquals(0,publications.get()); assertTrue(db.deliveries().all().all { it.state == DeliveryState.PENDING && it.claimToken == null }); assertTrue(scheduler.tasks.isEmpty())
     }
     @Test fun deleteInvalidatesClaimAndCascadesPendingLedger(): Unit = runBlocking {
         late(runtime(hook = { db.subscriptions().delete(sub.id) }))
@@ -144,8 +144,8 @@ class ReminderInfrastructureTest {
         val job = launch(Dispatchers.IO) { run.process(dataset,sub.id,saved.fingerprint) }
         claimed.await(); job.cancelAndJoin()
         assertTrue(db.deliveries().all().all { it.claimToken == null && it.state == DeliveryState.PENDING })
-        lease.repository.update { it.copy(reminderLocalTime = LocalTime.NOON) }
-        assertEquals(LocalTime.NOON,lease.repository.settings.first().reminderLocalTime)
+        lease.repository.update { it.copy(paymentOffsetsDefault = setOf(0)) }
+        assertEquals(setOf(0),lease.repository.settings.first().paymentOffsetsDefault)
     }
     @Test fun retryablePublisherFailureIsBoundedAcrossNewRuntimeInstances(): Unit = runBlocking {
         val failures = AtomicInteger()
@@ -163,17 +163,18 @@ class ReminderInfrastructureTest {
         late(runtime(ReminderPublisher { _, _ -> error("publisher failed") }))
         assertTrue(db.deliveries().all().all { it.failureCount == 1 && it.state == DeliveryState.PENDING })
     }
-    @Test fun timeAndTimezoneChangesPreserveKeysButReplaceScheduling(): Unit = runBlocking {
+    @Test fun timezoneChangesPreserveKeysAndFixedNineButReplaceScheduling() = runBlocking {
         runtime().reconcile(); val initial = task(); val ids = db.deliveries().all().map { it.id }
         localZone = ZoneId.of("Asia/Yekaterinburg"); runtime().reconcile(); val moved = task()
         assertNotEquals(initial.fingerprint,moved.fingerprint); assertNotEquals(initial.at,moved.at)
-        lease.repository.update { it.copy(reminderLocalTime = LocalTime.of(11,0)) }
-        runtime().reconcile()
-        assertEquals(ids,db.deliveries().all().map { it.id }); assertNotEquals(moved.fingerprint,task().fingerprint)
+        assertEquals(LocalTime.of(9,0),moved.at.atZone(localZone).toLocalTime())
+        runtime().reconcile(); assertEquals(ids,db.deliveries().all().map { it.id })
+        assertEquals(moved,task())
     }
+
     @Test fun expiredEventIsNotRecoveredAsOldWarning(): Unit = runBlocking {
         runtime().reconcile(); instant = Instant.parse("2027-01-06T10:00:00Z"); runtime().reconcile()
-        assertTrue(db.deliveries().all().isEmpty()); assertTrue(scheduler.tasks.isEmpty()); assertEquals(0,publications.get())
+        assertTrue(db.deliveries().all().all { it.state == DeliveryState.PENDING }); assertTrue(scheduler.tasks.isEmpty()); assertEquals(0,publications.get())
     }
     @Test fun sameNamesHaveIndependentWorkAndLedgerKeys(): Unit = runBlocking {
         val other = sub.copy(id = UUID.randomUUID(),accountLabel = "Семейный")
@@ -181,13 +182,14 @@ class ReminderInfrastructureTest {
         assertEquals(setOf(sub.id,other.id),scheduler.tasks.map { it.subscription }.toSet())
         assertEquals(4,db.deliveries().all().size)
     }
-    @Test fun coincidentPaymentAndCancellationAreOneMessageWithAllCoveredKeys(): Unit = runBlocking {
+    @Test fun legacyCancellationLeadDoesNotAddReasonsOrCoveredKeys() = runBlocking {
         db.subscriptions().update(sub.copy(cancellationLeadDays = 0))
-        lease.repository.update { it.copy(cancellationOffsetsDefault = setOf(3,1)) }
         late(runtime())
-        assertEquals(1,publications.get()); assertEquals(2,messages.single().reasons.size)
-        assertEquals(4,messages.single().coveredKeys.size)
+        assertEquals(1,publications.get()); assertEquals(1,messages.single().reasons.size)
+        assertEquals(2,messages.single().coveredKeys.size)
+        assertTrue(db.deliveries().all().all { it.eventType == ReminderEventType.PAYMENT })
     }
+
     @Test fun noActivitySessionRequiredAndExistingDataStoreLeaseRemainsUsable(): Unit = runBlocking {
         runtime().reconcile(); runtime().reconcile()
         assertEquals(2,db.deliveries().all().size)
@@ -241,7 +243,7 @@ class ReminderInfrastructureTest {
         val use = com.glebskorobogatov.subscriptiontracker.data.integration.SubscriptionUseCases(db,lease.repository,
             com.glebskorobogatov.subscriptiontracker.domain.integration.CurrentDate(LocalDate.of(2027,1,1)),
             reminderChanges = ReminderChanges(request = { signals++ }))
-        use.updateSettings { it.copy(theme = Theme.DARK,chartHorizonMonths = 12) }
+        use.updateSettings { it.copy(theme = Theme.DARK) }
         assertEquals(0,signals)
         use.updateSettings { it.copy(paymentOffsetsDefault = setOf(0)) }
         assertEquals(1,signals)
@@ -251,25 +253,75 @@ class ReminderInfrastructureTest {
         catch (_: com.glebskorobogatov.subscriptiontracker.data.lifecycle.LifecycleConflict) { }
         assertEquals(2,signals)
     }
-    @Test fun springDstGapUsesFirstValidMomentWithOriginalLogicalDate(): Unit = runBlocking {
+    @Test fun springClockTransitionKeepsNineAndOriginalLogicalDate() = runBlocking {
         localZone = ZoneId.of("Europe/Amsterdam"); instant = Instant.parse("2027-03-27T12:00:00Z")
         db.subscriptions().update(sub.copy(anchorMonth = 3,anchorDay = 29))
-        lease.repository.update { it.copy(reminderLocalTime = LocalTime.of(2,30),paymentOffsetsDefault = setOf(1)) }
+        lease.repository.update { it.copy(paymentOffsetsDefault = setOf(1)) }
         runtime().reconcile(); val saved = task()
-        assertEquals(Instant.parse("2027-03-28T01:00:00Z"),saved.at)
-        instant = Instant.parse("2027-03-28T01:05:00Z"); runtime().process(dataset,sub.id,saved.fingerprint)
+        assertEquals(Instant.parse("2027-03-28T07:00:00Z"),saved.at)
+        instant = Instant.parse("2027-03-28T07:05:00Z"); runtime().process(dataset,sub.id,saved.fingerprint)
         assertEquals(LocalDate.of(2027,3,29),messages.single().reasons.single().targetDate)
         assertEquals(1,publications.get())
     }
-    @Test fun autumnDstOverlapDoesNotPublishAgainAtSecondOffset(): Unit = runBlocking {
+
+    @Test fun autumnClockTransitionKeepsNineAndDoesNotPublishAgain() = runBlocking {
         localZone = ZoneId.of("Europe/Amsterdam"); instant = Instant.parse("2027-10-30T12:00:00Z")
         db.subscriptions().update(sub.copy(anchorMonth = 10,anchorDay = 31))
-        lease.repository.update { it.copy(reminderLocalTime = LocalTime.of(2,30),paymentOffsetsDefault = setOf(0)) }
+        lease.repository.update { it.copy(paymentOffsetsDefault = setOf(0)) }
         runtime().reconcile(); val saved = task()
-        assertEquals(Instant.parse("2027-10-31T00:30:00Z"),saved.at)
-        instant = Instant.parse("2027-10-31T00:45:00Z"); runtime().process(dataset,sub.id,saved.fingerprint)
-        instant = Instant.parse("2027-10-31T01:45:00Z"); runtime().process(dataset,sub.id,saved.fingerprint)
+        assertEquals(Instant.parse("2027-10-31T08:00:00Z"),saved.at)
+        instant = Instant.parse("2027-10-31T08:05:00Z"); runtime().process(dataset,sub.id,saved.fingerprint)
+        instant = Instant.parse("2027-10-31T09:05:00Z"); runtime().process(dataset,sub.id,saved.fingerprint)
         assertEquals(1,publications.get())
+    }
+
+    @Test fun legacyCancellationRowsAreRetiredWithoutDeletingLedgerOrBlockingRenewals() = runBlocking {
+        val old = NotificationDeliveryEntity(UUID.randomUUID(),sub.id,ReminderEventType.CANCELLATION,
+            LocalDate.of(2027,1,5),0,LocalDate.of(2027,1,5),null,DeliveryState.PROCESSING,dataset,
+            plannedLocalTime = null,payloadVersion = 99,claimToken = UUID.randomUUID(),leaseUntil = instant.plusSeconds(300))
+        db.deliveries().insert(old)
+        runtime().reconcile()
+        val retained = db.deliveries().find(old.id)!!
+        assertEquals(old.copy(state = DeliveryState.SKIPPED,claimToken = null,leaseUntil = null),retained)
+        assertEquals(setOf(3,1),db.deliveries().all().filter { it.state == DeliveryState.PENDING }.map { it.offsetDays }.toSet())
+        late(runtime())
+        assertEquals(1,publications.get()); assertEquals(1,messages.single().reasons.size)
+        assertTrue(messages.single().reasons.all { it.eventType == com.glebskorobogatov.subscriptiontracker.domain.reminders.ReminderEventType.PAYMENT })
+        assertEquals(retained,db.deliveries().find(old.id))
+    }
+    @Test fun obsoleteIndividualOffsetIsRetainedButCannotCreateNotification() = runBlocking {
+        val old = NotificationDeliveryEntity(UUID.randomUUID(),sub.id,ReminderEventType.PAYMENT,
+            LocalDate.of(2027,1,5),0,LocalDate.of(2027,1,5),null,DeliveryState.PENDING,dataset,"09:00")
+        db.deliveries().insert(old)
+        repeat(2) { runtime().reconcile() }
+        assertEquals(DeliveryState.PENDING,db.deliveries().find(old.id)!!.state)
+        assertEquals(3,db.deliveries().all().size)
+        assertEquals(setOf(3,1),ledger().reconcile(lease.repository.settings.first(),instant,localZone).map { it.offsetDays }.toSet())
+        late(runtime()); assertEquals(1,publications.get()); assertEquals(2,messages.single().coveredKeys.size)
+    }
+    @Test fun oldPendingTimeMovesToNineWithoutReplacingLogicalKeysOrDuplicatingDelivery() = runBlocking {
+        runtime().reconcile(); val initial = db.deliveries().all()
+        initial.forEach { db.deliveries().update(it.copy(plannedLocalTime = "18:00")) }
+        runtime().reconcile()
+        assertEquals(initial.map { it.id }.toSet(),db.deliveries().all().map { it.id }.toSet())
+        assertTrue(db.deliveries().all().all { it.plannedLocalTime == "09:00" })
+        late(runtime()); assertEquals(1,publications.get())
+        runtime().reconcile()
+        assertEquals(initial.map { it.id }.toSet(),db.deliveries().all().map { it.id }.toSet())
+        assertTrue(db.deliveries().all().all { it.state == DeliveryState.DELIVERED })
+    }
+
+    @Test fun disablingThenReenablingGlobalDaysReschedulesPendingKeysWithoutClearingLedger() = runBlocking {
+        runtime().reconcile(); val before = db.deliveries().all()
+        lease.repository.update { it.copy(paymentOffsetsDefault = emptySet()) }; runtime().reconcile()
+        assertTrue(scheduler.tasks.isEmpty()); assertEquals(before.map { it.id }.toSet(),db.deliveries().all().map { it.id }.toSet())
+        lease.repository.update { it.copy(paymentOffsetsDefault = setOf(3,1)) }; runtime().reconcile()
+        assertEquals(1,scheduler.tasks.size); assertEquals(before.map { it.id }.toSet(),db.deliveries().all().map { it.id }.toSet())
+        late(runtime()); assertEquals(1,publications.get())
+        lease.repository.update { it.copy(paymentOffsetsDefault = emptySet()) }; runtime().reconcile()
+        lease.repository.update { it.copy(paymentOffsetsDefault = setOf(3,1)) }; runtime().reconcile()
+        assertEquals(1,publications.get()); assertTrue(scheduler.tasks.isEmpty())
+        assertTrue(db.deliveries().all().all { it.state == DeliveryState.DELIVERED })
     }
 
     class TestGeneration(@Volatile var id: UUID) : GenerationAccess {

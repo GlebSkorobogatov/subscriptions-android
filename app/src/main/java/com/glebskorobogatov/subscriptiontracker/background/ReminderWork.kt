@@ -19,8 +19,10 @@ import kotlinx.coroutines.sync.withLock
 
 /** Small explicit payload, never serialized entities or unbounded event arrays. */
 object ReminderWorkInput {
+    const val POLICY = 2
+    const val POLICY_TAG = "tracker-renewals-policy-2"
     fun data(generation: UUID, subscription: UUID? = null, fingerprint: String? = null): Data =
-        workDataOf("version" to ReminderScheduling.VERSION, "generation" to generation.toString(),
+        workDataOf("version" to ReminderScheduling.VERSION, "policy" to POLICY, "generation" to generation.toString(),
             "subscription" to subscription?.toString(), "fingerprint" to fingerprint).also {
             require(it.toByteArray().size <= Data.MAX_DATA_BYTES)
         }
@@ -54,9 +56,13 @@ class WorkManagerReminderScheduler(context: Context,
             .forEach { manager.cancelWorkById(it.id).result.awaitReminder() }
     }
     private suspend fun requestLocked() {
+        // Only this infrastructure's pre-policy jobs. Running old jobs are fenced in doWork().
+        manager.getWorkInfosByTag(ROOT).awaitReminder()
+            .filter { !it.state.isFinished && it.state != WorkInfo.State.RUNNING && ReminderWorkInput.POLICY_TAG !in it.tags }
+            .forEach { manager.cancelWorkById(it.id).result.awaitReminder() }
         val work = manager.getWorkInfosForUniqueWork(RECONCILE).awaitReminder()
         if (work.none { it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.BLOCKED }) {
-            val request = OneTimeWorkRequestBuilder<ReminderWorker>().addTag(ROOT).addTag(RECONCILE)
+            val request = OneTimeWorkRequestBuilder<ReminderWorker>().addTag(ReminderWorkInput.POLICY_TAG).addTag(ROOT).addTag(RECONCILE)
                 .setInputData(ReminderWorkInput.reconciliation(activeGeneration()))
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS).build()
             manager.beginUniqueWork(RECONCILE, ExistingWorkPolicy.APPEND_OR_REPLACE, request).enqueue().result.awaitReminder()
@@ -68,9 +74,9 @@ class WorkManagerReminderScheduler(context: Context,
             // have waited here while another generation installed its requests.
             if (activeGeneration() != generation) return@withLock
             val wanted = tasks.associateBy { ReminderScheduling.workName(generation, it.subscription, it.fingerprint, it.at) }
-            val wakeName = "reminder-wake:v1:$generation:$wake"
+            val wakeName = "reminder-wake:v2:$generation:$wake"
             for ((name, task) in wanted) {
-                val request = OneTimeWorkRequestBuilder<ReminderWorker>().addTag(ROOT).addTag(DELIVERY).addTag(name)
+                val request = OneTimeWorkRequestBuilder<ReminderWorker>().addTag(ReminderWorkInput.POLICY_TAG).addTag(ROOT).addTag(DELIVERY).addTag(name)
                     .setInputData(ReminderWorkInput.data(generation, task.subscription, task.fingerprint))
                     .setInitialDelay(delay(task.at), TimeUnit.MILLISECONDS)
                     .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS).build()
@@ -80,7 +86,7 @@ class WorkManagerReminderScheduler(context: Context,
                     manager.beginUniqueWork(name, ExistingWorkPolicy.APPEND_OR_REPLACE, request).enqueue().result.awaitReminder()
                 else manager.enqueueUniqueWork(name, ExistingWorkPolicy.KEEP, request).result.awaitReminder()
             }
-            val wakeRequest = OneTimeWorkRequestBuilder<ReminderWorker>().addTag(ROOT).addTag(WAKE).addTag(wakeName)
+            val wakeRequest = OneTimeWorkRequestBuilder<ReminderWorker>().addTag(ReminderWorkInput.POLICY_TAG).addTag(ROOT).addTag(WAKE).addTag(wakeName)
                 .setInputData(ReminderWorkInput.data(generation))
                 .setInitialDelay(delay(wake), TimeUnit.MILLISECONDS)
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS).build()
@@ -104,8 +110,16 @@ class WorkManagerReminderScheduler(context: Context,
 
 class ReminderWorker(context: Context, parameters: WorkerParameters,
     private val runtime: ReminderRuntime) : CoroutineWorker(context, parameters) {
-    override suspend fun doWork(): Result = try {
+    override suspend fun doWork(): Result { return try {
         require(inputData.getInt("version", -1) == ReminderScheduling.VERSION)
+        val policy = inputData.getInt("policy", 0)
+        if (policy == 0) {
+            // A persisted v1 delivery/control/wake may represent individual/cancellation rules.
+            // No Room open, claim, publication or subscription mutation through this compatibility path.
+            runtime.requestCurrentReconcile()
+            return Result.success()
+        }
+        require(policy == ReminderWorkInput.POLICY)
         if (inputData.getBoolean("reconcile", false)) runtime.reconcile(ReminderWorkInput.generation(inputData))
         else {
             val generation = ReminderWorkInput.generation(inputData)
@@ -128,6 +142,7 @@ class ReminderWorker(context: Context, parameters: WorkerParameters,
           android.util.Log.w("ReminderWorker", "Background reminder attempt failed")
           if (runAttemptCount < 2) Result.retry() else Result.failure()
       }
+    }
 }
 
 class ReminderWorkerFactory : WorkerFactory() {

@@ -35,10 +35,11 @@ class ArchiveSettingsIntegrationTest {
     @After fun close() = runBlocking { clear(); db.close(); lease.close(); context.deleteDatabase("subscriptions-$dataset.db").also { _ -> com.glebskorobogatov.subscriptiontracker.fixtures.forgetFixtureInitialization(context, "subscriptions-$dataset.db") }; File(context.filesDir,"datastore/settings-$dataset.preferences_pb").delete(); Unit }
     private suspend fun create(label: String = "Личный",overrides: Boolean = false): SubscriptionEntity {
         val id = UUID.randomUUID()
-        val rules = if(overrides) listOf(ReminderOverrideEntity(id,ReminderEventType.PAYMENT,ReminderMode.CUSTOM,setOf(0)),
-            ReminderOverrideEntity(id,ReminderEventType.CANCELLATION,ReminderMode.INHERIT_GLOBAL,emptySet())) else emptyList()
-        return use.createSubscription(SubscriptionDraft(id,"Одинаковое имя",label,Money(49900,rub),RenewalMode.AUTO,
-            RenewalSchedule(RenewalAnchor.from(day.plusDays(2)),Frequency(FrequencyUnit.MONTH,1)),reminders = rules),now)
+
+        val row = use.createSubscription(SubscriptionDraft(id,"Одинаковое имя",label,Money(49900,rub),RenewalMode.AUTO,
+            RenewalSchedule(RenewalAnchor.from(day.plusDays(2)),Frequency(FrequencyUnit.MONTH,1))),now)
+        if (overrides) withContext(Dispatchers.IO) { db.reminders().insert(ReminderOverrideEntity(id,ReminderEventType.PAYMENT,ReminderMode.CUSTOM,setOf(0))) }
+        return row
     }
     private fun source() = object: SubscriptionsSource {
         override fun today() = day
@@ -64,7 +65,7 @@ class ArchiveSettingsIntegrationTest {
         val owner = owner(source()); val vm = withContext(Dispatchers.Main) { ArchiveViewModel(owner).also { store.put("archive",it) } }
         withTimeout(5000) { vm.state.first { it.rows.size == 2 } }
         assertEquals(setOf(a.id,b.id),vm.state.value.rows.map { it.id }.toSet())
-        val command = LifecycleCommand.Reactivate(day.plusDays(5),Frequency(FrequencyUnit.MONTH,3),RenewalMode.MANUAL,Money(59900,CurrencyCode.of("USD")))
+        val command = LifecycleCommand.Reactivate(day.plusDays(5),Frequency(FrequencyUnit.MONTH,3),RenewalMode.MANUAL,Money(59900,archived.currencyCode))
         val restored = use.changeLifecycle(archived,command,now.plusSeconds(1))
         withTimeout(5000) { vm.state.first { it.rows.map { row -> row.id } == listOf(b.id) } }
         // Classification and forecast are independent reactive streams: await both updates.
@@ -72,7 +73,7 @@ class ArchiveSettingsIntegrationTest {
             it is SubscriptionsUiState.Content && it.active.singleOrNull()?.id == a.id && it.forecast.isNotEmpty()
         } } as SubscriptionsUiState.Content
         assertEquals("Reactivated subscription must have one forecast currency",1,active.forecast.size)
-        assertEquals(a.id,restored.id); assertEquals("USD",active.forecast.single().currency.value); assertEquals(59900L,active.forecast.single().amountMinor)
+        assertEquals(a.id,restored.id); assertEquals(archived.currencyCode,active.forecast.single().currency); assertEquals(59900L,active.forecast.single().amountMinor)
         withContext(Dispatchers.IO) {
             assertEquals(listOf(p),db.payments().forSubscription(a.id))
             assertEquals(listOf(r),db.refunds().forPayment(p.id))
@@ -80,25 +81,22 @@ class ArchiveSettingsIntegrationTest {
         try { use.changeLifecycle(archived,command,now); fail() } catch(_: LifecycleConflict) { }
         assertEquals(restored,details(a.id).subscription)
     }
-    @Test fun settingsCommandsPersistAcrossReopenWithoutOverwritingCustomOrOtherFields() = runBlocking {
+    @Test fun globalSettingsPersistAcrossReopenWithoutReadingOrOverwritingLegacyRules() = runBlocking {
         val row = create(overrides = true); val before = details(row.id)
+        val legacy = withContext(Dispatchers.IO) { db.reminders().forSubscription(row.id) }
         val owner = owner(source()); val vm = settings(owner); loaded(vm)
         suspend fun change(block: () -> Unit) { withContext(Dispatchers.Main) { block() }; loaded(vm) }
-        change { vm.setTheme(Theme.DARK) }; change { vm.confirmTime(18,45) }
-        change { vm.setOffset(true,7,true) }; change { vm.setOffset(false,7,false) }; change { vm.setOffset(false,1,true) }
-        val actual = use.settings.first(); assertEquals(Theme.DARK,actual.theme); assertEquals(LocalTime.of(18,45),actual.reminderLocalTime)
-        assertEquals(setOf(7,3,1),actual.paymentOffsetsDefault); assertEquals(setOf(3,1),actual.cancellationOffsetsDefault)
-        val after = details(row.id); assertEquals(before,after)
-        assertEquals(setOf(0),effectiveOffsets(actual,ReminderEventType.PAYMENT,after.reminders.first { it.eventType == ReminderEventType.PAYMENT }))
-        assertEquals(setOf(3,1),effectiveOffsets(actual,ReminderEventType.CANCELLATION,after.reminders.first { it.eventType == ReminderEventType.CANCELLATION }))
-        assertEquals(setOf(7,3,1),effectiveOffsets(actual,ReminderEventType.PAYMENT,null))
-        val disabled = ReminderOverrideEntity(row.id,ReminderEventType.CANCELLATION,ReminderMode.CUSTOM,emptySet())
-        assertTrue(effectiveOffsets(actual,ReminderEventType.CANCELLATION,disabled).isEmpty())
+        change { vm.setTheme(Theme.DARK) }; change { vm.setOffset(7,true) }; change { vm.setOffset(0,true) }
+        val actual = use.settings.first(); assertEquals(Theme.DARK,actual.theme)
+        assertEquals(LocalTime.of(9,0),actual.reminderLocalTime); assertEquals(setOf(7,3,1,0),actual.paymentOffsetsDefault)
+        assertEquals(before,details(row.id))
         clear(); db.close(); lease.close(); reopen()
         assertEquals(actual,use.settings.first()); assertEquals(before,details(row.id))
+        withContext(Dispatchers.IO) { assertEquals(legacy,db.reminders().forSubscription(row.id)) }
     }
+
     @Test fun failedReadAndLostWriteResponsePreservePreferencesAndRestoreWithoutAutomaticWrite() = runBlocking {
-        use.updateSettings { it.copy(theme = Theme.DARK,reminderLocalTime = LocalTime.of(18,45)) }
+        use.updateSettings { it.copy(theme = Theme.DARK) }
         val baseline = use.settings.first(); var badRead = true; var lose = true; var writes = 0
         val src = object: SubscriptionsSource {
             override fun observe(refreshes: Flow<Unit>) = subscriptionStates(use)
@@ -110,7 +108,7 @@ class ArchiveSettingsIntegrationTest {
         val owner = owner(src); val saved = SavedStateHandle(); val vm = settings(owner,saved)
         withTimeout(5000) { vm.state.first { it.phase == SettingsPhase.Error } }; assertEquals(baseline,use.settings.first())
         badRead = false; withContext(Dispatchers.Main) { vm.retryRead() }; loaded(vm); assertEquals(baseline,vm.state.value.data)
-        withContext(Dispatchers.Main) { vm.setOffset(true,7,true) }
+        withContext(Dispatchers.Main) { vm.setOffset(7,true) }
         withTimeout(5000) { vm.state.first { it.phase == SettingsPhase.Content && it.pending && it.error != null } }
         assertEquals(1,writes)
         val next = settings(owner,SavedStateHandle(mapOf("intent" to saved.get<HashMap<String,String>>("intent"))))

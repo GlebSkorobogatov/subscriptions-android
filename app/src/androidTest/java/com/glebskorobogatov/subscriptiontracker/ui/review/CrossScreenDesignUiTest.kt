@@ -57,16 +57,9 @@ class CrossScreenDesignUiTest {
         val state = mutableStateOf(DetailsEditorPreviewData.editor)
         compose.setContent { EditorDemo(state.value,onChange = { key,value -> state.value = state.value.copy(fields = state.value.fields + (key to value)) }) }
         compose.onNodeWithTag("editor_extra").performScrollTo().performClick()
-        for((key,label) in listOf("PAYMENT" to R.string.editor_payment_rules,"CANCELLATION" to R.string.editor_cancel_rules)) {
-            compose.onNodeWithTag("editor_inherit_$key").performScrollTo().assertContentDescriptionEquals(
-                compose.activity.getString(R.string.settings_offset_description,text(label),text(R.string.editor_inherit)))
-        }
-        compose.onNodeWithTag("editor_inherit_PAYMENT").performScrollTo().performClick()
-        val paymentDay = compose.activity.getString(R.string.settings_offset_description,text(R.string.editor_payment_rules),text(R.string.settings_payment_day))
-        val cancellationDay = compose.activity.getString(R.string.settings_offset_description,text(R.string.editor_cancel_rules),text(R.string.settings_event_day))
-        compose.onNodeWithContentDescription(paymentDay).performScrollTo().assertHasClickAction().performClick()
-        compose.onNodeWithContentDescription(cancellationDay).performScrollTo().assertHasClickAction()
-        compose.runOnIdle { assertEquals("0",state.value.fields["PAYMENT"]);assertEquals("7,3",state.value.fields["CANCELLATION"]) }
+        compose.onNodeWithTag("editor_inherit_PAYMENT").assertDoesNotExist()
+        compose.onNodeWithTag("editor_inherit_CANCELLATION").assertDoesNotExist()
+        compose.onNodeWithTag("field_currency").assertDoesNotExist()
     }
     @Test fun timeRowWidthFontAndThemeMatrixKeepsHorizontalWordsAndCurrentValue() {
         data class Case(val width: Int,val font: Float,val theme: Theme)

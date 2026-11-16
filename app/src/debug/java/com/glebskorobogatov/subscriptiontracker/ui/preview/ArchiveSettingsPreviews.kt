@@ -37,11 +37,11 @@ internal object ArchiveSettingsPreviewData {
     }
 }
 @Composable internal fun SettingsDemo(state: SettingsUiState = ArchiveSettingsPreviewData.settings,theme: Theme = Theme.SYSTEM,
-    onTheme: (Theme) -> Unit = {},onOpenTime: () -> Unit = {},onOffset: (Boolean,Int,Boolean) -> Unit = {_,_,_ ->},
+    onTheme: (Theme) -> Unit = {},onOffset: (Int,Boolean) -> Unit = {_,_ ->},
     onRetryRead: () -> Unit = {},onRetryWrite: () -> Unit = {},onBack: () -> Unit = {}) {
     TrackerTheme(theme) { Scaffold(topBar = { TrackerPageHeader(stringResource(R.string.settings),onBack = onBack) }) { padding ->
         Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
-            SettingsPane(state,"0.1",onTheme,onOpenTime,onOffset,onRetryRead,onRetryWrite)
+            SettingsPane(state,"0.1",onTheme,onOffset,onRetryRead,onRetryWrite)
         }
     } }
 }

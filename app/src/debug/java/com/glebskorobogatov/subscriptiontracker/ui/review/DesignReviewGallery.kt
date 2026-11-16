@@ -31,7 +31,7 @@ import kotlin.math.min
 internal enum class ReviewScene {
     Subscriptions, SubscriptionsEmpty, SubscriptionsError, SubscriptionsLong, FinancePlaceholder,
     Details, DetailsCancelled, DetailsLong, EditorCreate, EditorEdit, EditorError,
-    Archive, ArchiveEmpty, Settings, TimeDialog, DeleteDialog, UnsavedDialog,
+    Archive, ArchiveEmpty, Settings, DeleteDialog, UnsavedDialog,
      ResolveDateDialog, DisableDialog, ReactivateDialog, ArchiveDialog,
 }
 internal object ReviewData {
@@ -89,7 +89,6 @@ internal fun ReviewViewport(scene: ReviewScene,theme: Theme = Theme.SYSTEM,fontS
         ReviewScene.Archive -> ArchiveDemo(theme = theme)
         ReviewScene.ArchiveEmpty -> ArchiveDemo(ArchiveUiState(ArchivePhase.Empty),theme)
         ReviewScene.Settings -> SettingsDemo(theme = theme)
-        ReviewScene.TimeDialog -> TrackerTheme(theme) { SettingsTimeDialog(ArchiveSettingsPreviewData.settings.copy(timeOpen = true),{_,_ ->},{},{}) }
         ReviewScene.DeleteDialog -> LifecycleReviewDialog(DetailsAction.Delete,theme)
         ReviewScene.ResolveDateDialog -> LifecycleReviewDialog(DetailsAction.ResolveDate,theme)
         ReviewScene.DisableDialog -> LifecycleReviewDialog(DetailsAction.Disable,theme)

@@ -30,7 +30,7 @@ class ReminderWorkManagerTest {
     private val entered = CompletableDeferred<Unit>()
     private lateinit var records: ReminderInfrastructureTest.RecordingScheduler
     @Before fun initialize() {
-        dataset = UUID.randomUUID(); records = ReminderInfrastructureTest.RecordingScheduler()
+        dataset = UUID.randomUUID(); com.glebskorobogatov.subscriptiontracker.fixtures.authorizeFreshFixture(context,dataset); records = ReminderInfrastructureTest.RecordingScheduler()
         access = ReminderInfrastructureTest.TestGeneration(dataset)
         factory = object : WorkerFactory() {
             override fun createWorker(appContext: Context, workerClassName: String, workerParameters: WorkerParameters): ListenableWorker? =
@@ -157,7 +157,7 @@ class ReminderWorkManagerTest {
     private suspend fun kotlinx.coroutines.flow.Flow<WorkInfo?>.firstFinished(): WorkInfo =
         requireNotNull(kotlinx.coroutines.withTimeout(10_000) { this@firstFinished.first { it?.state?.isFinished == true } })
     @Test fun createThroughUseCasesEnqueuesRealControlWorkerWithoutActivity(): Unit = runBlocking {
-        com.glebskorobogatov.subscriptiontracker.fixtures.authorizeFreshFixture(context, dataset); val db = TrackerDatabaseFactory.open(context,dataset)
+        val db = TrackerDatabaseFactory.open(context,dataset)
         val lease = com.glebskorobogatov.subscriptiontracker.data.settings.DatasetSettingsFactory.acquire(context,dataset)
         try {
             val cases = com.glebskorobogatov.subscriptiontracker.data.integration.SubscriptionUseCases(db,lease.repository,
@@ -181,6 +181,40 @@ class ReminderWorkManagerTest {
             assertTrue(db.deliveries().all().none { it.state == DeliveryState.DELIVERED })
             assertTrue(db.payments().all().isEmpty())
         } finally { db.close(); lease.close() }
+    }
+
+    @Test fun legacyDeliveryControlAndWakeFinishWithoutOpeningStorage() = runBlocking {
+        val originalRequests = records.requests
+        val payloads = listOf(
+            workDataOf("version" to 1,"generation" to dataset.toString(),"subscription" to UUID.randomUUID().toString(),"fingerprint" to "a".repeat(64)),
+            workDataOf("version" to 1,"generation" to dataset.toString(),"reconcile" to true),
+            workDataOf("version" to 1,"generation" to dataset.toString()))
+        for (payload in payloads) {
+            val worker = TestListenableWorkerBuilder<ReminderWorker>(context).setWorkerFactory(factory).setInputData(payload).build()
+            assertEquals(ListenableWorker.Result.success(),worker.doWork())
+            assertFalse(context.getDatabasePath("subscriptions-$dataset.db").exists())
+        }
+        assertEquals(originalRequests+3,records.requests)
+        assertTrue(records.tasks.isEmpty()); assertNull(records.wake)
+    }
+    @Test fun futureUnknownPolicyFailsWithoutOpeningOrRequestingWork() = runBlocking {
+        val data = Data.Builder().putAll(ReminderWorkInput.data(dataset)).putInt("policy",99).build()
+        val worker = TestListenableWorkerBuilder<ReminderWorker>(context).setWorkerFactory(factory).setInputData(data).build()
+        assertEquals(ListenableWorker.Result.failure(),worker.doWork())
+        assertFalse(context.getDatabasePath("subscriptions-$dataset.db").exists()); assertEquals(0,records.requests)
+    }
+    @Test fun retireOnlyLegacyReminderQueueAndKeepUnrelatedWork() = runBlocking {
+        val old = OneTimeWorkRequestBuilder<ReminderWorker>().addTag(WorkManagerReminderScheduler.ROOT)
+            .addTag(WorkManagerReminderScheduler.DELIVERY).setInitialDelay(1,TimeUnit.DAYS)
+            .setInputData(workDataOf("version" to 1,"generation" to dataset.toString())).build()
+        val unrelated = OneTimeWorkRequestBuilder<ReminderWorker>().addTag("synthetic-unrelated-work")
+            .setInitialDelay(1,TimeUnit.DAYS).setInputData(ReminderWorkInput.data(dataset)).build()
+        manager.enqueue(listOf(old,unrelated)).result.get(10,TimeUnit.SECONDS)
+        scheduler.requestReconcile()
+        assertEquals(WorkInfo.State.CANCELLED,requireNotNull(manager.getWorkInfoById(old.id).get()).state)
+        assertEquals(WorkInfo.State.ENQUEUED,requireNotNull(manager.getWorkInfoById(unrelated.id).get()).state)
+        val current = manager.getWorkInfosForUniqueWork(WorkManagerReminderScheduler.RECONCILE).get()
+        assertTrue(current.any { ReminderWorkInput.POLICY_TAG in it.tags })
     }
 
 }

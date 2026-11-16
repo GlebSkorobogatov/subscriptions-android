@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.content.res.Configuration
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import com.glebskorobogatov.subscriptiontracker.app.IsolatedMainActivity
 import java.time.LocalDate
@@ -20,7 +21,7 @@ class ArchiveSettingsUiTest {
         compose.onNodeWithText("Внешний вид").assertExists()
     }
     private fun checked(tag: String,expected: Boolean) {
-        compose.openSettingsOffsets(tag.startsWith("settings_payment"))
+        compose.openSettingsOffsets()
         compose.waitUntil(5000) { compose.onAllNodesWithTag(tag).fetchSemanticsNodes().any {
             it.config.getOrElse(SemanticsProperties.ToggleableState) { androidx.compose.ui.state.ToggleableState.Indeterminate } ==
                 (if(expected) androidx.compose.ui.state.ToggleableState.On else androidx.compose.ui.state.ToggleableState.Off) && !it.config.contains(SemanticsProperties.Disabled)
@@ -81,18 +82,17 @@ class ArchiveSettingsUiTest {
         compose.onNodeWithText("Возобновить подписку").performScrollTo().performClick()
         compose.onNodeWithTag("details_field_date").performScrollTo().performTextReplacement(LocalDate.now().plusDays(2).toString())
         compose.onNodeWithTag("details_field_amount").performScrollTo().performTextReplacement("599")
-        compose.onNodeWithTag("details_field_currency").performScrollTo().performTextReplacement("USD")
         compose.onNodeWithTag("details_field_count").performScrollTo().performTextReplacement("3")
         compose.onNodeWithText("Ручное продление").performScrollTo().performClick(); confirm()
         compose.waitUntil(5000) { compose.onAllNodesWithText("Возобновить подписку").fetchSemanticsNodes().isEmpty() }
-        compose.onNodeWithText("599,00 USD").assertExists()
+        compose.onNodeWithText("599,00 RUB").assertExists()
         compose.onAllNodes(hasText("Оплата ",substring = true)).assertCountEquals(0)
         compose.onNodeWithContentDescription("Назад").performClick()
         compose.waitUntil(5000) { compose.onAllNodesWithText("В архиве пока пусто").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("tab_subscriptions").performClick()
         compose.onNodeWithTag("subscriptions_screen").performScrollToNode(hasTestTag("subscription_$id"))
         compose.onNodeWithTag("subscription_$id").assertExists()
-        compose.onAllNodesWithText("599,00 USD").assertCountEquals(2)
+        compose.onAllNodesWithText("599,00 RUB").assertCountEquals(2)
     }
     @Test fun duplicateArchiveNamesKeepAccountLabelsAndIndependentCards() {
         createAndOpen("Личный тест"); archiveAndReturn()
@@ -111,43 +111,28 @@ class ArchiveSettingsUiTest {
         theme("SYSTEM",systemDark)
         compose.onNodeWithContentDescription("Назад").performClick(); compose.onNodeWithTag("tab_finance").assertIsSelected()
     }
-    @Test fun timeDefaultsToNineAndDraftAndConfirmedValueSurviveRecreation() {
-        settings(); compose.onNodeWithText("09:00").performScrollTo().performClick()
-        compose.onAllNodes(hasSetTextAction())[0].performTextReplacement("18")
-        compose.onAllNodes(hasSetTextAction())[1].performTextReplacement("45")
+    @Test fun fixedNineSurvivesRecreationWithoutTimeDialog() {
+        settings()
+        compose.onNodeWithTag("settings_time").performScrollTo().assert(SemanticsMatcher.keyNotDefined(SemanticsActions.OnClick))
+        compose.onNodeWithTag("settings_time_value",useUnmergedTree = true).assertTextEquals("09:00")
         compose.activityRule.scenario.recreate()
-        compose.onAllNodes(hasSetTextAction())[0].assertTextContains("18")
-        compose.onAllNodes(hasSetTextAction())[1].assertTextContains("45")
-        compose.onNodeWithText("Применить время").performClick()
-        compose.waitUntil(5000) { compose.onAllNodesWithText("18:45").fetchSemanticsNodes().isNotEmpty() }
-        compose.activityRule.scenario.recreate()
-        compose.onNodeWithText("18:45").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("settings_time").performScrollTo().assertExists()
+        compose.onNodeWithTag("settings_time_value",useUnmergedTree = true).assertTextEquals("09:00")
+        compose.onNodeWithTag("settings_time_dialog").assertDoesNotExist()
     }
-    @Test fun offsetsAreIndependentSupportMultipleSelectionAndEmptySet() {
-        settings(); checked("settings_payment_3",true); checked("settings_cancellation_7",true)
-        compose.openSettingsOffsets(true)
+
+    @Test fun globalOffsetsSupportMultipleSelectionEmptySetAndRecreation() {
+        settings(); checked("settings_payment_3",true)
         compose.onNodeWithTag("settings_payment_7").performScrollTo().performClick(); checked("settings_payment_7",true)
-        compose.openSettingsOffsets(false)
-        compose.onNodeWithTag("settings_cancellation_7").performScrollTo().performClick(); checked("settings_cancellation_7",false)
-        checked("settings_payment_7",true)
-        for(day in listOf(3,1,7)) { compose.onNodeWithTag("settings_payment_$day").performScrollTo().performClick(); checked("settings_payment_$day",false) }
-        compose.activityRule.scenario.recreate()
+        for(day in listOf(7,3,1)) { compose.onNodeWithTag("settings_payment_$day").performScrollTo().performClick(); checked("settings_payment_$day",false) }
+        compose.onNodeWithText("Готово").performClick()
+        compose.activityRule.scenario.recreate(); compose.openSettingsOffsets()
         for(day in listOf(7,3,1,0)) checked("settings_payment_$day",false)
-        checked("settings_cancellation_3",true)
+        compose.onNodeWithText("Готово").performClick()
+        compose.onNodeWithTag("settings_cancellation_offsets").assertDoesNotExist()
     }
-    @Test fun cancellingInvalidTimeDraftDoesNotChangeStoredPreference() {
-        settings(); compose.onNodeWithTag("settings_time").performScrollTo().performClick()
-        compose.onNodeWithTag("settings_hours").performTextReplacement("25")
-        compose.onNodeWithTag("settings_minutes").performTextReplacement("99")
-        compose.onNodeWithText("Применить время").performClick()
-        compose.waitUntil(5000) { compose.onAllNodes(hasTestTag("settings_hours") and SemanticsMatcher.keyIsDefined(SemanticsProperties.Error)).fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithTag("settings_time_dialog").assertExists()
-        compose.onNodeWithTag("settings_hours").assertTextContains("25")
-        compose.onNodeWithText("Отмена").performClick()
-        compose.onNodeWithText("09:00").performScrollTo().assertIsDisplayed()
-        compose.activityRule.scenario.recreate()
-        compose.onNodeWithText("09:00").performScrollTo().assertIsDisplayed()
-    }
+
+
     @Test fun reminderSettingsExplainBestEffortAndDoNotPublishOnOpening() {
         settings(); compose.onNodeWithText("Android может задерживать напоминания. Время задаётся по текущему местному времени устройства.").performScrollTo().assertIsDisplayed()
         @Suppress("DEPRECATION")

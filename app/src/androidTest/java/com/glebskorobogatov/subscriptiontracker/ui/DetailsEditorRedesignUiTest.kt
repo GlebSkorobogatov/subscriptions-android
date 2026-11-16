@@ -111,11 +111,9 @@ class DetailsEditorRedesignUiTest {
         compose.onNodeWithTag("field_anchorDay").assertDoesNotExist()
         compose.onNodeWithTag("editor_extra").performScrollTo().performClick()
         compose.onNodeWithTag("field_anchorDay").performScrollTo().assertTextContains("31")
-        compose.onNodeWithTag("editor_inherit_PAYMENT").performScrollTo().performClick()
-        compose.runOnIdle {
-            assertEquals("",state.value.fields["PAYMENT"])
-            assertEquals("7,3",state.value.fields["CANCELLATION"])
-        }
+        compose.onNodeWithTag("editor_inherit_PAYMENT").assertDoesNotExist()
+        compose.onNodeWithTag("field_currency").assertDoesNotExist()
+        compose.onNodeWithTag("field_lead").assertDoesNotExist()
     }
     @Test fun futureSeriesChoiceAndRequiredConfirmationRemainExplicit() {
         val state = mutableStateOf(data.editor)

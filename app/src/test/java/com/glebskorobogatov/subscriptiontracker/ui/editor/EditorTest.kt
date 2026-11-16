@@ -2,9 +2,7 @@ package com.glebskorobogatov.subscriptiontracker.ui.editor
 
 import com.glebskorobogatov.subscriptiontracker.domain.calendar.DefaultRenewalCalendar
 import com.glebskorobogatov.subscriptiontracker.domain.model.*
-import com.glebskorobogatov.subscriptiontracker.data.room.*
 import java.time.LocalDate
-import java.util.UUID
 import org.junit.Test
 import org.junit.Assert.*
 
@@ -19,18 +17,8 @@ class EditorTest {
         val s = EditorViewModel.schedule(fields("2028-02-29") + mapOf("anchorMonth" to "2028-02","anchorDay" to "29","unit" to "YEAR"))
         assertEquals(LocalDate.of(2032,2,29),DefaultRenewalCalendar().plannedCycleDate(s,4))
     }
-    @Test fun independentDisabledAndCustomRules() {
-        val id = UUID.randomUUID()
-        val rules = EditorViewModel.rules(mapOf("PAYMENT" to "", "CANCELLATION" to "7,3"),id)
-        assertTrue(rules.first { it.eventType == ReminderEventType.PAYMENT }.offsets.isEmpty())
-        assertEquals(setOf(7,3),rules.first { it.eventType == ReminderEventType.CANCELLATION }.offsets)
-        assertTrue(rules.all { it.mode == ReminderMode.CUSTOM })
-    }
-    @Test fun inheritIsSeparateFromDisabled() {
-        val rules = EditorViewModel.rules(mapOf("PAYMENT" to "inherit", "CANCELLATION" to ""),UUID.randomUUID())
-        assertEquals(ReminderMode.INHERIT_GLOBAL,rules.first().mode)
-        assertEquals(ReminderMode.CUSTOM,rules.last().mode)
-    }
+
+
     @Test fun precisionZeroTwoThreeNeverRounds() {
         for ((currency,amount,expected) in listOf(Triple("JPY","123",123L),Triple("RUB","1,23",123L),Triple("USD","1.23",123L),Triple("KWD","1,234",1234L)))
             assertEquals(expected,Money.parse(amount,CurrencyCode.of(currency)).amountMinor)

@@ -6,17 +6,14 @@ import com.glebskorobogatov.subscriptiontracker.domain.model.SubscriptionId
 import java.time.*
 import java.time.temporal.ChronoUnit
 
-enum class ReminderEventType { PAYMENT, CANCELLATION }
+/** PAYMENT is the stable v1 renewal discriminator; keep logical delivery identities. */
+enum class ReminderEventType { PAYMENT }
 private val allowedOffsets = setOf(7,3,1,0)
 
-/** Already resolved by C-02 effectiveOffsets, independently for each event type. */
-data class ReminderSubscription(val subscription: Subscription,val cancellationLeadDays: Int?,
-    val paymentOffsets: Set<Int>,val cancellationOffsets: Set<Int>) {
+/** Global renewal offsets only; legacy per-subscription rows are never inputs. */
+data class ReminderSubscription(val subscription: Subscription, val paymentOffsets: Set<Int>) {
     init { validate() }
-    internal fun validate() {
-        require(cancellationLeadDays == null || cancellationLeadDays >= 0)
-        require(paymentOffsets.all { it in allowedOffsets } && cancellationOffsets.all { it in allowedOffsets })
-    }
+    internal fun validate() { require(paymentOffsets.all { it in allowedOffsets }) }
 }
 
 /** Logical identity v1: independent of configured time, zone, input order and delivery attempts.
@@ -48,7 +45,7 @@ data class ReminderMessage(val subscriptionId: SubscriptionId,val asOfLocalDate:
 class ReminderCalculationException(message: String,cause: Throwable): IllegalArgumentException(message,cause)
 
 /** No clocks, storage, notifications or owned state. Only the nearest currently eligible renewal
- * is considered; AUTO advances by calendar view, MANUAL waits for explicit confirmation. */
+ * is considered; legacy AUTO advances by calendar view, MANUAL keeps its stored cycle until editing (R1b.4). */
 class ReminderRules(private val lifecycle: SubscriptionLifecycleService = SubscriptionLifecycleService()) {
     private val order = compareBy<PlannedReminder> { it.plannedLocalDateTime }
         .thenBy { it.subscriptionId.toString() }.thenBy { it.eventType.name }
@@ -117,9 +114,7 @@ class ReminderRules(private val lifecycle: SubscriptionLifecycleService = Subscr
                     }
                 }
                 append(ReminderEventType.PAYMENT,due,input.paymentOffsets)
-                input.cancellationLeadDays?.let { lead ->
-                    if(input.cancellationOffsets.isNotEmpty()) append(ReminderEventType.CANCELLATION,due.minusDays(lead.toLong()),input.cancellationOffsets)
-                }
+
             }
         }.distinct().sortedWith(order)
     }

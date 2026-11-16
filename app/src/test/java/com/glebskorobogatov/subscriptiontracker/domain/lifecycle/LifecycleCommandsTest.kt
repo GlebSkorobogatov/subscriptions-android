@@ -30,24 +30,10 @@ class LifecycleCommandsTest {
         assertEquals(today, known.paidAccessEnd)
         assertTrue(ForecastEngine().calendarMonths(listOf(known), today, 12).charges.isEmpty())
         val unknown = rules.apply(s, LifecycleCommand.DisableRenewal())
-        assertNull(unknown.paidAccessEnd); assertEquals(unknown, autoArchiveExpired(unknown, today.plusYears(10)))
+        assertNull(unknown.paidAccessEnd)
     }
-    @Test fun lifeT12InclusiveLastDayAndIdempotentArchive() {
-        val cancelled = rules.apply(s, LifecycleCommand.DisableRenewal(today))
-        assertEquals(cancelled, autoArchiveExpired(cancelled, today.minusDays(1)))
-        assertEquals(cancelled, autoArchiveExpired(cancelled, today))
-        val archived = autoArchiveExpired(cancelled, today.plusDays(1))
-        assertEquals(LifecycleState.ARCHIVED, archived.state)
-        assertEquals(archived, autoArchiveExpired(archived, today.plusDays(2)))
-    }
-    @Test fun autoArchiveDoesNotTouchOtherStatesOrManualOverdue() {
-        for (state in listOf(LifecycleState.ACTIVE, LifecycleState.PAYMENT_ISSUE, LifecycleState.ARCHIVED)) {
-            val candidate = s.copy(state = state, paidAccessEnd = today.minusDays(1))
-            assertEquals(candidate, autoArchiveExpired(candidate, today))
-        }
-        val overdue = s.copy(mode = RenewalMode.MANUAL)
-        assertEquals(overdue, autoArchiveExpired(overdue, today.plusDays(1)))
-    }
+
+
     @Test fun lifeT13ReactivationUsesExplicitNewPriceModeAndDate() {
         val archived = rules.apply(s, LifecycleCommand.Archive)
         val command = LifecycleCommand.Reactivate(today.plusDays(10), Frequency(FrequencyUnit.WEEK, 2), RenewalMode.MANUAL, Money(900, CurrencyCode.of("USD")))

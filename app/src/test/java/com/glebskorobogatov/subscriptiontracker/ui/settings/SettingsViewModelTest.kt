@@ -30,7 +30,7 @@ class SettingsViewModelTest {
         gate.complete(Unit); runCurrent(); assertEquals(Theme.DARK,vm.state.value.data!!.theme)
     }
     @Test fun failedReadIsErrorAndRetryDoesNotResetStoredPreferences() = runTest(dispatcher) {
-        var bad = true; val preferences = Settings(theme = Theme.DARK,reminderLocalTime = LocalTime.of(18,45))
+        var bad = true; val preferences = Settings(theme = Theme.DARK)
         val vm = model(values = flow { if(bad) error("read"); emit(preferences) }); runCurrent()
         assertNull(vm.state.value.data); assertEquals(SettingsPhase.Error,vm.state.value.phase)
         bad = false; vm.retryRead(); runCurrent(); assertEquals(preferences,vm.state.value.data)
@@ -40,18 +40,23 @@ class SettingsViewModelTest {
         runCurrent(); bad.complete(Unit); runCurrent()
         assertEquals(SettingsPhase.Error,vm.state.value.phase); assertEquals(Theme.DARK,vm.state.value.data!!.theme)
     }
-    @Test fun timeDialogAndDraftRestoreWithoutSavingAutomatically() = runTest(dispatcher) {
-        val saved = SavedStateHandle(); var writes = 0; val vm = model(saved,operation = { writes++ }); runCurrent()
-        vm.openTime(); assertEquals(9,vm.state.value.hour); assertEquals(0,vm.state.value.minute)
-        vm.timeDraft(18,45)
-        val next = model(SavedStateHandle(mapOf("timeOpen" to true,"hour" to 18,"minute" to 45)),operation = { writes++ }); runCurrent()
-        assertTrue(next.state.value.timeOpen); assertEquals(45,next.state.value.minute); assertEquals(0,writes)
-        next.dismissTime(); assertEquals(0,writes)
+    @Test fun retiredTimeDialogAndIntentAreDiscardedWithoutSaving() = runTest(dispatcher) {
+        var writes = 0
+        val saved = SavedStateHandle(mapOf("timeOpen" to true,"hour" to 18,"minute" to 45,
+            "intent" to hashMapOf("kind" to "time","value" to "18:45"),"other" to "preserve"))
+        val vm = model(saved,operation = { writes++ }); runCurrent(); vm.retryWrite(); runCurrent()
+        assertFalse(vm.state.value.pending); assertEquals(0,writes)
+        assertFalse(saved.contains("intent")); assertFalse(saved.contains("timeOpen"))
+        assertEquals("preserve",saved.get<String>("other"))
     }
-    @Test fun invalidTimeDoesNotStartWrite() = runTest(dispatcher) {
-        var writes = 0; val vm = model(operation = { writes++ }); runCurrent(); vm.openTime(); vm.confirmTime(24,60); runCurrent()
-        assertNotNull(vm.state.value.timeError); assertEquals(0,writes); assertTrue(vm.state.value.timeOpen)
+
+    @Test fun retiredCancellationIntentCannotBeRetried() = runTest(dispatcher) {
+        var writes = 0
+        val saved = SavedStateHandle(mapOf("intent" to hashMapOf("kind" to "cancellation","day" to "7","enabled" to "true")))
+        val vm = model(saved,operation = { writes++ }); runCurrent(); vm.retryWrite(); runCurrent()
+        assertFalse(vm.state.value.pending); assertEquals(0,writes); assertFalse(saved.contains("intent"))
     }
+
     @Test fun uncertainWriteKeepsIntentAndRestorationNeverResubmitsIt() = runTest(dispatcher) {
         var writes = 0; val saved = SavedStateHandle(); val vm = model(saved,operation = { writes++ }); runCurrent()
         vm.setTheme(Theme.DARK); runCurrent(); assertTrue(vm.state.value.pending); assertNotNull(vm.state.value.error)
@@ -68,26 +73,24 @@ class SettingsViewModelTest {
         assertEquals(1,writes); assertEquals(SettingsPhase.Saving,vm.state.value.phase)
         gate.complete(Unit); runCurrent()
     }
-    @Test fun rawTimeDraftSurvivesRestoreAndInvalidInputNeverWrites() = runTest(dispatcher) {
-        var writes = 0; val saved = SavedStateHandle(); val vm = model(saved,operation = { writes++ }); runCurrent()
-        vm.openTime(); vm.changeTimeInput(true,""); vm.changeTimeInput(false,"75")
-        vm.confirmTimeInput(); runCurrent(); assertEquals(0,writes); assertNotNull(vm.state.value.timeError)
-        val restored = SavedStateHandle(saved.keys().associateWith { saved.get<Any>(it) })
-        val next = model(restored,operation = { writes++ }); runCurrent()
-        assertEquals("",next.state.value.hourInput); assertEquals("75",next.state.value.minuteInput); assertTrue(next.state.value.timeOpen)
-        next.changeTimeInput(true,"18"); next.changeTimeInput(false,"45"); next.confirmTimeInput(); runCurrent()
-        assertEquals(1,writes); assertEquals("18:45",restored.get<HashMap<String,String>>("intent")!!["value"])
+    @Test fun malformedOrUnknownPendingPreferenceNeverWritesOnRestoreOrRetry() = runTest(dispatcher) {
+        var writes = 0
+        for (intent in listOf(hashMapOf("kind" to "payment","day" to "99","enabled" to "true"),
+            hashMapOf("kind" to "currency","value" to "USD"),hashMapOf("kind" to "horizon","value" to "6"))) {
+            val saved = SavedStateHandle(mapOf("intent" to intent)); val vm = model(saved,operation = { writes++ })
+            runCurrent(); vm.retryWrite(); runCurrent(); assertFalse(vm.state.value.pending)
+        }
+        assertEquals(0,writes)
     }
+
     @Test fun preferencePatchesAreIndependentIdempotentAndPreserveOtherFields() {
-        val original = Settings(theme = Theme.DARK,reminderLocalTime = LocalTime.of(18,45),chartHorizonMonths = 12)
+        val original = Settings(theme = Theme.DARK)
         val patch = mapOf("kind" to "payment","day" to "7","enabled" to "true")
         val once = applySetting(original,patch)
         assertEquals(once,applySetting(once,patch)); assertEquals(setOf(7,3,1),once.paymentOffsetsDefault)
-        assertEquals(original.cancellationOffsetsDefault,once.cancellationOffsetsDefault)
         assertEquals(original.copy(paymentOffsetsDefault = once.paymentOffsetsDefault),once)
         var empty = once
         for(day in listOf(7,3,1,0)) empty = applySetting(empty,mapOf("kind" to "payment","day" to day.toString(),"enabled" to "false"))
-        assertTrue(empty.paymentOffsetsDefault.isEmpty()); assertEquals(original.cancellationOffsetsDefault,empty.cancellationOffsetsDefault)
-        assertEquals(LocalTime.of(7,30),applySetting(original,mapOf("kind" to "time","value" to "07:30")).reminderLocalTime)
+        assertTrue(empty.paymentOffsetsDefault.isEmpty())
     }
 }

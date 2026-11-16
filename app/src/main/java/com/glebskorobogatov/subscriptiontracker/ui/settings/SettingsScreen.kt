@@ -13,6 +13,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -31,6 +32,13 @@ import com.glebskorobogatov.subscriptiontracker.ui.design.*
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
+/** Explicit saver for the whole state: the old nullable Boolean MutableState must never be
+ * restored by the new non-null MutableState saver (which could retain a null value). */
+internal val renewalOffsetsDialogSaver = Saver<MutableState<Boolean>,Any>(
+    save = { if(it.value) "renewal-offsets" else "closed" },
+    restore = { mutableStateOf(it == "renewal-offsets") },
+)
+
 @Composable
 fun SettingsScreen(vm: SettingsViewModel, notifications: com.glebskorobogatov.subscriptiontracker.notifications.NotificationAccess? = null,
     onNotificationSettings: () -> Unit = {}) {
@@ -40,25 +48,22 @@ fun SettingsScreen(vm: SettingsViewModel, notifications: com.glebskorobogatov.su
         @Suppress("DEPRECATION")
         context.packageManager.getPackageInfo(context.packageName,0).versionName.orEmpty()
     }
-    SettingsPane(state,version,vm::setTheme,vm::openTime,vm::setOffset,vm::retryRead,vm::retryWrite,notifications,onNotificationSettings)
-    if(state.timeOpen) SettingsTimeDialog(state,vm::changeTimeInput,vm::confirmTimeInput,vm::dismissTime)
+    SettingsPane(state,version,vm::setTheme,vm::setOffset,vm::retryRead,vm::retryWrite,notifications,onNotificationSettings)
 }
 
 /** UI-only dialog selection. Preference writes and retry identity still belong to SettingsViewModel. */
 @Composable
-internal fun SettingsPane(state: SettingsUiState,version: String,onTheme: (Theme) -> Unit,onOpenTime: () -> Unit,
-    onOffset: (Boolean,Int,Boolean) -> Unit,onRetryRead: () -> Unit,onRetryWrite: () -> Unit,
+internal fun SettingsPane(state: SettingsUiState,version: String,onTheme: (Theme) -> Unit,
+    onOffset: (Int,Boolean) -> Unit,onRetryRead: () -> Unit,onRetryWrite: () -> Unit,
     notifications: com.glebskorobogatov.subscriptiontracker.notifications.NotificationAccess? = null,
     onNotificationSettings: () -> Unit = {}) {
-    var paymentDialog by rememberSaveable { mutableStateOf<Boolean?>(null) }
+    var offsetsOpen by rememberSaveable(saver = renewalOffsetsDialogSaver) { mutableStateOf(false) }
     val enabled = state.phase == SettingsPhase.Content && !state.pending
-    val title = stringResource(R.string.settings_time_title)
-    val scrollTitle = scrollDialogHeading()
     ProvideTextStyle(MaterialTheme.typography.bodyMedium.copy(lineHeightStyle =
         LineHeightStyle(LineHeightStyle.Alignment.Center,LineHeightStyle.Trim.None))) {
         Column(Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(horizontal = TrackerDimensions.screenPadding)
             .testTag("settings_screen")) {
-            if(paymentDialog == null) SettingsFeedback(state,onRetryRead,onRetryWrite)
+            if(!offsetsOpen) SettingsFeedback(state,onRetryRead,onRetryWrite)
             state.data?.let { settings ->
                 SettingsHeading(R.string.settings_appearance)
                 Column(Modifier.selectableGroup()) {
@@ -72,13 +77,13 @@ internal fun SettingsPane(state: SettingsUiState,version: String,onTheme: (Theme
                     }
                 }
                 SettingsHeading(R.string.settings_reminders)
-                ReminderTimeRow(settings.reminderLocalTime.format(DateTimeFormatter.ofPattern("HH:mm",Locale.ROOT)),enabled,onOpenTime)
+                ReminderTimeRow(settings.reminderLocalTime.format(DateTimeFormatter.ofPattern("HH:mm",Locale.ROOT)))
                 HorizontalDivider(color = TrackerDesign.colors.divider)
-                listOf(true to R.string.settings_payment_offsets,false to R.string.settings_cancel_offsets).forEach { (payment,label) ->
-                    val summary = offsetSummary(if(payment) settings.paymentOffsetsDefault else settings.cancellationOffsetsDefault,payment)
+                listOf(R.string.settings_payment_offsets).forEach { label ->
+                    val summary = offsetSummary(settings.paymentOffsetsDefault)
                     Row(Modifier.fillMaxWidth().heightIn(min = TrackerDimensions.minimumTouchTarget)
-                        .clickable(enabled = enabled,role = Role.Button) { paymentDialog = payment }
-                        .testTag(if(payment) "settings_payment_offsets" else "settings_cancellation_offsets").padding(vertical = 16.dp),
+                        .clickable(enabled = enabled,role = Role.Button) { offsetsOpen = true }
+                        .testTag("settings_payment_offsets").padding(vertical = 16.dp),
                         verticalAlignment = Alignment.CenterVertically,horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Column(Modifier.weight(1f),verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text(stringResource(label),style = MaterialTheme.typography.titleSmall)
@@ -96,7 +101,6 @@ internal fun SettingsPane(state: SettingsUiState,version: String,onTheme: (Theme
                         else -> R.string.notifications_allowed
                     }))
                     if (!access.paymentsEnabled) Text(stringResource(R.string.notifications_payment_disabled))
-                    if (!access.cancellationsEnabled) Text(stringResource(R.string.notifications_cancel_disabled))
                     TextButton(onClick = onNotificationSettings) { Text(stringResource(R.string.notifications_settings)) }
                 }
                 Text(stringResource(R.string.notifications_best_effort),Modifier.padding(top = 16.dp),color = TrackerDesign.colors.textSecondary,style = MaterialTheme.typography.bodySmall)
@@ -108,11 +112,11 @@ internal fun SettingsPane(state: SettingsUiState,version: String,onTheme: (Theme
                 Spacer(Modifier.height(32.dp))
             }
         }
-        paymentDialog?.let { payment ->
-            val selected = if(payment) state.data?.paymentOffsetsDefault.orEmpty() else state.data?.cancellationOffsetsDefault.orEmpty()
-            val title = stringResource(if(payment) R.string.settings_payment_offsets else R.string.settings_cancel_offsets)
+        if (offsetsOpen) {
+            val selected = state.data?.paymentOffsetsDefault.orEmpty()
+            val title = stringResource(R.string.settings_payment_offsets)
             val scrollTitle = scrollDialogHeading()
-            AlertDialog(onDismissRequest = { paymentDialog = null },modifier = Modifier.imePadding().testTag("settings_offsets_dialog").semantics { paneTitle = title },
+            AlertDialog(onDismissRequest = { offsetsOpen = false },modifier = Modifier.imePadding().testTag("settings_offsets_dialog").semantics { paneTitle = title },
                 shape = TrackerShapes.card,containerColor = TrackerDesign.colors.surfaceRaised,tonalElevation = 0.dp,
                 title = if(scrollTitle) null else ({ Text(title) }),text = {
                     Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -120,11 +124,11 @@ internal fun SettingsPane(state: SettingsUiState,version: String,onTheme: (Theme
                         SettingsFeedback(state,onRetryRead,onRetryWrite)
                         Text(stringResource(R.string.settings_offsets_immediate),color = TrackerDesign.colors.textSecondary)
                         listOf(7,3,1,0).forEach { day ->
-                            val text = offsetText(day,payment)
-                            val description = stringResource(R.string.settings_offset_description,stringResource(if(payment) R.string.settings_payment_offsets else R.string.settings_cancel_offsets),text)
+                            val text = offsetText(day)
+                            val description = stringResource(R.string.settings_offset_description,stringResource(R.string.settings_payment_offsets),text)
                             Row(Modifier.fillMaxWidth().heightIn(min = TrackerDimensions.minimumTouchTarget)
-                                .toggleable(day in selected,enabled = enabled,role = Role.Checkbox,onValueChange = { onOffset(payment,day,it) })
-                                .semantics { contentDescription = description }.testTag("settings_${if(payment) "payment" else "cancellation"}_$day"),
+                                .toggleable(day in selected,enabled = enabled,role = Role.Checkbox,onValueChange = { onOffset(day,it) })
+                                .semantics { contentDescription = description }.testTag("settings_payment_$day"),
                                 horizontalArrangement = Arrangement.spacedBy(12.dp),verticalAlignment = Alignment.CenterVertically) {
                                 Checkbox(day in selected,onCheckedChange = null,enabled = enabled)
                                 Text(text,Modifier.weight(1f).padding(vertical = 12.dp))
@@ -132,7 +136,7 @@ internal fun SettingsPane(state: SettingsUiState,version: String,onTheme: (Theme
                         }
                         if(selected.isEmpty() && state.data != null) Text(stringResource(R.string.settings_offsets_empty))
                     }
-                },confirmButton = { TrackerSecondaryButton(stringResource(R.string.settings_done),{ paymentDialog = null }) })
+                },confirmButton = { TrackerSecondaryButton(stringResource(R.string.settings_done),{ offsetsOpen = false }) })
         }
     }
 }
@@ -141,15 +145,15 @@ internal fun SettingsPane(state: SettingsUiState,version: String,onTheme: (Theme
     Text(stringResource(label),Modifier.padding(top = 24.dp,bottom = 8.dp).semantics { heading() },style = MaterialTheme.typography.titleSmall)
 }
 
-@Composable private fun offsetText(day: Int,payment: Boolean) = stringResource(
-    if(day == 0) { if(payment) R.string.settings_payment_day else R.string.settings_event_day } else R.string.settings_days_before,day)
+@Composable private fun offsetText(day: Int) = stringResource(
+    if(day == 0) R.string.settings_payment_day else R.string.settings_days_before,day)
 
-@Composable private fun offsetSummary(offsets: Set<Int>,payment: Boolean): String =
+@Composable private fun offsetSummary(offsets: Set<Int>): String =
     if(offsets.isEmpty()) stringResource(R.string.settings_offsets_empty)
-    else offsets.sortedDescending().map { offsetText(it,payment) }.joinToString(", ")
+    else offsets.sortedDescending().map { offsetText(it) }.joinToString(", ")
 
 /** Preserve the label's width: the large-font layout gives the value its own horizontal line. */
-@Composable internal fun ReminderTimeRow(value: String,enabled: Boolean,onClick: () -> Unit) {
+@Composable internal fun ReminderTimeRow(value: String) {
     val description = stringResource(R.string.settings_time,value)
     val titleStyle = MaterialTheme.typography.titleSmall.copy(lineHeightStyle =
         LineHeightStyle(LineHeightStyle.Alignment.Center,LineHeightStyle.Trim.None))
@@ -157,7 +161,7 @@ internal fun SettingsPane(state: SettingsUiState,version: String,onTheme: (Theme
     val captionStyle = MaterialTheme.typography.bodySmall.copy(lineHeightStyle =
         LineHeightStyle(LineHeightStyle.Alignment.Center,LineHeightStyle.Trim.None))
     Row(Modifier.fillMaxWidth().heightIn(min = TrackerDimensions.minimumTouchTarget)
-        .clickable(enabled = enabled,role = Role.Button,onClick = onClick).semantics { stateDescription = description }
+        .semantics { stateDescription = description }
         .testTag("settings_time").padding(vertical = 16.dp),horizontalArrangement = Arrangement.spacedBy(12.dp),verticalAlignment = Alignment.CenterVertically) {
         Icon(ImageVector.vectorResource(R.drawable.ic_clock),null,Modifier.size(24.dp),tint = TrackerDesign.colors.textSecondary)
         BoxWithConstraints(Modifier.weight(1f)) {
@@ -167,7 +171,6 @@ internal fun SettingsPane(state: SettingsUiState,version: String,onTheme: (Theme
             } }
             @Composable fun time() {
                 Text(value,Modifier.width(clockWidth).testTag("settings_time_value"),style = titleStyle,maxLines = 1,textAlign = TextAlign.End)
-                Icon(Icons.AutoMirrored.Filled.ArrowForward,null,tint = TrackerDesign.colors.textSecondary)
             }
             if(maxWidth < 240.dp || LocalDensity.current.fontScale >= 1.5f) Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 label()
@@ -187,26 +190,5 @@ internal fun SettingsPane(state: SettingsUiState,version: String,onTheme: (Theme
     if(state.phase == SettingsPhase.Error || state.pending && state.phase != SettingsPhase.Saving) {
         TrackerSecondaryButton(stringResource(R.string.retry_loading),onRetryRead)
         if(state.pending && state.phase == SettingsPhase.Content) TrackerSecondaryButton(stringResource(R.string.settings_retry_write),onRetryWrite)
-    }
-}
-
-@Composable internal fun SettingsTimeDialog(state: SettingsUiState,onChange: (Boolean,String) -> Unit,onConfirm: () -> Unit,onDismiss: () -> Unit) {
-    val enabled = state.phase == SettingsPhase.Content && !state.pending
-    val title = stringResource(R.string.settings_time_title)
-    val scrollTitle = scrollDialogHeading()
-    ProvideTextStyle(MaterialTheme.typography.bodyMedium.copy(lineHeightStyle =
-        LineHeightStyle(LineHeightStyle.Alignment.Center,LineHeightStyle.Trim.None))) {
-        AlertDialog(onDismissRequest = onDismiss,modifier = Modifier.imePadding().testTag("settings_time_dialog").semantics { paneTitle = title },shape = TrackerShapes.card,
-            containerColor = TrackerDesign.colors.surfaceRaised,tonalElevation = 0.dp,title = if(scrollTitle) null else ({ Text(title) }),text = {
-            Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                if(scrollTitle) TrackerDialogHeading(title)
-                Text(stringResource(R.string.settings_time_format),color = TrackerDesign.colors.textSecondary)
-                TrackerTextField(state.hourInput,{ onChange(true,it) },stringResource(R.string.settings_hours),inputModifier = Modifier.testTag("settings_hours"),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),enabled = enabled,errorMessage = state.timeError?.let { stringResource(it) })
-                TrackerTextField(state.minuteInput,{ onChange(false,it) },stringResource(R.string.settings_minutes),inputModifier = Modifier.testTag("settings_minutes"),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),enabled = enabled,errorMessage = state.timeError?.let { stringResource(it) })
-            }
-        },confirmButton = { TrackerPrimaryButton(stringResource(R.string.settings_apply_time),onConfirm,enabled = enabled) },
-            dismissButton = { TrackerSecondaryButton(stringResource(R.string.details_cancel),onDismiss) })
     }
 }

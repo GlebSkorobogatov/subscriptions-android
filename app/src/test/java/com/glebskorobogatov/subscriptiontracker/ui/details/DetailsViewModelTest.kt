@@ -19,7 +19,7 @@ class DetailsViewModelTest {
     private var number = 0
     @Before fun start() { Dispatchers.setMain(dispatcher) }
     @After fun close() { store.clear(); dispatcher.scheduler.advanceUntilIdle(); Dispatchers.resetMain() }
-    private val detail = SubscriptionDetails(detailsRow(),LifecycleView(VisibleStatus.ACTIVE,null,null),emptyList())
+    private val detail = SubscriptionDetails(detailsRow(),LifecycleView(VisibleStatus.ACTIVE,null,null))
     private fun model(handle: SavedStateHandle = SavedStateHandle(), values: Flow<SubscriptionDetails?> = flowOf(detail),
         generation: UUID? = null, operation: suspend () -> Unit = { error("Unknown outcome") }): DetailsViewModel {
         val owner = SubscriptionsViewModel(object : SubscriptionsSource {
@@ -117,6 +117,15 @@ class DetailsViewModelTest {
         val vm = model(operation = { calls++; throw CancellationException("Synthetic cancellation") }); runCurrent()
         vm.open(DetailsAction.Archive); vm.submit(); runCurrent()
         assertEquals(1,calls); assertNull(vm.state.value.error)
+    }
+
+    @Test fun savedReactivationCurrencyChangeIsDiscardedWithoutExecuting() = runTest(dispatcher) {
+        var calls = 0
+        val archived = detailsRow().copy(lifecycleState = LifecycleState.ARCHIVED)
+        val saved = SavedStateHandle(mapOf("action" to "Reactivate","snapshot" to SubscriptionSnapshot.snapshot(archived),
+            "fields" to hashMapOf("currency" to "USD","amount" to "10"),"sent" to true))
+        val vm = model(saved,operation = { calls++ }); runCurrent(); vm.submit(); runCurrent()
+        assertNull(vm.state.value.action); assertFalse(saved.contains("snapshot")); assertEquals(0,calls)
     }
 
 }

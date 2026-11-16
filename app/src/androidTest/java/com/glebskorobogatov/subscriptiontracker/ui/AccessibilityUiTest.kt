@@ -9,6 +9,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.*
 import androidx.compose.ui.test.*
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -113,24 +114,20 @@ class AccessibilityUiTest {
         val row = runBlocking { use.createSubscription(SubscriptionDraft(UUID.randomUUID(),"Очень длинное учебное название подписки", "Учебный семейный аккаунт",
             Money(999999999,CurrencyCode.of("RUB")),RenewalMode.AUTO,RenewalSchedule(RenewalAnchor.from(day),Frequency(FrequencyUnit.MONTH,1))),now) }
         val archived = runBlocking {
-            val s = use.createSubscription(SubscriptionDraft(UUID.randomUUID(),"Архивная учебная запись",null,Money(999,CurrencyCode.of("JPY")),RenewalMode.AUTO,
+            val s = use.createSubscription(SubscriptionDraft(UUID.randomUUID(),"Архивная учебная запись",null,Money(999,CurrencyCode.of("RUB")),RenewalMode.AUTO,
                 RenewalSchedule(RenewalAnchor.from(day),Frequency(FrequencyUnit.MONTH,1))),now)
             use.changeLifecycle(s,LifecycleCommand.Archive,now)
         }
         val restoration = StateRestorationTester(compose); start(2f,restoration)
         settings()
-        compose.openSettingsOffsets(false)
-        compose.onNodeWithTag("settings_cancellation_0").performScrollTo().assertIsDisplayed().assertIsToggleable()
+        compose.openSettingsOffsets()
+        compose.onNodeWithTag("settings_payment_0").performScrollTo().assertIsDisplayed().assertIsToggleable()
         compose.onNodeWithText("Готово").performClick()
-        compose.onNodeWithTag("settings_time").performScrollTo().performClick()
-        compose.onNodeWithText("Применить время").assertIsDisplayed()
-        compose.onNodeWithTag("settings_hours").performScrollTo().assertIsDisplayed().performTextReplacement("18")
-        compose.onNodeWithTag("settings_minutes").performScrollTo().assertIsDisplayed().performTextReplacement("45")
-        compose.onNodeWithText("Применить время").assertIsDisplayed().performClick()
-        awaitStep("time_saved_18_45") { compose.onAllNodesWithText("18:45").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("settings_time").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("settings_time").assert(SemanticsMatcher.keyNotDefined(SemanticsActions.OnClick))
         compose.onNodeWithContentDescription("Назад").performClick()
-        compose.onNodeWithTag("subscriptions_screen").performScrollToNode(hasTestTag("subscription_${row.id}"))
-        compose.onNodeWithTag("subscription_${row.id}").performClick()
+        compose.onNodeWithTag("subscriptions_screen").performScrollToNode(hasText(row.name))
+        compose.onNodeWithText(row.name).performClick()
         compose.onNodeWithText("Изменить").assertIsDisplayed().performClick()
         awaitStep("editor_initial_fields") { compose.onAllNodesWithTag("field_name").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("field_name").performScrollTo().performTextReplacement("Изменённое учебное название")

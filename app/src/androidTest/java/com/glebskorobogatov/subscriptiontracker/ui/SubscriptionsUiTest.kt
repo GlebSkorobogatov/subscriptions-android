@@ -83,8 +83,14 @@ class SubscriptionsUiTest {
     }
     private fun create(label: String = "Личный", date: LocalDate = day, currency: String = "RUB",
         mode: RenewalMode = RenewalMode.AUTO, price: Long = 49900) = runBlocking {
-        use.createSubscription(SubscriptionDraft(UUID.randomUUID(), "Сервис", label, Money(price, CurrencyCode.of(currency)), mode,
+        if (currency == "RUB") use.createSubscription(SubscriptionDraft(UUID.randomUUID(), "Сервис", label, Money(price, CurrencyCode.of(currency)), mode,
             RenewalSchedule(RenewalAnchor.from(date), Frequency(FrequencyUnit.MONTH, 1))), now)
+        else {
+            // Synthetic existing legacy record, not an application currency-creation command.
+            val row = SubscriptionEntity(UUID.randomUUID(),"Сервис",label,price,CurrencyCode.of(currency),FrequencyUnit.MONTH,1,
+                mode,LifecycleState.ACTIVE,date.year,date.monthValue,date.dayOfMonth,0,null,null,null,null,null,null,null,now,now)
+            withContext(Dispatchers.IO) { db.subscriptions().insert(row) }; row
+        }
     }
     private fun show(id: UUID) {
         compose.onNodeWithTag("subscriptions_screen").performScrollToNode(hasTestTag("subscription_$id"))

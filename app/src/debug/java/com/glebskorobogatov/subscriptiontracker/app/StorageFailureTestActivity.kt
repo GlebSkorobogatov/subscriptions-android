@@ -20,7 +20,7 @@ class StorageFailureTestActivity : MainActivity() {
     }
     override fun createNotificationEnvironment(): NotificationEnvironment = object : NotificationEnvironment {
         override val runtimePermissionRequired = false
-        override fun access() = NotificationAccess(true, true, true, true)
+        override fun access() = NotificationAccess(true,true,true)
         override fun generation() = UUID(0, 1)
         override fun claimAutomaticOffer() = false
         override suspend fun reconcile() = Unit

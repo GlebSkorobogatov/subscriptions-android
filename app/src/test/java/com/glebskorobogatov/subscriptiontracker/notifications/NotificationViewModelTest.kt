@@ -15,7 +15,7 @@ class NotificationViewModelTest {
     private val dispatcher = StandardTestDispatcher()
     private val store = ViewModelStore()
     private class Environment : NotificationEnvironment {
-        var value = NotificationAccess(false,false,true,true)
+        var value = NotificationAccess(false,false,true)
         var offers = 0; var reconciliations = 0
         override val runtimePermissionRequired = true
         override fun access() = value
@@ -38,13 +38,13 @@ class NotificationViewModelTest {
     }
     @Test fun grantingPermissionReconcilesOnceWithoutRepeatedRefreshRequests(): Unit = runTest(dispatcher) {
         val vm = model(); runCurrent()
-        environment.value = NotificationAccess(true,true,true,true)
+        environment.value = NotificationAccess(true,true,true)
         vm.refresh(); runCurrent(); repeat(3) { vm.refresh() }; runCurrent()
         assertEquals(1,environment.reconciliations); assertFalse(vm.state.value.explanation)
     }
     @Test fun restoringAChannelReconcilesAndDisablingDoesNotPublish(): Unit = runTest(dispatcher) {
         val vm = model(); runCurrent()
-        environment.value = NotificationAccess(true,true,false,false); vm.refresh(); runCurrent()
+        environment.value = NotificationAccess(true,true,false); vm.refresh(); runCurrent()
         assertEquals(0,environment.reconciliations)
         environment.value = environment.value.copy(paymentsEnabled=true); vm.refresh(); runCurrent()
         assertEquals(1,environment.reconciliations)

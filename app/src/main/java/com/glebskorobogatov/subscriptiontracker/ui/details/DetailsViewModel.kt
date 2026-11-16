@@ -30,8 +30,12 @@ class DetailsViewModel(private val saved: SavedStateHandle, private val owner: S
             clearSavedDraft()
             return DetailsUiState()
         }
-        val fields = saved.get<HashMap<String,String>>("fields").orEmpty().filterKeys {
-            it in setOf("date","end","unit","count","mode","amount","currency","reanchor")
+        val legacyFields = saved.get<HashMap<String,String>>("fields").orEmpty()
+        if (action == DetailsAction.Reactivate && legacyFields["currency"]?.let { it != expected().currencyCode.value } == true) {
+            clearSavedDraft(); return DetailsUiState()
+        }
+        val fields = legacyFields.filterKeys {
+            it in setOf("date","end","unit","count","mode","amount","reanchor")
         }
         saved["fields"] = HashMap(fields)
         return DetailsUiState(action = action, fields = fields, frozen = saved["sent"] ?: false)
@@ -74,7 +78,7 @@ class DetailsViewModel(private val saved: SavedStateHandle, private val owner: S
         val row = state.value.data?.subscription ?: return
         if (!allowed(row, action)) return
         val fields = hashMapOf("reanchor" to "false", "amount" to Money(row.priceMinor,row.currencyCode).format(),
-            "currency" to row.currencyCode.value, "date" to owner.today().toString(), "end" to (row.paidAccessEndDate?.toString() ?: ""),
+            "date" to owner.today().toString(), "end" to (row.paidAccessEndDate?.toString() ?: ""),
             "unit" to row.intervalUnit.name, "count" to row.intervalCount.toString(), "mode" to row.renewalMode.name)
         saved["snapshot"] = SubscriptionSnapshot.snapshot(row)
         owner.activeDatasetId()?.let { saved["generation"] = it.toString() }
@@ -82,7 +86,7 @@ class DetailsViewModel(private val saved: SavedStateHandle, private val owner: S
         mutable.value = state.value.copy(action = action,fields = fields,error = null,conflicted = false)
     }
     fun change(key: String, value: String) {
-        if (state.value.frozen || state.value.phase == DetailsPhase.OperationInProgress) return
+        if (key == "currency" || state.value.frozen || state.value.phase == DetailsPhase.OperationInProgress) return
         val fields = state.value.fields + (key to value)
         saved["fields"] = HashMap(fields)
         mutable.value = state.value.copy(fields = fields,error = null)
@@ -118,7 +122,7 @@ class DetailsViewModel(private val saved: SavedStateHandle, private val owner: S
                 DetailsAction.Archive -> LifecycleCommand.Archive
                 DetailsAction.Reactivate -> LifecycleCommand.Reactivate(LocalDate.parse(fields.getValue("date")),
                     Frequency(FrequencyUnit.valueOf(fields.getValue("unit")),fields.getValue("count").toInt()),
-                    RenewalMode.valueOf(fields.getValue("mode")), Money.parse(fields.getValue("amount"),CurrencyCode.of(fields.getValue("currency"))))
+                    RenewalMode.valueOf(fields.getValue("mode")), Money.parse(fields.getValue("amount"),snapshot.currencyCode))
                 DetailsAction.Delete -> null
             }
         } catch (_: Exception) { mutable.value = state.value.copy(error = R.string.details_invalid); return }

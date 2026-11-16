@@ -33,8 +33,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
 import com.glebskorobogatov.subscriptiontracker.ui.design.*
-import com.glebskorobogatov.subscriptiontracker.data.room.ReminderEventType
-import com.glebskorobogatov.subscriptiontracker.data.room.ReminderMode
 
 @Composable
 fun DetailsScreen(vm: DetailsViewModel, id: UUID, exitRequest: Int, onBack: () -> Unit, onEdit: () -> Unit, onDeleted: () -> Unit) {
@@ -118,20 +116,6 @@ internal fun DetailsPane(state: DetailsUiState, id: UUID, onBack: () -> Unit, on
                         s.paidAccessEndDate?.takeIf { s.lifecycleState != LifecycleState.CANCELLATION_SCHEDULED }?.let {
                             TrackerListRow(stringResource(R.string.access_until,it.toString()))
                         }
-                        s.cancellationLeadDays?.let { lead ->
-                            TrackerListRow(stringResource(R.string.details_cancellation_lead,lead),supportingText = detail.lifecycle.expectedDate?.let { date ->
-                                runCatching { date.minusDays(lead.toLong()) }.getOrNull()?.let { stringResource(R.string.details_cancellation_date,it.toString()) }
-                            })
-                        }
-                        listOf(ReminderEventType.PAYMENT to R.string.editor_payment_rules,ReminderEventType.CANCELLATION to R.string.editor_cancel_rules).forEach { (type,label) ->
-                            val rule = detail.reminders.firstOrNull { it.eventType == type }
-                            val summary = when {
-                                rule == null || rule.mode == ReminderMode.INHERIT_GLOBAL -> stringResource(R.string.editor_inherit)
-                                rule.offsets.isEmpty() -> stringResource(R.string.settings_offsets_empty)
-                                else -> stringResource(R.string.details_reminder_offsets,rule.offsets.sortedDescending().joinToString(", ") { it.toString() })
-                            }
-                            TrackerListRow(stringResource(label),supportingText = summary)
-                        }
                         var management by rememberSaveable { mutableStateOf(false) }
                         val managementState = stringResource(if(management) R.string.ui_expanded else R.string.ui_collapsed)
                         TrackerListRow(stringResource(R.string.details_management),Modifier.testTag("details_management").semantics { stateDescription = managementState },
@@ -205,7 +189,8 @@ internal fun DetailsActionDialog(state: DetailsUiState, onChange: (String, Strin
                     DetailsAction.ResolveDate -> { field("date",R.string.details_next_date); Text(stringResource(R.string.details_no_payment)) }
                     DetailsAction.Disable -> { Text(stringResource(R.string.details_disable_explanation)); field("end",R.string.editor_end) }
                     DetailsAction.Reactivate -> {
-                        field("date",R.string.details_next_date); field("amount",R.string.editor_amount); field("currency",R.string.editor_currency)
+                        field("date",R.string.details_next_date); field("amount",R.string.editor_amount)
+                        state.data?.subscription?.let { Text(stringResource(R.string.editor_price_currency,it.currencyCode.value)) }
                         field("count",R.string.editor_count)
                         Column { listOf("DAY" to R.string.editor_days,"WEEK" to R.string.editor_weeks,"MONTH" to R.string.editor_months,"YEAR" to R.string.editor_year).forEach { (unit,label) ->
                             FilterChip(state.fields["unit"] == unit,{ onChange("unit",unit) },label = { Text(stringResource(label)) },enabled = !busy)
