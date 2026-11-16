@@ -30,9 +30,12 @@ class FinanceIntegrationTest {
     private val day = LocalDate.of(2027,1,31)
     private val now = Instant.parse("2027-01-31T12:00:00Z")
     private val rub = CurrencyCode.of("RUB")
-    @Before fun open() = runBlocking { reopen() }
+    @Before fun open() = runBlocking {
+        authorizeFreshFixture(context, dataset)
+        reopen()
+    }
     private suspend fun reopen() {
-        com.glebskorobogatov.subscriptiontracker.fixtures.authorizeFreshFixture(context, dataset); db = TrackerDatabaseFactory.open(context,dataset); lease = DatasetSettingsFactory.acquire(context,dataset)
+        db = TrackerDatabaseFactory.open(context,dataset); lease = DatasetSettingsFactory.acquire(context,dataset)
         use = SubscriptionUseCases(db,lease.repository,CurrentDate(day))
     }
     @After fun close() = runBlocking {

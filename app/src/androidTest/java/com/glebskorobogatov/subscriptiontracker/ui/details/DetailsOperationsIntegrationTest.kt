@@ -36,9 +36,12 @@ class DetailsOperationsIntegrationTest {
     private val usd = CurrencyCode.of("USD")
     private var store = ViewModelStore()
     private val owners = mutableListOf<Job>()
-    @Before fun open() = runBlocking { reopen() }
+    @Before fun open() = runBlocking {
+        authorizeFreshFixture(context, dataset)
+        reopen()
+    }
     private suspend fun reopen() {
-        com.glebskorobogatov.subscriptiontracker.fixtures.authorizeFreshFixture(context, dataset); db = TrackerDatabaseFactory.open(context,dataset)
+        db = TrackerDatabaseFactory.open(context,dataset)
         lease = DatasetSettingsFactory.acquire(context,dataset)
         use = SubscriptionUseCases(db,lease.repository,CurrentDate(day))
     }
