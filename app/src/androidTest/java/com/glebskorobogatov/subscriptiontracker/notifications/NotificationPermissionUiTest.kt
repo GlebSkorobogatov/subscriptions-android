@@ -64,7 +64,7 @@ class NotificationPermissionUiTest {
         val publisher = AndroidReminderPublisher(context)
         val manager = context.getSystemService(android.app.NotificationManager::class.java)
         val dataset = java.util.UUID.randomUUID()
-        val db = com.glebskorobogatov.subscriptiontracker.data.room.TrackerDatabaseFactory.open(context,dataset)
+        com.glebskorobogatov.subscriptiontracker.fixtures.authorizeFreshFixture(context, dataset); val db = com.glebskorobogatov.subscriptiontracker.data.room.TrackerDatabaseFactory.open(context,dataset)
         val lease = com.glebskorobogatov.subscriptiontracker.data.settings.DatasetSettingsFactory.acquire(context,dataset)
         val scheduler = com.glebskorobogatov.subscriptiontracker.background.ReminderInfrastructureTest.RecordingScheduler()
         val generation = com.glebskorobogatov.subscriptiontracker.background.ReminderInfrastructureTest.TestGeneration(dataset)
@@ -114,7 +114,7 @@ class NotificationPermissionUiTest {
             else if (!publisher.access().appEnabled) { device.wait(Until.findObject(selector),5_000)?.click(); device.pressBack() }
             manager.activeNotifications.filter { it.tag?.contains(dataset.toString()) == true }.forEach { manager.cancel(it.tag,it.id) }
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { db.close() }; lease.close()
-            context.deleteDatabase("subscriptions-$dataset.db")
+            context.deleteDatabase("subscriptions-$dataset.db").also { _ -> com.glebskorobogatov.subscriptiontracker.fixtures.forgetFixtureInitialization(context, "subscriptions-$dataset.db") }
             java.io.File(context.filesDir,"datastore/settings-$dataset.preferences_pb").delete()
         }
     }

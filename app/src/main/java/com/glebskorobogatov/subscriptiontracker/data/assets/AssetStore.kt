@@ -15,10 +15,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /** All paths are owned by this app and one dataset. No gallery URI is retained. */
-class AssetStore(private val context: Context, val generation: UUID) {
+class AssetStore(private val context: Context, val generation: UUID,
+    private val currentGeneration: () -> UUID = { ActiveDataset(context.filesDir).getOrCreate() }) {
     private val root = File(context.filesDir, "assets/$generation")
-    private val active = ActiveDataset(context.filesDir)
-    private fun guard() { check(active.getOrCreate() == generation) { "Dataset changed" } }
+    private fun guard() { check(currentGeneration() == generation) { "Dataset changed" } }
     private fun file(id: UUID, extension: String, pending: Boolean) =
         File(File(root, if (pending) "pending" else "images"), "$id.$extension")
 

@@ -36,6 +36,7 @@ fun SubscriptionsScreen(state: SubscriptionsUiState, onAdd: () -> Unit, onOpen: 
                         Text(stringResource(R.string.subscriptions_loading))
                     }
                 }
+                is SubscriptionsUiState.StorageBlocked -> item(key = "storage") { StorageBlockedScreen(state.failure, onRetry) }
                 SubscriptionsUiState.Error -> item(key = "error") { LoadError(onRetry) }
                 is SubscriptionsUiState.Empty -> item(key = "empty") {
                     Column(Modifier.fillMaxWidth().padding(vertical = 24.dp),

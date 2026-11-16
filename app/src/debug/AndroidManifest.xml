@@ -5,5 +5,6 @@
         <receiver android:name=".app.ReminderSystemProbeReceiver" android:exported="true" android:permission="android.permission.DUMP" />
         <activity android:name=".app.IsolatedMainActivity" android:exported="false" />
         <activity android:name=".app.LargeFontReviewActivity" android:exported="false" />
+        <activity android:name=".app.StorageFailureTestActivity" android:exported="false" />
     </application>
 </manifest>

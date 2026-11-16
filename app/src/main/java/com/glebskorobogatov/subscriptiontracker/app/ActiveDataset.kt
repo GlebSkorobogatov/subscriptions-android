@@ -5,18 +5,32 @@ import java.io.File
 import java.util.UUID
 
 /** Only the pointer lives here. Dataset switching and recovery belong to stage H. */
-class ActiveDataset(directory: File) {
+class ActiveDataset(private val directory: File) {
     private val pointer = AtomicFile(File(directory, "active-generation.pointer"))
 
     fun getOrCreate(): UUID = synchronized(lock) {
         // openRead restores AtomicFile's legacy backup if present.
         if (pointer.baseFile.exists() || File(pointer.baseFile.path + ".bak").exists()) {
             val text = pointer.openRead().bufferedReader(Charsets.UTF_8).use { it.readText() }.trim()
-            val id = UUID.fromString(text)
-            require(id.toString() == text) { "Invalid active dataset pointer" }
+            val id = try { UUID.fromString(text).also { require(it.toString() == text) } }
+            catch (_: IllegalArgumentException) { throw com.glebskorobogatov.subscriptiontracker.data.room.StorageUnavailable(
+                com.glebskorobogatov.subscriptiontracker.data.room.StorageFailure.INVALID_POINTER) }
             id
         } else {
+            // Only a genuinely new install can create a generation. Never hide orphaned data.
+            fun children(file: File): List<File> = if (!file.exists()) emptyList() else
+                (file.listFiles() ?: throw java.io.IOException("Cannot inspect retained storage")).toList()
+            val retained = File(pointer.baseFile.path + ".new").exists() ||
+                children(File(directory, com.glebskorobogatov.subscriptiontracker.data.room.InitializationJournal.DIRECTORY)).isNotEmpty() ||
+                children(File(directory, "assets")).isNotEmpty() ||
+                children(File(directory, "datastore")).any { it.name.startsWith("settings-") } ||
+                children(File(directory.parentFile, "databases")).any { it.name.startsWith("subscriptions-") }
+            if (retained) throw com.glebskorobogatov.subscriptiontracker.data.room.StorageUnavailable(
+                com.glebskorobogatov.subscriptiontracker.data.room.StorageFailure.INVALID_POINTER)
             val id = UUID.randomUUID()
+            // Durable creation authority precedes the pointer. A crash before pointer publication
+            // leaves retained metadata and blocks generating a replacement UUID.
+            com.glebskorobogatov.subscriptiontracker.data.room.InitializationJournal(directory, id).locked { authorizeFresh() }
             val output = pointer.startWrite()
             try {
                 output.write(id.toString().toByteArray(Charsets.UTF_8))
@@ -37,5 +51,10 @@ class ActiveDataset(directory: File) {
         if (getOrCreate() == expected) action() else null
     }
 
-    private companion object { val lock = Any() }
+    companion object {
+        private val lock = Any()
+        internal fun <T> guarded(expected: UUID, current: () -> UUID, action: () -> T): T? = synchronized(lock) {
+            if (current() == expected) action() else null
+        }
+    }
 }

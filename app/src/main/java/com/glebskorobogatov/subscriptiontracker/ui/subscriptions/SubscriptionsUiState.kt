@@ -16,6 +16,7 @@ sealed interface SubscriptionsUiState {
     data class Empty(val names: Map<UUID, String> = emptyMap()) : SubscriptionsUiState
     data class Content(val forecast: List<Money>, val needsDecision: List<SubscriptionCardModel>,
         val active: List<SubscriptionCardModel>, val names: Map<UUID, String>, val archivedNames: Map<UUID,String> = emptyMap()) : SubscriptionsUiState
+    data class StorageBlocked(val failure: com.glebskorobogatov.subscriptiontracker.data.room.StorageFailure) : SubscriptionsUiState
     data object Error : SubscriptionsUiState
 }
 

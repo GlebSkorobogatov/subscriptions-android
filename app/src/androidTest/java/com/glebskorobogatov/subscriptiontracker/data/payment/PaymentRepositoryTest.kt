@@ -25,7 +25,7 @@ class PaymentRepositoryTest {
     private fun command(s: SubscriptionEntity) = PaymentCommand(OperationId.random(), SubscriptionId(s.id), day,
         Money(59900, s.currencyCode), PaymentSource.CONFIRMED_RENEWAL, true, s.toDomain().schedule, s.renewalMode, day.plusMonths(1))
     @Test fun moneyT15DbT04ConcurrentRepeatReturnsSameReceiptAndConflictingRetryFails() = runBlocking {
-        val id = UUID.randomUUID(); val db = TrackerDatabaseFactory.open(context, id)
+        val id = UUID.randomUUID(); com.glebskorobogatov.subscriptiontracker.fixtures.authorizeFreshFixture(context, id); val db = TrackerDatabaseFactory.open(context, id)
         try {
             val s = subscription(); withContext(Dispatchers.IO) { db.subscriptions().insert(s) }
             val c = command(s); val repo = PaymentRepository(db)
@@ -39,10 +39,10 @@ class PaymentRepositoryTest {
             // Identical retry is independent of a subsequent future-price/currency edit.
             withContext(Dispatchers.IO) { db.subscriptions().update(db.subscriptions().find(s.id)!!.copy(currencyCode = CurrencyCode.of("JPY"))) }
             assertEquals(results.first(), repo.execute(c, day.plusDays(1), now.plusSeconds(60)))
-        } finally { db.close(); context.deleteDatabase("subscriptions-$id.db") }
+        } finally { db.close(); context.deleteDatabase("subscriptions-$id.db").also { _ -> com.glebskorobogatov.subscriptiontracker.fixtures.forgetFixtureInitialization(context, "subscriptions-$id.db") } }
     }
     @Test fun dbT05InjectedSqlFailureRollsBackPaymentAndSubscription() = runBlocking {
-        val id = UUID.randomUUID(); val db = TrackerDatabaseFactory.open(context, id)
+        val id = UUID.randomUUID(); com.glebskorobogatov.subscriptiontracker.fixtures.authorizeFreshFixture(context, id); val db = TrackerDatabaseFactory.open(context, id)
         try {
             val s = subscription()
             withContext(Dispatchers.IO) {
@@ -52,10 +52,10 @@ class PaymentRepositoryTest {
             try { PaymentRepository(db).execute(command(s), day, now); fail("SQL failure expected") }
             catch (_: android.database.sqlite.SQLiteException) { }
             withContext(Dispatchers.IO) { assertTrue(db.payments().all().isEmpty()); assertEquals(s, db.subscriptions().find(s.id)) }
-        } finally { db.close(); context.deleteDatabase("subscriptions-$id.db") }
+        } finally { db.close(); context.deleteDatabase("subscriptions-$id.db").also { _ -> com.glebskorobogatov.subscriptiontracker.fixtures.forgetFixtureInitialization(context, "subscriptions-$id.db") } }
     }
     @Test fun historyReopensAndDoesNotChangeScheduleOrCurrency() = runBlocking {
-        val id = UUID.randomUUID(); var db = TrackerDatabaseFactory.open(context, id)
+        val id = UUID.randomUUID(); com.glebskorobogatov.subscriptiontracker.fixtures.authorizeFreshFixture(context, id); var db = TrackerDatabaseFactory.open(context, id)
         try {
             val s = subscription(); withContext(Dispatchers.IO) { db.subscriptions().insert(s) }
             val c = PaymentCommand(OperationId.random(), SubscriptionId(s.id), day.minusYears(1), Money(999, CurrencyCode.of("USD")), PaymentSource.MANUAL_HISTORY)
@@ -64,6 +64,6 @@ class PaymentRepositoryTest {
             db.close(); db = TrackerDatabaseFactory.open(context, id)
             assertEquals(payment, PaymentRepository(db).execute(c, day, now))
             withContext(Dispatchers.IO) { assertEquals(listOf(payment), db.payments().all()) }
-        } finally { db.close(); context.deleteDatabase("subscriptions-$id.db") }
+        } finally { db.close(); context.deleteDatabase("subscriptions-$id.db").also { _ -> com.glebskorobogatov.subscriptiontracker.fixtures.forgetFixtureInitialization(context, "subscriptions-$id.db") } }
     }
 }

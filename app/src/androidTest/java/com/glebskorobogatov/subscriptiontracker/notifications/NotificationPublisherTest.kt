@@ -43,7 +43,7 @@ class NotificationPublisherTest {
             .grantRuntimePermission(context.packageName, Manifest.permission.POST_NOTIFICATIONS)
         dataset = UUID.randomUUID(); generation = ReminderInfrastructureTest.TestGeneration(dataset)
         scheduler = ReminderInfrastructureTest.RecordingScheduler()
-        db = TrackerDatabaseFactory.open(context,dataset); lease = DatasetSettingsFactory.acquire(context,dataset)
+        com.glebskorobogatov.subscriptiontracker.fixtures.authorizeFreshFixture(context, dataset); db = TrackerDatabaseFactory.open(context,dataset); lease = DatasetSettingsFactory.acquire(context,dataset)
         sub = SubscriptionEntity(UUID.randomUUID(),"Одинаковый сервис","Личный",39900,CurrencyCode.of("RUB"),
             FrequencyUnit.MONTH,1,RenewalMode.AUTO,LifecycleState.ACTIVE,2027,1,5,0,null,null,null,null,null,null,null,instant,instant)
         withContext(Dispatchers.IO) { db.subscriptions().insert(sub) }
@@ -52,7 +52,7 @@ class NotificationPublisherTest {
     @After fun close(): Unit = runBlocking {
         manager.activeNotifications.filter { it.tag?.contains(dataset.toString()) == true }.forEach { manager.cancel(it.tag,it.id) }
         withContext(Dispatchers.IO) { db.close() }; lease.close()
-        context.deleteDatabase("subscriptions-$dataset.db"); File(context.filesDir,"datastore/settings-$dataset.preferences_pb").delete()
+        context.deleteDatabase("subscriptions-$dataset.db").also { _ -> com.glebskorobogatov.subscriptiontracker.fixtures.forgetFixtureInitialization(context, "subscriptions-$dataset.db") }; File(context.filesDir,"datastore/settings-$dataset.preferences_pb").delete()
     }
     private fun runtime(hook: suspend () -> Unit = {}) = ReminderRuntime(context,scheduler,generation,publisher,
         { instant }, { ZoneOffset.UTC },hook)

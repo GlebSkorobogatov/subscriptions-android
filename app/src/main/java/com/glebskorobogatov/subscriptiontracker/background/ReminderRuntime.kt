@@ -44,7 +44,9 @@ class ReminderRuntime(
 
     private suspend fun <T> session(id: UUID, action: suspend (TrackerDatabase, DatasetSettingsFactory.Lease) -> T): T? {
         if (generation.current() != id) return null
-        val db = openDatabase(context, id)
+        val db = gate(id).withLock {
+            generation.ifCurrent(id) { openDatabase(context, id) } ?: return null
+        }
         var lease: DatasetSettingsFactory.Lease? = null
         try {
             lease = acquireSettings(context, id)

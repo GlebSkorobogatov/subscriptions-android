@@ -28,10 +28,10 @@ class ArchiveSettingsIntegrationTest {
     private val dataset = UUID.randomUUID(); private val store = ViewModelStore(); private val jobs = mutableListOf<Job>()
     private lateinit var db: TrackerDatabase; private lateinit var lease: DatasetSettingsFactory.Lease; private lateinit var use: SubscriptionUseCases
     private val day = LocalDate.of(2027,1,31); private val now = Instant.parse("2027-01-31T12:00:00Z"); private val rub = CurrencyCode.of("RUB")
-    @Before fun open() = runBlocking { reopen() }
+    @Before fun open() = runBlocking { com.glebskorobogatov.subscriptiontracker.fixtures.authorizeFreshFixture(context, dataset); reopen() }
     private suspend fun reopen() { db = TrackerDatabaseFactory.open(context,dataset); lease = DatasetSettingsFactory.acquire(context,dataset); use = SubscriptionUseCases(db,lease.repository,CurrentDate(day)) }
     private suspend fun clear() { withContext(Dispatchers.Main) { store.clear() }; jobs.forEach { it.join() }; jobs.clear() }
-    @After fun close() = runBlocking { clear(); db.close(); lease.close(); context.deleteDatabase("subscriptions-$dataset.db"); File(context.filesDir,"datastore/settings-$dataset.preferences_pb").delete(); Unit }
+    @After fun close() = runBlocking { clear(); db.close(); lease.close(); context.deleteDatabase("subscriptions-$dataset.db").also { _ -> com.glebskorobogatov.subscriptiontracker.fixtures.forgetFixtureInitialization(context, "subscriptions-$dataset.db") }; File(context.filesDir,"datastore/settings-$dataset.preferences_pb").delete(); Unit }
     private suspend fun create(label: String = "Личный",overrides: Boolean = false): SubscriptionEntity {
         val id = UUID.randomUUID()
         val rules = if(overrides) listOf(ReminderOverrideEntity(id,ReminderEventType.PAYMENT,ReminderMode.CUSTOM,setOf(0)),

@@ -31,11 +31,11 @@ class SubscriptionUseCasesTest {
     private val now = Instant.parse("2027-01-31T12:00:00Z")
     private val rub = CurrencyCode.of("RUB")
     @Before fun open() = runBlocking {
-        dataset = UUID.randomUUID(); db = TrackerDatabaseFactory.open(context, dataset)
+        dataset = UUID.randomUUID(); com.glebskorobogatov.subscriptiontracker.fixtures.authorizeFreshFixture(context, dataset); db = TrackerDatabaseFactory.open(context, dataset)
         lease = DatasetSettingsFactory.acquire(context, dataset)
         use = SubscriptionUseCases(db, lease.repository, CurrentDate(day))
     }
-    @After fun close() = runBlocking { db.close(); lease.close(); context.deleteDatabase("subscriptions-$dataset.db"); Unit }
+    @After fun close() = runBlocking { db.close(); lease.close(); context.deleteDatabase("subscriptions-$dataset.db").also { _ -> com.glebskorobogatov.subscriptiontracker.fixtures.forgetFixtureInitialization(context, "subscriptions-$dataset.db") }; Unit }
     private suspend fun create(mode: RenewalMode = RenewalMode.AUTO) = use.createSubscription(SubscriptionDraft(UUID.randomUUID(), "Сервис", "Аккаунт", Money(999, rub), mode,
         RenewalSchedule(RenewalAnchor.from(day), Frequency(FrequencyUnit.MONTH, 1))), now)
     private fun edit(s: SubscriptionEntity, schedule: ScheduleEdit = ScheduleEdit.Keep) = SubscriptionEdit(s.name, s.accountLabel, Money(s.priceMinor, s.currencyCode), s.renewalMode, schedule)

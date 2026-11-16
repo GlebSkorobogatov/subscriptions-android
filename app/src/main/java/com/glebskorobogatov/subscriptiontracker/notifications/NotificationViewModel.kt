@@ -75,7 +75,12 @@ class NotificationViewModel(private val saved: SavedStateHandle, private val own
         val access = runCatching { environment.access() }.getOrNull()
         mutable.value = state.value.copy(access = access)
         if (access?.usable == true && access != before) viewModelScope.launch {
-            runCatching { environment.reconcile() }
+            // A scheduler request is also deferred until the shared storage session is verified.
+            val ready = owner.state.first { it !is SubscriptionsUiState.Loading }
+            if (ready !is SubscriptionsUiState.StorageBlocked && ready !is SubscriptionsUiState.Error) {
+                try { environment.reconcile() } catch (cancel: CancellationException) { throw cancel }
+                catch (_: Exception) { /* The durable wake can retry later. */ }
+            }
         }
     }
     fun afterSaved(id: UUID) { viewModelScope.launch {

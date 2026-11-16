@@ -41,7 +41,7 @@ class ReminderSystemRegressionTest {
             .grantRuntimePermission(context.packageName,Manifest.permission.POST_NOTIFICATIONS)
         id = UUID.randomUUID(); generation = ReminderInfrastructureTest.TestGeneration(id)
         scheduler = ReminderInfrastructureTest.RecordingScheduler()
-        db = TrackerDatabaseFactory.open(context,id); lease = DatasetSettingsFactory.acquire(context,id)
+        com.glebskorobogatov.subscriptiontracker.fixtures.authorizeFreshFixture(context, id); db = TrackerDatabaseFactory.open(context,id); lease = DatasetSettingsFactory.acquire(context,id)
         sub = SubscriptionEntity(UUID.randomUUID(),"Вымышленный сервис","Тест",39900,CurrencyCode.of("RUB"),
             FrequencyUnit.MONTH,1,RenewalMode.MANUAL,LifecycleState.ACTIVE,2027,1,5,0,null,null,null,null,0,null,null,now,now)
         withContext(Dispatchers.IO) { db.subscriptions().insert(sub) }
@@ -50,7 +50,7 @@ class ReminderSystemRegressionTest {
     @After fun close(): Unit = runBlocking {
         manager.activeNotifications.filter { it.tag?.contains(id.toString()) == true }.forEach { manager.cancel(it.tag,it.id) }
         withContext(Dispatchers.IO) { db.close() }; lease.close()
-        context.deleteDatabase("subscriptions-$id.db")
+        context.deleteDatabase("subscriptions-$id.db").also { _ -> com.glebskorobogatov.subscriptiontracker.fixtures.forgetFixtureInitialization(context, "subscriptions-$id.db") }
         java.io.File(context.filesDir,"datastore/settings-$id.preferences_pb").delete()
     }
     private fun runtime(hook: suspend () -> Unit = {}) = ReminderRuntime(context,scheduler,generation,publisher,{ now },{ zone },hook)

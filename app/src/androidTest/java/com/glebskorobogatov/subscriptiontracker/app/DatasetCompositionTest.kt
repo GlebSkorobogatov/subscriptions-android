@@ -28,13 +28,14 @@ class DatasetCompositionTest {
     @Before fun setup() { directory.mkdirs() }
     @After fun cleanup() {
         dataset?.let {
-            context.deleteDatabase("subscriptions-$it.db")
+            context.deleteDatabase("subscriptions-$it.db").also { _ -> com.glebskorobogatov.subscriptiontracker.fixtures.forgetFixtureInitialization(context, "subscriptions-$it.db") }
             File(context.filesDir, "datastore/settings-$it.preferences_pb").delete()
         }
         directory.deleteRecursively()
     }
     @Test fun pointerAndBothStoresSurviveClosingAndReopening() = runBlocking {
         val id = ActiveDataset(directory).getOrCreate().also { dataset = it }
+        com.glebskorobogatov.subscriptiontracker.fixtures.authorizeFreshFixture(context, id)
         var db = TrackerDatabaseFactory.open(context, id)
         var lease = DatasetSettingsFactory.acquire(context, id)
         try {
@@ -58,12 +59,13 @@ class DatasetCompositionTest {
         file.writeText("broken-pointer")
         repeat(2) {
             try { ActiveDataset(directory).getOrCreate(); fail("Expected invalid pointer") }
-            catch (_: IllegalArgumentException) { }
+            catch (_: StorageUnavailable) { }
             assertEquals("broken-pointer", file.readText())
         }
     }
     @Test fun projectionIgnoresHistoryAndUpdatesFuturePriceAndSchedule() = runBlocking {
         val id = ActiveDataset(directory).getOrCreate().also { dataset = it }
+        com.glebskorobogatov.subscriptiontracker.fixtures.authorizeFreshFixture(context, id)
         val db = TrackerDatabaseFactory.open(context, id)
         val lease = DatasetSettingsFactory.acquire(context, id)
         try {
@@ -84,6 +86,7 @@ class DatasetCompositionTest {
     }
     @Test fun startupAndResumeRefreshCalendarWithoutCreatingPayments() = runBlocking {
         val id = ActiveDataset(directory).getOrCreate().also { dataset = it }
+        com.glebskorobogatov.subscriptiontracker.fixtures.authorizeFreshFixture(context, id)
         val db = TrackerDatabaseFactory.open(context, id)
         val lease = DatasetSettingsFactory.acquire(context, id)
         try {
@@ -117,13 +120,8 @@ class DatasetCompositionTest {
             it.version = 99
         }
         repeat(2) {
-            val db = TrackerDatabaseFactory.open(context, id)
-            val lease = DatasetSettingsFactory.acquire(context, id)
-            try {
-                val use = SubscriptionUseCases(db, lease.repository, CurrentDate(day))
-                try { subscriptionStates(use).first(); fail("Expected opening error") }
-                catch (_: IllegalStateException) { }
-            } finally { db.close(); lease.close() }
+            val failure = assertThrows(StorageUnavailable::class.java) { TrackerDatabaseFactory.open(context, id) }
+            assertEquals(StorageFailure.INCOMPATIBLE, failure.failure)
         }
         android.database.sqlite.SQLiteDatabase.openOrCreateDatabase(file, null).use { db ->
             db.rawQuery("SELECT value FROM sentinel", null).use { cursor ->
@@ -134,6 +132,7 @@ class DatasetCompositionTest {
     }
     @Test fun sessionShutdownJoinsDetailsReadersBeforeReleasingStores() = runBlocking {
         val id = ActiveDataset(directory).getOrCreate().also { dataset = it }
+        com.glebskorobogatov.subscriptiontracker.fixtures.authorizeFreshFixture(context, id)
         val source = SubscriptionsComposition(context) { id }
         val ready = CompletableDeferred<Unit>(); val observed = CompletableDeferred<Unit>()
         val root = launch { source.observe(emptyFlow()).collect { ready.complete(Unit) } }

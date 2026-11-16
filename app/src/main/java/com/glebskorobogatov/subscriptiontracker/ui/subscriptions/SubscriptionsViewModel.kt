@@ -35,6 +35,8 @@ class SubscriptionsViewModel(private val source: SubscriptionsSource) : ViewMode
                     source.observe(refreshes.receiveAsFlow()).collect { mutable.value = it }
                 } catch (error: CancellationException) {
                     throw error
+                } catch (error: com.glebskorobogatov.subscriptiontracker.data.room.StorageUnavailable) {
+                    mutable.value = SubscriptionsUiState.StorageBlocked(error.failure)
                 } catch (_: Exception) {
                     // Opening, reading, calendar and overflow failures are never an empty dataset.
                     mutable.value = SubscriptionsUiState.Error
@@ -42,13 +44,15 @@ class SubscriptionsViewModel(private val source: SubscriptionsSource) : ViewMode
             }
         }
     }
-    suspend fun <T> perform(block: suspend (com.glebskorobogatov.subscriptiontracker.data.integration.SubscriptionUseCases) -> T): T = source.perform(block)
+    suspend fun <T> perform(block: suspend (com.glebskorobogatov.subscriptiontracker.data.integration.SubscriptionUseCases) -> T): T = if (state.value is SubscriptionsUiState.StorageBlocked || state.value is SubscriptionsUiState.Loading) error("Session unavailable") else source.perform(block)
     fun activeDatasetId() = source.activeDatasetId()
     fun settings() = source.settings()
     fun archive() = source.archive()
     fun finance() = source.finance()
     fun today() = source.today()
     fun details(id: java.util.UUID) = source.details(id)
-    fun retry() { mutable.value = SubscriptionsUiState.Loading; attempts.value++ }
+    fun retry() {
+        if ((state.value as? SubscriptionsUiState.StorageBlocked)?.failure?.retryable == false) return
+        mutable.value = SubscriptionsUiState.Loading; attempts.value++ }
     fun refreshToday() { refreshes.trySend(Unit) }
 }

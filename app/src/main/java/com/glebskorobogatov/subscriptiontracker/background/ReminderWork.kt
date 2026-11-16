@@ -5,6 +5,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import androidx.work.*
+import com.glebskorobogatov.subscriptiontracker.data.room.*
 import com.glebskorobogatov.subscriptiontracker.data.reminders.*
 import java.time.Duration
 import java.time.Instant
@@ -118,9 +119,13 @@ class ReminderWorker(context: Context, parameters: WorkerParameters,
         }
         Result.success()
     } catch (cancel: CancellationException) { throw cancel }
+      catch (error: StorageUnavailable) {
+          if (error.failure.retryWorker(runAttemptCount)) Result.retry() else Result.failure()
+      }
+      catch (_: android.database.sqlite.SQLiteDatabaseCorruptException) { Result.failure() }
       catch (_: IllegalArgumentException) { Result.failure() }
       catch (error: Exception) {
-          android.util.Log.w("ReminderWorker", "Background reminder attempt failed", error)
+          android.util.Log.w("ReminderWorker", "Background reminder attempt failed")
           if (runAttemptCount < 2) Result.retry() else Result.failure()
       }
 }
@@ -144,7 +149,8 @@ class ReminderTimeReceiver : BroadcastReceiver() {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         scope.launch {
             try { withTimeout(8_000) { WorkManagerReminderScheduler(context).rescheduleAfterClockChange() } }
-            catch (error: Exception) { android.util.Log.w("ReminderTimeReceiver", "Reconciliation deferred to next wake/start", error) }
+            catch (cancel: CancellationException) { throw cancel }
+            catch (_: Exception) { android.util.Log.w("ReminderTimeReceiver", "Reconciliation deferred to next wake/start") }
             finally { pending.finish(); scope.cancel() }
         }
     }

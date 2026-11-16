@@ -46,7 +46,7 @@ class AccessibilityUiTest {
     private var archiveOverride: Flow<List<SubscriptionEntity>>? = null
     private val settingsReadFails = MutableStateFlow(false)
     @Before fun open() = runBlocking {
-        db = TrackerDatabaseFactory.open(context,dataset); lease = DatasetSettingsFactory.acquire(context,dataset)
+        com.glebskorobogatov.subscriptiontracker.fixtures.authorizeFreshFixture(context, dataset); db = TrackerDatabaseFactory.open(context,dataset); lease = DatasetSettingsFactory.acquire(context,dataset)
         use = SubscriptionUseCases(db,lease.repository,CurrentDate(day))
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
             owner = SubscriptionsViewModel(object: SubscriptionsSource {
@@ -63,7 +63,7 @@ class AccessibilityUiTest {
     @After fun close() = runBlocking {
         val job = owner.viewModelScope.coroutineContext[Job]!!
         InstrumentationRegistry.getInstrumentation().runOnMainSync { store.clear() }; job.join()
-        db.close(); lease.close(); context.deleteDatabase("subscriptions-$dataset.db"); File(context.filesDir,"datastore/settings-$dataset.preferences_pb").delete(); Unit
+        db.close(); lease.close(); context.deleteDatabase("subscriptions-$dataset.db").also { _ -> com.glebskorobogatov.subscriptiontracker.fixtures.forgetFixtureInitialization(context, "subscriptions-$dataset.db") }; File(context.filesDir,"datastore/settings-$dataset.preferences_pb").delete(); Unit
     }
     private fun start(scale: Float = 1f,restoration: StateRestorationTester? = null) {
         val content: @Composable () -> Unit = {

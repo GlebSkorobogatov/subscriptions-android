@@ -53,7 +53,7 @@ class ReminderWorkManagerTest {
         manager.pruneWork().result.get(10,TimeUnit.SECONDS)
         androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().waitForIdleSync()
         WorkManagerTestInitHelper.closeWorkDatabase()
-        context.deleteDatabase("subscriptions-$dataset.db")
+        context.deleteDatabase("subscriptions-$dataset.db").also { _ -> com.glebskorobogatov.subscriptiontracker.fixtures.forgetFixtureInitialization(context, "subscriptions-$dataset.db") }
         java.io.File(context.filesDir,"datastore/settings-$dataset.preferences_pb").delete()
     }
     private fun pending(tag: String) = manager.getWorkInfosByTag(tag).get(10,TimeUnit.SECONDS).filter { !it.state.isFinished }
@@ -157,7 +157,7 @@ class ReminderWorkManagerTest {
     private suspend fun kotlinx.coroutines.flow.Flow<WorkInfo?>.firstFinished(): WorkInfo =
         requireNotNull(kotlinx.coroutines.withTimeout(10_000) { this@firstFinished.first { it?.state?.isFinished == true } })
     @Test fun createThroughUseCasesEnqueuesRealControlWorkerWithoutActivity(): Unit = runBlocking {
-        val db = TrackerDatabaseFactory.open(context,dataset)
+        com.glebskorobogatov.subscriptiontracker.fixtures.authorizeFreshFixture(context, dataset); val db = TrackerDatabaseFactory.open(context,dataset)
         val lease = com.glebskorobogatov.subscriptiontracker.data.settings.DatasetSettingsFactory.acquire(context,dataset)
         try {
             val cases = com.glebskorobogatov.subscriptiontracker.data.integration.SubscriptionUseCases(db,lease.repository,

@@ -87,7 +87,7 @@ open class MainActivity : ComponentActivity() {
         if (savedInstanceState == null && intent?.action == NotificationRoute.OPEN) notifications.open(intent.dataString)
         firstDraw = ViewTreeObserver.OnPreDrawListener {
             val value = settings.state.value
-            val ready = value.data != null || value.phase == SettingsPhase.Error
+            val ready = value.data != null || value.phase == SettingsPhase.Error || subscriptions.state.value is com.glebskorobogatov.subscriptiontracker.ui.subscriptions.SubscriptionsUiState.StorageBlocked
             if(ready) { firstDraw?.let { window.decorView.viewTreeObserver.removeOnPreDrawListener(it) }; firstDraw = null }
             ready
         }.also { window.decorView.viewTreeObserver.addOnPreDrawListener(it) }
@@ -103,14 +103,17 @@ open class MainActivity : ComponentActivity() {
                 }
             }
             TrackerTheme(theme) {
-                if(preferences.data == null) Column(Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(16.dp)) {
+                if (state is com.glebskorobogatov.subscriptiontracker.ui.subscriptions.SubscriptionsUiState.StorageBlocked)
+                    com.glebskorobogatov.subscriptiontracker.ui.subscriptions.StorageBlockedScreen(
+                        (state as com.glebskorobogatov.subscriptiontracker.ui.subscriptions.SubscriptionsUiState.StorageBlocked).failure, subscriptions::retry)
+                else if(preferences.data == null) Column(Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(16.dp)) {
                     if(preferences.phase == SettingsPhase.Loading) CircularProgressIndicator()
                     else {
                         Text(stringResource(R.string.settings_load_error))
                         Button(onClick = settings::retryRead) { Text(stringResource(R.string.retry_loading)) }
                     }
                 } else TrackerApp(state, subscriptions::retry, subscriptions,settings,notifications,::openNotificationSettings)
-                if (notificationState.explanation) AlertDialog(
+                if (state !is com.glebskorobogatov.subscriptiontracker.ui.subscriptions.SubscriptionsUiState.StorageBlocked && notificationState.explanation) AlertDialog(
                     onDismissRequest = notifications::dismissExplanation,
                     title = { Text(stringResource(R.string.notifications_explanation_title)) },
                     text = { Text(stringResource(R.string.notifications_explanation), Modifier.verticalScroll(rememberScrollState())) },

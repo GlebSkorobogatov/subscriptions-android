@@ -45,7 +45,7 @@ class SubscriptionsUiTest {
     private val store = ViewModelStore()
 
     @Before fun open() = runBlocking {
-        db = TrackerDatabaseFactory.open(context, dataset)
+        com.glebskorobogatov.subscriptiontracker.fixtures.authorizeFreshFixture(context, dataset); db = TrackerDatabaseFactory.open(context, dataset)
         lease = DatasetSettingsFactory.acquire(context, dataset)
         use = SubscriptionUseCases(db, lease.repository, CurrentDate(day))
     }
@@ -54,7 +54,7 @@ class SubscriptionsUiTest {
         InstrumentationRegistry.getInstrumentation().runOnMainSync { store.clear() }
         withTimeout(5000) { readers?.join() }
         db.close(); lease.close()
-        context.deleteDatabase("subscriptions-$dataset.db")
+        context.deleteDatabase("subscriptions-$dataset.db").also { _ -> com.glebskorobogatov.subscriptiontracker.fixtures.forgetFixtureInitialization(context, "subscriptions-$dataset.db") }
         context.preferencesFile().delete()
         Unit
     }
