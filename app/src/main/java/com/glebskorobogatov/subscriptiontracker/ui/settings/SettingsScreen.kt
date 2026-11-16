@@ -32,6 +32,13 @@ import com.glebskorobogatov.subscriptiontracker.ui.design.*
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
+/** Explicit saver for the whole state: the old nullable Boolean MutableState must never be
+ * restored by the new non-null MutableState saver (which could retain a null value). */
+internal val renewalOffsetsDialogSaver = Saver<MutableState<Boolean>,Any>(
+    save = { if(it.value) "renewal-offsets" else "closed" },
+    restore = { mutableStateOf(it == "renewal-offsets") },
+)
+
 @Composable
 fun SettingsScreen(vm: SettingsViewModel, notifications: com.glebskorobogatov.subscriptiontracker.notifications.NotificationAccess? = null,
     onNotificationSettings: () -> Unit = {}) {
@@ -50,7 +57,7 @@ internal fun SettingsPane(state: SettingsUiState,version: String,onTheme: (Theme
     onOffset: (Int,Boolean) -> Unit,onRetryRead: () -> Unit,onRetryWrite: () -> Unit,
     notifications: com.glebskorobogatov.subscriptiontracker.notifications.NotificationAccess? = null,
     onNotificationSettings: () -> Unit = {}) {
-    var offsetsOpen by rememberSaveable(stateSaver = Saver<Boolean,Any>(save = { if(it) "renewal-offsets" else "closed" },restore = { it == "renewal-offsets" })) { mutableStateOf(false) }
+    var offsetsOpen by rememberSaveable(saver = renewalOffsetsDialogSaver) { mutableStateOf(false) }
     val enabled = state.phase == SettingsPhase.Content && !state.pending
     ProvideTextStyle(MaterialTheme.typography.bodyMedium.copy(lineHeightStyle =
         LineHeightStyle(LineHeightStyle.Alignment.Center,LineHeightStyle.Trim.None))) {
