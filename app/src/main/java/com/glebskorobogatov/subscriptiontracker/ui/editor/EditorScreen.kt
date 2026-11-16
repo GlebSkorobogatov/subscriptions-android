@@ -100,7 +100,7 @@ internal fun EditorForm(state: EditorState, onChange: (String, String) -> Unit, 
                     enabled = enabled, errorMessage = state.errors[key]?.let { stringResource(it) },
                     inputModifier = Modifier.testTag("field_$key"),
                     keyboardOptions = KeyboardOptions(keyboardType = when (key) {
-                        "amount" -> KeyboardType.Decimal; "count", "lead", "anchorDay" -> KeyboardType.Number; else -> KeyboardType.Text
+                        "amount" -> KeyboardType.Decimal; "count", "anchorDay" -> KeyboardType.Number; else -> KeyboardType.Text
                     }))
             }
             @Composable fun date(key: String, label: Int) {
@@ -121,16 +121,7 @@ internal fun EditorForm(state: EditorState, onChange: (String, String) -> Unit, 
             field("name", R.string.editor_name)
             field("label", R.string.editor_label)
             field("amount", R.string.editor_amount)
-            field("currency", R.string.editor_currency)
-            var currencyMenu by remember { mutableStateOf(false) }
-            Box {
-                TrackerSecondaryButton(stringResource(R.string.editor_choose_currency), { currencyMenu = true }, enabled = enabled)
-                DropdownMenu(currencyMenu, { currencyMenu = false }) {
-                    java.util.Currency.getAvailableCurrencies().filter { it.defaultFractionDigits >= 0 }.sortedBy { it.currencyCode }.forEach {
-                        DropdownMenuItem(text = { Text(it.currencyCode) }, onClick = { onChange("currency", it.currencyCode); currencyMenu = false })
-                    }
-                }
-            }
+            Text(stringResource(R.string.editor_price_currency,value("currency")),style = MaterialTheme.typography.bodySmall)
             HorizontalDivider(color = TrackerDesign.colors.divider)
             var frequencyMenu by remember { mutableStateOf(false) }
             Box {
@@ -174,32 +165,8 @@ internal fun EditorForm(state: EditorState, onChange: (String, String) -> Unit, 
                 Modifier.testTag("editor_extra").semantics { stateDescription = expandedState })
             if (expanded) {
                 field("anchorMonth", R.string.editor_anchor_month); field("anchorDay", R.string.editor_anchor_day)
-                date("start", R.string.editor_start); date("end", R.string.editor_end); field("lead", R.string.editor_lead)
-                listOf("PAYMENT" to R.string.editor_payment_rules,"CANCELLATION" to R.string.editor_cancel_rules).forEach { (key,label) ->
-                    Text(stringResource(label),style = MaterialTheme.typography.titleMedium,modifier = Modifier.semantics { heading() })
-                    val inherit = (state.fields[key] ?: "inherit") == "inherit"
-                    val inheritanceDescription = stringResource(R.string.settings_offset_description,stringResource(label),stringResource(R.string.editor_inherit))
-                    Row(Modifier.fillMaxWidth().heightIn(min = TrackerDimensions.minimumTouchTarget)
-                        .semantics { contentDescription = inheritanceDescription }.testTag("editor_inherit_$key").toggleable(inherit, enabled = enabled, role = Role.Checkbox, onValueChange = { onChange(key,if(it) "inherit" else "") }),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(inherit,onCheckedChange = null,enabled = enabled)
-                        Text(stringResource(R.string.editor_inherit), Modifier.weight(1f))
-                    }
-                    if (!inherit) {
-                        val selected = value(key).split(",").filter { it.isNotEmpty() }.toSet()
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf("7","3","1","0").forEach { day ->
-                                val offset = stringResource(if(day == "0") {
-                                    if(key == "PAYMENT") R.string.settings_payment_day else R.string.settings_event_day
-                                } else R.string.settings_days_before,day.toInt())
-                                val description = stringResource(R.string.settings_offset_description,stringResource(label),offset)
-                                FilterChip(day in selected, { onChange(key,(if(day in selected) selected-day else selected+day).sorted().joinToString(",")) },
-                                    label = { Text(day) },modifier = Modifier.semantics { contentDescription = description },enabled = enabled)
-                            }
-                        }
-                        Text(stringResource(R.string.editor_no_rules),style = MaterialTheme.typography.bodySmall,color = TrackerDesign.colors.textSecondary)
-                    }
-                }
+                date("start", R.string.editor_start); date("end", R.string.editor_end)
+
             }
             TrackerPrimaryButton(stringResource(if(state.saving) R.string.editor_saving else R.string.editor_save), onSave,
                 Modifier.fillMaxWidth(), enabled = !state.saving && !state.conflict && !state.loadFailure)

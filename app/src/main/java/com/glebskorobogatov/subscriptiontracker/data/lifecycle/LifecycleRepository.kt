@@ -23,6 +23,7 @@ class LifecycleRepository(private val database: TrackerDatabase,
         withContext(Dispatchers.IO) {
             database.runInTransaction(Callable {
                 val stored = current(expected)
+                if (command is LifecycleCommand.Reactivate) require(command.price.currency == stored.currencyCode)
                 val updated = stored.withDomain(commands.apply(stored.toDomain(), command), changedAt)
                 check(database.subscriptions().update(updated) == 1)
                 updated
@@ -40,22 +41,6 @@ class LifecycleRepository(private val database: TrackerDatabase,
                 database.retiredPaymentOperations().insert(RetiredPaymentOperation(it.operationId))
             }
             check(database.subscriptions().delete(expected.id) == 1)
-        })
-    }
-
-    /** Entry point for a future app-open/worker check. Returns only records changed by this check. */
-    suspend fun autoArchiveExpired(today: LocalDate, changedAt: Instant): Int = withContext(Dispatchers.IO) {
-        database.runInTransaction(Callable {
-            var count = 0
-            database.subscriptions().all().forEach { stored ->
-                val before = stored.toDomain()
-                val after = com.glebskorobogatov.subscriptiontracker.domain.lifecycle.autoArchiveExpired(before, today)
-                if (after != before) {
-                    check(database.subscriptions().update(stored.withDomain(after, changedAt)) == 1)
-                    count++
-                }
-            }
-            count
         })
     }
 }

@@ -48,8 +48,6 @@
     <string name="payment_issue_explanation">Проверьте оплату у сервиса. Новые списания пока не включены в прогноз.</string>
     <string name="editor_name">Название подписки</string>
     <string name="editor_amount">Стоимость</string>
-    <string name="editor_currency">Валюта ISO 4217</string>
-    <string name="editor_choose_currency">Выбрать валюту</string>
     <string name="editor_frequency">Периодичность оплаты</string>
     <string name="editor_week">Еженедельно</string>
     <string name="editor_month">Ежемесячно</string>
@@ -68,11 +66,6 @@
     <string name="editor_anchor_day">Опорный день (1–31)</string>
     <string name="editor_start">Начало оплаченного периода (ГГГГ-ММ-ДД)</string>
     <string name="editor_end">Известный конец доступа (ГГГГ-ММ-ДД)</string>
-    <string name="editor_lead">Дней до крайнего срока отмены</string>
-    <string name="editor_payment_rules">Напоминания об оплате</string>
-    <string name="editor_cancel_rules">Напоминания об отмене</string>
-    <string name="editor_inherit">Использовать общие настройки</string>
-    <string name="editor_no_rules">Пустой собственный набор отключает этот тип напоминаний.</string>
     <string name="editor_series">Изменить весь будущий график</string>
     <string name="editor_next_only">По умолчанию: только ближайший платёж. Изменение частоты или опоры требует выбора всего будущего графика.</string>
     <string name="editor_save">Сохранить</string>
@@ -106,8 +99,6 @@
     <string name="details_retry_same">Результат действия не подтверждён. Повторите его с сохранёнными параметрами или обновите данные.</string>
     <string name="details_retry">Повторить ту же операцию</string>
     <string name="details_load_error">Не удалось загрузить детали. Обновите данные.</string>
-    <string name="details_cancellation_lead">Срок отмены: за %1$d дн. до ожидаемого платежа</string>
-    <string name="details_cancellation_date">Крайний срок отмены: %1$s</string>
     <string name="details_plan_price">Плановая стоимость продления</string>
     <string name="details_reanchor">Изменить весь будущий график от выбранной следующей даты</string>
     <string name="details_cycle_conflict">Дата пересекает соседний цикл. Исправьте её или явно выберите изменение всего будущего графика.</string>
@@ -121,25 +112,17 @@
     <string name="settings_theme_dark">Тёмная</string>
     <string name="settings_reminders">Напоминания</string>
     <string name="settings_time">Общее время: %1$s</string>
-    <string name="settings_time_title">Местное время напоминаний</string>
-    <string name="settings_apply_time">Применить время</string>
-    <string name="settings_payment_offsets">Напоминания о платежах</string>
-    <string name="settings_cancel_offsets">Предупреждения о сроке отмены</string>
+    <string name="settings_payment_offsets">Напоминания о продлении</string>
     <string name="settings_days_before">За %1$d дн.</string>
-    <string name="settings_payment_day">В день платежа</string>
-    <string name="settings_event_day">В день события</string>
+    <string name="settings_payment_day">В день продления</string>
     <string name="settings_offset_description">%1$s: %2$s</string>
-    <string name="settings_offsets_empty">Все интервалы этого вида отключены.</string>
+    <string name="settings_offsets_empty">Напоминания отключены.</string>
     <string name="settings_loading">Загружаем настройки…</string>
     <string name="settings_saving">Сохраняем настройку…</string>
     <string name="settings_load_error">Не удалось прочитать настройки или открыть данные приложения. Повторите загрузку. Сохранённые данные не удаляются.</string>
     <string name="settings_uncertain">Сохранение не подтверждено. Повторите выбранное изменение или обновите данные, чтобы проверить результат.</string>
     <string name="settings_retry_write">Повторить сохранение</string>
-    <string name="settings_invalid_time">Укажите часы от 0 до 23 и минуты от 0 до 59.</string>
     <string name="progress_status">Оставшийся период. %1$s</string>
-    <string name="settings_hours">Часы</string>
-    <string name="settings_minutes">Минуты</string>
-    <string name="settings_time_format">24-часовой формат, текущее местное время устройства.</string>
     <string name="forecast_explanation">Ожидаемые расходы, не фактические списания</string>
     <string name="open_subscription_details">Открыть подписку</string>
     <string name="editor_edit_title">Редактирование подписки</string>
@@ -167,7 +150,6 @@
     <string name="details_management_note">Состояние продления, архив и удаление</string>
     <string name="ui_expanded">Развёрнуто</string>
     <string name="ui_collapsed">Свёрнуто</string>
-    <string name="details_reminder_offsets">За %1$s дн. до события (0 — в день события)</string>
     <string name="settings_notification_time">Время уведомлений</string>
     <string name="settings_time_subtitle">По местному времени устройства</string>
     <string name="settings_data">Данные</string>
@@ -182,10 +164,6 @@
     <string name="finance_explanation">Прогноз ожидаемых списаний. Это расчёт будущих платежей, а не фактические расходы.</string>
     <string name="finance_loading">Загружаем прогноз…</string>
     <string name="finance_error">Не удалось получить или рассчитать прогноз. Данные не удалены.</string>
-    <string name="finance_save_error">Не удалось подтвердить сохранение выбора. Повторите выбор или загрузите экран заново.</string>
-    <string name="finance_period">Период прогноза</string>
-    <string name="finance_month_count">%1$d мес.</string>
-    <string name="finance_currency">Валюта прогноза</string>
     <string name="finance_expected_total">Ожидаемые расходы</string>
     <string name="finance_window">С %1$s по %2$s включительно</string>
     <string name="finance_empty">Ожидаемых списаний пока нет</string>
@@ -205,4 +183,6 @@
     <string name="storage_temporary">Не удалось открыть локальное хранилище. Данные не сбрасывались. Можно повторить попытку.</string>
     <string name="storage_unknown">Доступ к локальному хранилищу заблокирован. Данные не сбрасывались. Требуется проверка причины ошибки.</string>
     <string name="storage_manual_cleanup">Ручная очистка тестовой установки через настройки Android удаляет локальные данные, настройки и изображения. Для реальных пользовательских данных это не обязательное решение: сначала необходимо решить вопрос с их сохранением и совместимостью.</string>
+    <string name="editor_price_currency">Валюта стоимости: %1$s</string>
+    <string name="editor_price_reentry">Повторно введите стоимость в указанной валюте.</string>
 </resources>

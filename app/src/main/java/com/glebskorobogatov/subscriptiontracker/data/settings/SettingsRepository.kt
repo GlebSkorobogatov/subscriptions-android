@@ -4,8 +4,6 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStoreFile
-import com.glebskorobogatov.subscriptiontracker.domain.model.CurrencyCode
-import java.time.LocalTime
 import java.util.UUID
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -17,25 +15,21 @@ interface SettingsRepository {
 
 internal object SettingsCodec {
     private val theme = stringPreferencesKey("theme")
-    private val time = stringPreferencesKey("reminder_time")
     private val payment = stringSetPreferencesKey("payment_offsets")
-    private val cancellation = stringSetPreferencesKey("cancellation_offsets")
-    private val horizon = intPreferencesKey("chart_months")
-    private val currency = stringPreferencesKey("chart_currency")
     private val version = intPreferencesKey("settings_version")
     fun read(p: Preferences) = Settings(
-        p[theme]?.let(Theme::valueOf) ?: Theme.SYSTEM,
-        p[time]?.let(LocalTime::parse) ?: LocalTime.of(9, 0),
-        p[payment]?.map(String::toInt)?.toSet() ?: setOf(3, 1),
-        p[cancellation]?.map(String::toInt)?.toSet() ?: setOf(7, 3),
-        p[horizon] ?: 3, p[currency]?.let(CurrencyCode::of), p[version] ?: 1,
+        theme = p[theme]?.let { raw -> Theme.entries.firstOrNull { it.name == raw } } ?: Theme.SYSTEM,
+        // Missing means defaults; a present empty set remains disabled. Invalid legacy members
+        // are discarded, never replaced with newly enabled reminder days. I/O errors propagate.
+        paymentOffsetsDefault = p[payment]?.mapNotNull(String::toIntOrNull)
+            ?.filter { it in setOf(7, 3, 1, 0) }?.toSet() ?: setOf(3, 1),
+        version = p[version] ?: 1,
     )
     fun write(p: MutablePreferences, value: Settings) {
-        p[theme] = value.theme.name; p[time] = value.reminderLocalTime.toString()
+        p[theme] = value.theme.name
         p[payment] = value.paymentOffsetsDefault.map(Int::toString).toSet()
-        p[cancellation] = value.cancellationOffsetsDefault.map(Int::toString).toSet()
-        p[horizon] = value.chartHorizonMonths; p[version] = value.version
-        value.selectedChartCurrency?.let { p[currency] = it.value } ?: p.remove(currency)
+        p[version] = value.version
+        // Retired keys are preserved as inert legacy data, never read or executed.
     }
 }
 

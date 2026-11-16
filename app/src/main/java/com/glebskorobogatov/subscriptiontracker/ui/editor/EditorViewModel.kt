@@ -26,7 +26,6 @@ data class EditorState(val fields: Map<String,String> = emptyMap(), val loading:
 class EditorViewModel(private val saved: SavedStateHandle, private val owner: SubscriptionsViewModel,
     private val id: UUID?) : ViewModel() {
     private var expected: SubscriptionEntity? = null
-    private var reminders: List<ReminderOverrideEntity> = emptyList()
     private val mutable = MutableStateFlow(EditorState(fields = saved.get<HashMap<String,String>>("fields") ?: emptyMap(),dirty = saved.contains("fields")))
     val state = mutable.asStateFlow()
     private val newId = UUID.fromString(saved.get<String>("newId") ?: UUID.randomUUID().toString().also { saved["newId"] = it })
@@ -37,7 +36,7 @@ class EditorViewModel(private val saved: SavedStateHandle, private val owner: Su
     val savedSubscriptionId: UUID get() = id ?: newId
     init { reload(false) }
     fun change(key: String, value: String) {
-        if (state.value.saving) return
+        if (state.value.saving || key in setOf("currency","lead","PAYMENT","CANCELLATION")) return
         val fields = state.value.fields + (key to value)
         saved["fields"] = HashMap(fields)
         mutable.value = state.value.copy(fields = fields, dirty = true, errors = emptyMap(), error = null)
@@ -97,15 +96,22 @@ class EditorViewModel(private val saved: SavedStateHandle, private val owner: Su
                     mutable.value = state.value.copy(loading = false,notFound = true,loadFailure = false,error = null)
                     return@launch
                 }
-                expected = detail.subscription; reminders = detail.reminders
-                fromRow(detail.subscription, reminders)
+                expected = detail.subscription
+                fromRow(detail.subscription)
             }
-            val restored = if (discard) null else saved.get<HashMap<String,String>>("fields")
-            val fingerprint = expected.toString() + reminders.toString()
-            val stale = restored != null && saved.get<String>("expected")?.let { it != fingerprint } == true
+            val oldDraft = if (discard) null else saved.get<HashMap<String,String>>("fields")
+            val currencyChanged = oldDraft?.get("currency")?.let { it != fields.getValue("currency") } == true
+            val restored = oldDraft?.filterKeys { it !in setOf("lead","PAYMENT","CANCELLATION") }?.toMutableMap()?.apply {
+                put("currency",fields.getValue("currency"))
+                if (currencyChanged) put("amount","") // Never relabel a saved foreign-currency amount.
+            }
+            restored?.let { saved["fields"] = HashMap(it) }
+            val fingerprint = expected.toString()
+            val stale = restored != null && saved.get<String>("expected")?.let { it != fingerprint && !it.startsWith(fingerprint + "[") } == true
             if (!stale) saved["expected"] = fingerprint
             if (discard) discardImageDraft()
             mutable.value = EditorState(restored ?: fields, loading = false, dirty = restored != null || pendingImage != null || imageRemoved || catalogChoice != null,
+                errors = if (currencyChanged) mapOf("amount" to R.string.editor_price_reentry) else emptyMap(),
                 conflict = stale, error = if (stale) R.string.editor_conflict else null,
                 logoAssetId = expected?.logoAssetId, pendingImageId = pendingImage, imageRemoved = imageRemoved,
                 catalogLogoId = catalogChoice ?: if (imageRemoved || pendingImage != null) null else expected?.catalogLogoId)
@@ -122,19 +128,17 @@ class EditorViewModel(private val saved: SavedStateHandle, private val owner: Su
         viewModelScope.launch {
             try {
                 owner.perform { use ->
-                    val currency = CurrencyCode.of(fields.getValue("currency"))
+                    val currency = expected?.currencyCode ?: CurrencyCode.of("RUB")
                     val price = Money.parse(fields.getValue("amount"), currency)
                     val schedule = schedule(fields)
                     val mode = RenewalMode.valueOf(fields.getValue("mode"))
                     val uuid = id ?: newId
-                    val rules = rules(fields, uuid)
                     val start = fields["start"]?.takeIf { it.isNotBlank() }?.let(LocalDate::parse)
                     val end = fields["end"]?.takeIf { it.isNotBlank() }?.let(LocalDate::parse)
-                    val lead = fields["lead"]?.takeIf { it.isNotBlank() }?.toInt()
                     val label = fields["label"]?.trim()?.takeIf { it.isNotEmpty() }
                     val old = expected
                     if (old == null) use.createSubscription(SubscriptionDraft(uuid, fields.getValue("name").trim(), label,
-                        price, mode, schedule, start, end, lead, logoAssetId = pendingImage, catalogLogoId = catalogChoice, reminders = rules), Instant.now())
+                        price, mode, schedule, start, end, logoAssetId = pendingImage, catalogLogoId = catalogChoice), Instant.now())
                     else {
                         val original = old.toDomain().schedule
                         val date = LocalDate.parse(fields.getValue("date"))
@@ -148,7 +152,7 @@ class EditorViewModel(private val saved: SavedStateHandle, private val owner: Su
                             ?: catalogChoice?.let { ImageEdit.Catalog(it) }
                             ?: if (imageRemoved) ImageEdit.Remove else ImageEdit.Keep
                         use.editSubscription(old, SubscriptionEdit(fields.getValue("name").trim(), label, price, mode, edit,
-                            SubscriptionExtras(start,end,lead,rules), reminders, imageEdit), Instant.now())
+                            SubscriptionExtras(start,end), imageEdit), Instant.now())
                     }
                 }
                 saved.remove<HashMap<String,String>>("fields")
@@ -162,21 +166,19 @@ class EditorViewModel(private val saved: SavedStateHandle, private val owner: Su
     }
     private fun defaults() = mapOf("name" to "", "amount" to "", "currency" to "RUB", "unit" to "MONTH", "count" to "1",
         "date" to LocalDate.now().toString(), "mode" to "AUTO", "series" to "false")
-    private fun fromRow(row: SubscriptionEntity, rules: List<ReminderOverrideEntity>): Map<String,String> {
+    private fun fromRow(row: SubscriptionEntity): Map<String,String> {
         val s = row.toDomain()
         return defaults() + mapOf("name" to row.name, "amount" to s.price.format(), "currency" to row.currencyCode.value,
             "label" to (row.accountLabel ?: ""), "unit" to row.intervalUnit.name, "count" to row.intervalCount.toString(),
             "date" to DefaultRenewalCalendar().nextScheduledDate(s.schedule).toString(), "mode" to row.renewalMode.name,
             "anchorMonth" to s.schedule.anchor.yearMonth.toString(), "anchorDay" to s.schedule.anchor.day.toString(),
-            "start" to (row.currentPeriodStartOverride?.toString() ?: ""), "end" to (row.paidAccessEndDate?.toString() ?: ""), "lead" to (row.cancellationLeadDays?.toString() ?: "")) +
-            rules.associate { it.eventType.name to if (it.mode == ReminderMode.INHERIT_GLOBAL) "inherit" else it.offsets.sorted().joinToString(",") }
+            "start" to (row.currentPeriodStartOverride?.toString() ?: ""), "end" to (row.paidAccessEndDate?.toString() ?: ""))
     }
     fun validate(f: Map<String,String>): Map<String,Int> {
         val result = mutableMapOf<String,Int>()
         fun check(key: String, block: () -> Unit) { try { block() } catch (_: Exception) { result[key] = R.string.editor_invalid } }
         check("name") { require(!f["name"].isNullOrBlank()) }
-        check("currency") { CurrencyCode.of(f["currency"].orEmpty()) }
-        if ("currency" !in result) check("amount") { Money.parse(f["amount"].orEmpty(), CurrencyCode.of(f.getValue("currency"))) }
+        check("amount") { Money.parse(f["amount"].orEmpty(), expected?.currencyCode ?: CurrencyCode.of("RUB")) }
         check("count") { Frequency(FrequencyUnit.valueOf(f.getValue("unit")), f.getValue("count").toInt()) }
         check("date") { LocalDate.parse(f.getValue("date")) }
         check("anchorDay") { schedule(f) }
@@ -187,7 +189,6 @@ class EditorViewModel(private val saved: SavedStateHandle, private val owner: Su
             require(start == null || end == null || start < end)
         }
         check("end") { f["end"]?.takeIf { it.isNotBlank() }?.let(LocalDate::parse) }
-        check("lead") { f["lead"]?.takeIf { it.isNotBlank() }?.let { require(it.toInt() >= 0) } }
         expected?.let { old ->
             val original = old.toDomain().schedule
             val changed = f["unit"] != original.frequency.unit.name || f["count"] != original.frequency.count.toString() ||
@@ -206,11 +207,6 @@ class EditorViewModel(private val saved: SavedStateHandle, private val owner: Su
             val calendar = DefaultRenewalCalendar()
             val index = calendar.firstCycleIndexOnOrAfter(base,date) ?: error("Invalid date")
             return calendar.moveNextOnly(base.copy(nextCycleIndex = index), date)
-        }
-        fun rules(f: Map<String,String>, id: UUID) = ReminderEventType.entries.map { type ->
-            val value = f[type.name] ?: "inherit"
-            ReminderOverrideEntity(id, type, if (value == "inherit") ReminderMode.INHERIT_GLOBAL else ReminderMode.CUSTOM,
-                if (value == "inherit" || value.isBlank()) emptySet() else value.split(",").map(String::toInt).toSet())
         }
     }
 }

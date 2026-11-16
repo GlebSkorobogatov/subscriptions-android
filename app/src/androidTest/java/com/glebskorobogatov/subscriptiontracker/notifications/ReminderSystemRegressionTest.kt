@@ -72,9 +72,9 @@ class ReminderSystemRegressionTest {
         await("One real mixed message") { child() != null }
         val text = child()!!.notification.extras.getCharSequence(android.app.Notification.EXTRA_BIG_TEXT).toString()
         assertTrue(text.contains("Завтра ожидается")); assertFalse(text.contains("Через 3"))
-        assertTrue(text.contains("крайний срок"))
+        assertFalse(text.contains("крайний срок"))
         val rows = db.deliveries().all()
-        assertEquals(3,rows.size); assertTrue(rows.all { it.state == DeliveryState.DELIVERED })
+        assertEquals(2,rows.size); assertTrue(rows.all { it.state == DeliveryState.DELIVERED })
         run.process(id,sub.id,task.fingerprint)
         assertEquals(1,manager.activeNotifications.count { it.tag == ReminderScheduling.identity(id,sub.id) })
         assertTrue(db.payments().forSubscription(sub.id).isEmpty())
@@ -83,7 +83,7 @@ class ReminderSystemRegressionTest {
         val run = runtime(); run.reconcile(); val task = scheduler.tasks.single()
         now = Instant.parse("2027-01-06T10:00:00Z")
         assertNull(run.process(id,sub.id,task.fingerprint)); assertNull(child())
-        assertTrue(db.deliveries().all().isEmpty()); assertTrue(scheduler.tasks.isEmpty())
+        assertTrue(db.deliveries().all().all { it.state == DeliveryState.PENDING }); assertTrue(scheduler.tasks.isEmpty())
     }
     @Test fun nameChangeRemovesStaleNativeCopy(): Unit = runBlocking {
         published(); db.subscriptions().update(sub.copy(name = "Другое имя")); runtime().reconcile()
@@ -93,13 +93,14 @@ class ReminderSystemRegressionTest {
         published(); db.subscriptions().update(sub.copy(priceMinor = 59900)); runtime().reconcile()
         await("Old price is removed") { child() == null }
     }
-    @Test fun changingGlobalTimeRemovesStaleNativeCopyWithoutResettingDeliveredKeys(): Unit = runBlocking {
+    @Test fun disablingGlobalDaysRemovesStaleNativeCopyWithoutResettingDeliveredKeys() = runBlocking {
         published(); val delivered = db.deliveries().all().map { it.id }.toSet()
-        lease.repository.update { it.copy(reminderLocalTime = LocalTime.of(18,15)) }; runtime().reconcile()
-        await("Old time copy is removed") { child() == null }
+        lease.repository.update { it.copy(paymentOffsetsDefault = emptySet()) }; runtime().reconcile()
+        await("Disabled reminder is removed") { child() == null }
         assertEquals(delivered,db.deliveries().all().map { it.id }.toSet())
         assertTrue(db.deliveries().all().all { it.state == DeliveryState.DELIVERED })
     }
+
     @Test fun nextCalendarDayRemovesYesterdayCopy(): Unit = runBlocking {
         published(); now = Instant.parse("2027-01-05T10:00:00Z"); runtime().reconcile()
         await("Yesterday wording is removed") { child() == null }
@@ -153,26 +154,30 @@ class ReminderSystemRegressionTest {
             assertNull(withTimeout(10_000) { work.await() }); assertNull(child())
             assertEquals(9,db.subscriptions().find(sub.id)!!.anchorDay)
             assertEquals(emptySet<Int>(),db.reminders().forSubscription(sub.id).single().offsets)
-            assertTrue(db.deliveries().all().none { it.state == DeliveryState.DELIVERED || it.state == DeliveryState.SKIPPED })
+            assertTrue(db.deliveries().all().none { it.state == DeliveryState.DELIVERED })
+            assertTrue(db.deliveries().all().isNotEmpty())
             db.openHelper.readableDatabase.query("PRAGMA integrity_check").use { assertTrue(it.moveToFirst()); assertEquals("ok",it.getString(0)) }
             db.openHelper.readableDatabase.query("PRAGMA foreign_key_check").use { assertFalse(it.moveToFirst()) }
             assertTrue(db.payments().forSubscription(sub.id).isEmpty())
         } finally { commit.countDown(); publish.complete(Unit); withContext(Dispatchers.IO) { other.close() } }
     }
-    @Test fun concurrentSettingsUpdatesKeepIndependentRulesAndCustomOverrides(): Unit = runBlocking {
-        db.reminders().insert(ReminderOverrideEntity(sub.id,ReminderEventType.PAYMENT,ReminderMode.CUSTOM,setOf(0)))
+    @Test fun concurrentThemeAndGlobalOffsetsIgnoreButPreserveLegacyOverrides() = runBlocking {
+        val legacy = ReminderOverrideEntity(sub.id,ReminderEventType.PAYMENT,ReminderMode.CUSTOM,setOf(0))
+        db.reminders().insert(legacy)
         coroutineScope {
             launch { lease.repository.update { it.copy(paymentOffsetsDefault = setOf(7,3)) } }
-            launch { lease.repository.update { it.copy(cancellationOffsetsDefault = setOf(1,0)) } }
+            launch { lease.repository.update { it.copy(theme = com.glebskorobogatov.subscriptiontracker.data.settings.Theme.DARK) } }
         }
         runtime().reconcile()
         val settings = lease.repository.settings.first()
-        assertEquals(setOf(7,3),settings.paymentOffsetsDefault); assertEquals(setOf(1,0),settings.cancellationOffsetsDefault)
-        assertEquals(setOf(0),db.reminders().forSubscription(sub.id).single().offsets)
+        assertEquals(setOf(7,3),settings.paymentOffsetsDefault)
+        assertEquals(com.glebskorobogatov.subscriptiontracker.data.settings.Theme.DARK,settings.theme)
+        assertEquals(listOf(legacy),db.reminders().forSubscription(sub.id))
         val rows = db.deliveries().all()
-        assertEquals(setOf(0),rows.filter { it.eventType == ReminderEventType.PAYMENT }.map { it.offsetDays }.toSet())
-        assertEquals(setOf(1,0),rows.filter { it.eventType == ReminderEventType.CANCELLATION }.map { it.offsetDays }.toSet())
+        assertEquals(setOf(3),rows.map { it.offsetDays }.toSet()) // offset 7 is already past at initial planning.
+        assertTrue(rows.all { it.eventType == ReminderEventType.PAYMENT })
     }
+
     @Test fun changingZoneBothDirectionsPreservesDateAndHandledKeys(): Unit = runBlocking {
         runtime().reconcile(); val original = db.deliveries().all()
         zone = ZoneId.of("Asia/Yekaterinburg"); runtime().reconcile()
@@ -185,12 +190,17 @@ class ReminderSystemRegressionTest {
         zone = ZoneId.of("Asia/Yekaterinburg"); runtime().reconcile()
         assertEquals(handled,db.deliveries().all().map { it.id }.toSet()); assertTrue(scheduler.tasks.isEmpty())
     }
-    @Test fun emptyCustomSetsSuppressBothKindsWithoutChangingGlobalDefaults(): Unit = runBlocking {
-        ReminderEventType.entries.forEach { db.reminders().insert(ReminderOverrideEntity(sub.id,it,ReminderMode.CUSTOM,emptySet())) }
+    @Test fun emptyLegacyOverridesDoNotSuppressGlobalRenewals() = runBlocking {
+        val legacy = ReminderEventType.entries.map { ReminderOverrideEntity(sub.id,it,ReminderMode.CUSTOM,emptySet()) }
+        legacy.forEach { db.reminders().insert(it) }
         repeat(3) { runtime().reconcile() }
-        assertTrue(db.deliveries().all().isEmpty()); assertTrue(scheduler.tasks.isEmpty())
+        assertEquals(setOf(3,1),db.deliveries().all().map { it.offsetDays }.toSet())
+        assertEquals(1,scheduler.tasks.size); assertEquals(legacy.toSet(),db.reminders().forSubscription(sub.id).toSet())
         assertEquals(Settings(),lease.repository.settings.first())
+        lease.repository.update { it.copy(paymentOffsetsDefault = emptySet()) }; runtime().reconcile()
+        assertTrue(scheduler.tasks.isEmpty()); assertTrue(db.deliveries().all().all { it.state == DeliveryState.PENDING })
     }
+
     @Test fun explicitDateEditWhileWorkerWaitsInvalidatesOldReminderWithoutPayment(): Unit = runBlocking {
         val claimed = CompletableDeferred<Unit>(); val resume = CompletableDeferred<Unit>()
         val run = runtime { claimed.complete(Unit); resume.await() }; run.reconcile()
@@ -206,7 +216,7 @@ class ReminderSystemRegressionTest {
             resume.complete(Unit); assertNull(withTimeout(10_000) { worker.await() })
             assertNull(child()); assertTrue(db.payments().forSubscription(sub.id).isEmpty())
             assertEquals(LocalDate.of(2027,2,4),db.subscriptions().find(sub.id)!!.toDomain().schedule.let { com.glebskorobogatov.subscriptiontracker.domain.calendar.DefaultRenewalCalendar().nextScheduledDate(it) })
-            assertTrue(db.deliveries().all().none { it.eventDate == LocalDate.of(2027,1,5) })
+            assertTrue(db.deliveries().all().filter { it.eventDate == LocalDate.of(2027,1,5) }.all { it.state == DeliveryState.PENDING })
         } finally { resume.complete(Unit) }
     }
     private fun useCases() = com.glebskorobogatov.subscriptiontracker.data.integration.SubscriptionUseCases(db,lease.repository,
@@ -227,11 +237,11 @@ class ReminderSystemRegressionTest {
             Frequency(FrequencyUnit.MONTH,1),RenewalMode.MANUAL,
             Money(sub.priceMinor,sub.currencyCode)),now)
         run.reconcile(); assertEquals(sub.id,restored.id); assertTrue(scheduler.tasks.isNotEmpty())
-        assertTrue(db.deliveries().all().all { it.eventDate == LocalDate.of(2027,1,6) })
+        assertTrue(db.deliveries().all().filter { it.state == DeliveryState.PENDING }.all { it.eventDate == LocalDate.of(2027,1,6) })
         val disabled = cases.changeLifecycle(restored,LifecycleCommand.DisableRenewal(),now)
         run.reconcile(); assertTrue(scheduler.tasks.isEmpty())
         cases.deleteSubscription(disabled,true); run.reconcile()
-        assertTrue(db.deliveries().all().isEmpty()); assertTrue(scheduler.tasks.isEmpty())
+        assertTrue(db.deliveries().all().all { it.state == DeliveryState.PENDING }); assertTrue(scheduler.tasks.isEmpty())
     }
 
     @Test fun realActiveDatasetGuardRejectsOldGenerationAfterAtomicPointerReplacement(): Unit = runBlocking {

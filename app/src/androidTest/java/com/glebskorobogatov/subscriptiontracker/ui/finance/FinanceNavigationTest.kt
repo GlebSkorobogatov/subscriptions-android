@@ -29,9 +29,8 @@ class FinanceNavigationTest {
         compose.waitUntil(5000) { compose.onAllNodesWithTag("subscription_editor").fetchSemanticsNodes().isEmpty() }
         compose.onNodeWithTag("tab_finance").performClick()
         forecastReady(); scrollTo("finance_total")
-        compose.onNodeWithTag("finance_currency_RUB").assertIsSelected()
-        compose.onNodeWithTag("finance_horizon_6").performScrollTo().performClick()
-        compose.waitUntil(5000) { compose.onAllNodes(hasTestTag("finance_horizon_6") and isSelected()).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("finance_currency_RUB").assertDoesNotExist()
+        compose.onNodeWithTag("finance_horizon_6").assertDoesNotExist()
         val month = YearMonth.now().plusMonths(1)
         compose.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag("finance_month_$month"))
         compose.onNodeWithTag("finance_month_$month").performClick().assertIsSelected()
@@ -39,8 +38,7 @@ class FinanceNavigationTest {
         compose.onNodeWithText("Учебная подписка").assertIsDisplayed()
         compose.activityRule.scenario.recreate()
         compose.onNodeWithTag("tab_finance").assertIsSelected()
-        forecastReady(); scrollTo("finance_horizon_6")
-        compose.onNodeWithTag("finance_horizon_6").assertIsSelected()
+        forecastReady(); compose.onNodeWithTag("finance_horizon_6").assertDoesNotExist()
         compose.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag("finance_month_$month"))
         compose.onNodeWithTag("finance_month_$month").assertIsSelected()
         compose.onNodeWithContentDescription("Открыть настройки").performClick()
@@ -58,8 +56,7 @@ class FinanceNavigationTest {
         compose.onNodeWithText("Сохранить").performScrollTo().performClick()
         compose.waitUntil(5000) { compose.onAllNodesWithTag("subscription_editor").fetchSemanticsNodes().isEmpty() }
         compose.onNodeWithTag("tab_finance").performClick(); forecastReady()
-        scrollTo("finance_horizon_12"); compose.onNodeWithTag("finance_horizon_12").performClick()
-        compose.waitUntil(5000) { compose.onAllNodes(hasTestTag("finance_horizon_12") and isSelected()).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("finance_horizon_12").assertDoesNotExist()
         val last = YearMonth.now().plusMonths(11)
         fun chartSelected() {
             forecastReady(); scrollTo("finance_month_chart")

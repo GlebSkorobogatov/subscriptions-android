@@ -43,20 +43,14 @@ class MonthlyChartUiTest {
     }
     @Test fun tapSelectsExactMonthTotalAndEventsAndCurrencyChangeCannotMixAmounts() {
         var ui by mutableStateOf(FinancePreviewData.state())
-        compose.setContent { TrackerTheme { FinancePane(ui,onMonth = { ui = ui.copy(month = it) },onCurrency = { ui = FinancePreviewData.state(it) }) } }
+        compose.setContent { TrackerTheme { FinancePane(ui,onMonth = { ui = ui.copy(month = it) }) } }
         select(YearMonth.of(2027,2))
         compose.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag("finance_selected_total"))
         compose.onNodeWithTag("finance_selected_total").assertTextEquals("499,00 RUB")
         compose.onNodeWithTag("finance_screen").performScrollToNode(hasText("Личный"))
         compose.onNodeWithText("Личный").assertIsDisplayed(); compose.onNodeWithText("Семейный").assertDoesNotExist()
-        compose.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag("finance_currency_KWD"))
-        compose.onNodeWithTag("finance_currency_KWD").performClick()
-        select(YearMonth.of(2027,2))
-        column(YearMonth.of(2027,2)).assertContentDescriptionEquals("февраль 2027. Ожидаемые расходы: 12,345 KWD")
-        compose.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag("finance_selected_total"))
-        compose.onNodeWithTag("finance_selected_total").assertTextEquals("12,345 KWD")
-        compose.onNodeWithTag("finance_screen").performScrollToNode(hasText("Другой сервис"))
-        compose.onNodeWithText("Другой сервис").assertIsDisplayed(); compose.onNodeWithText("Личный").assertDoesNotExist()
+        compose.onNodeWithTag("finance_currency_KWD").assertDoesNotExist()
+        compose.onNodeWithText("Другой сервис").assertDoesNotExist()
     }
     @Test fun allTwelveMonthsIncludingZerosAndYearBoundaryAreSelectable() {
         var ui by mutableStateOf(FinancePreviewData.chartState(12))
@@ -81,7 +75,7 @@ class MonthlyChartUiTest {
         select(YearMonth.of(2027,2))
         val rows = FinancePreviewData.rows.map { if(it.id == FinancePreviewData.rows.first().id) it.copy(priceMinor = 10000) else it }
         val result = ForecastEngine().calendarMonths(rows.map { it.toDomain() },FinancePreviewData.day,3,FinancePreviewData.rub)
-        compose.runOnIdle { ui = ui.copy(snapshot = FinanceSnapshot(result,rows,3,ui.currency),month = YearMonth.of(2027,2)) }
+        compose.runOnIdle { ui = ui.copy(snapshot = FinanceSnapshot(result,rows),month = YearMonth.of(2027,2)) }
         chart(); column(YearMonth.of(2027,2)).assertIsSelected().assertContentDescriptionEquals("февраль 2027. Ожидаемые расходы: 100,00 RUB")
         compose.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag("finance_selected_total"))
         compose.onNodeWithTag("finance_selected_total").assertTextEquals("100,00 RUB")

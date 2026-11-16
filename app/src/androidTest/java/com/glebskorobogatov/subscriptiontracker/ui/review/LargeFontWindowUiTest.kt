@@ -41,7 +41,7 @@ class LargeFontWindowUiTest {
             val artifacts = ReviewArtifacts("landscape-dark")
             for((s,action,cancel) in listOf(
 
-                Triple(ReviewScene.TimeDialog,"Применить время","Отмена"),Triple(ReviewScene.DeleteDialog,"Подтвердить","Отмена"),
+                Triple(ReviewScene.DeleteDialog,"Подтвердить","Отмена"),
                 Triple(ReviewScene.ResolveDateDialog,"Подтвердить","Отмена"),
                 Triple(ReviewScene.DisableDialog,"Подтвердить","Отмена"),Triple(ReviewScene.ReactivateDialog,"Подтвердить","Отмена"),
                 Triple(ReviewScene.ArchiveDialog,"Подтвердить","Отмена"),
@@ -54,7 +54,6 @@ class LargeFontWindowUiTest {
                     ReviewScene.ReactivateDialog -> "details_field_amount"
                     ReviewScene.ResolveDateDialog -> "details_field_date"
                     ReviewScene.DisableDialog -> "details_field_end"
-                    ReviewScene.TimeDialog -> "settings_hours"
                     else -> null
                 }
                 field?.let {
@@ -65,8 +64,8 @@ class LargeFontWindowUiTest {
                 artifacts.capture(compose,s,"dark",2f,density)
             }
             compose.runOnIdle { scene.value = ReviewScene.Settings }
-            compose.openSettingsOffsets(false)
-            val checkbox = compose.onNodeWithTag("settings_cancellation_0").performScrollTo().assertIsDisplayed().fetchSemanticsNode()
+            compose.openSettingsOffsets()
+            val checkbox = compose.onNodeWithTag("settings_payment_0").performScrollTo().assertIsDisplayed().fetchSemanticsNode()
             assertTrue("Cancellation checkbox must remain usable in landscape",checkbox.boundsInRoot.height >= 48 * density - 1)
             artifacts.capture(compose,ReviewScene.Settings,"dark",2f,density)
             compose.onNodeWithText("Готово").assertIsDisplayed().performClick()

@@ -82,16 +82,16 @@ class ArchiveSettingsRedesignUiTest {
         compose.onNodeWithTag("tab_archive").assertIsDisplayed().assertIsSelected()
         compose.onNodeWithContentDescription("Открыть настройки").assertIsDisplayed()
     }
-    @Test fun normalTimeRowKeepsValueToRightAndAnnouncesCurrentTime() {
-        var opens = 0
-        compose.setContent { Box(Modifier.widthIn(max = 390.dp).fillMaxSize()) { SettingsDemo(onOpenTime = { opens++ }) } }
+    @Test fun fixedTimeRowKeepsValueAndHasNoEditingAction() {
+        compose.setContent { Box(Modifier.widthIn(max = 390.dp).fillMaxSize()) { SettingsDemo() } }
         compose.onNodeWithTag("settings_time").performScrollTo().assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription,"Общее время: 09:00"))
         val label = compose.onNodeWithTag("settings_time_label",useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
         val value = compose.onNodeWithTag("settings_time_value",useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
-        assertTrue("Time must be to the right of the label",value.left >= label.right)
-        compose.onNodeWithTag("settings_time").performClick()
-        compose.runOnIdle { assertEquals(1,opens) }
+        assertTrue(value.left >= label.right)
+        compose.onNodeWithTag("settings_time").assert(SemanticsMatcher.keyNotDefined(SemanticsActions.OnClick))
+        compose.onNodeWithTag("settings_time_dialog").assertDoesNotExist()
     }
+
     @Test fun narrowLargeFontTimeLabelNeverBecomesVerticalColumn() {
         compose.setContent {
             val density = LocalDensity.current
@@ -119,40 +119,32 @@ class ArchiveSettingsRedesignUiTest {
             if(theme != Theme.SYSTEM) compose.onNodeWithTag(if(theme == Theme.DARK) "theme_dark" else "theme_light").assertExists()
         }
     }
-    @Test fun independentOffsetDialogsUseExistingCommandsAndAllowEmptySet() {
-        val state = mutableStateOf(data.settings)
-        val calls = mutableListOf<Triple<Boolean,Int,Boolean>>()
-        compose.setContent { SettingsDemo(state.value,onOffset = { payment,day,on ->
-            calls += Triple(payment,day,on)
-            val settings = state.value.data!!
-            val old = if(payment) settings.paymentOffsetsDefault else settings.cancellationOffsetsDefault
-            val selected = if(on) old + day else old - day
-            state.value = state.value.copy(data = if(payment) settings.copy(paymentOffsetsDefault = selected) else settings.copy(cancellationOffsetsDefault = selected))
+    @Test fun oneGlobalOffsetDialogAllowsArbitrarySelectionAndEmptySet() {
+        val state = mutableStateOf(data.settings); val calls = mutableListOf<Pair<Int,Boolean>>()
+        compose.setContent { SettingsDemo(state.value,onOffset = { day,on ->
+            calls += day to on; val settings = state.value.data!!
+            state.value = state.value.copy(data = settings.copy(paymentOffsetsDefault =
+                if(on) settings.paymentOffsetsDefault + day else settings.paymentOffsetsDefault - day))
         }) }
-        compose.openSettingsOffsets(true)
+        compose.openSettingsOffsets()
         compose.onNodeWithTag("settings_payment_7").assertIsOff().performClick().assertIsOn()
-        compose.openSettingsOffsets(false)
-        compose.onNodeWithTag("settings_cancellation_7").assertIsOn().performClick().assertIsOff()
-        compose.openSettingsOffsets(true)
         for(day in listOf(7,3,1)) compose.onNodeWithTag("settings_payment_$day").performScrollTo().performClick().assertIsOff()
-        compose.onNode(hasText("Все интервалы этого вида отключены.") and hasAnyAncestor(hasTestTag("settings_offsets_dialog"))).assertExists()
+        compose.onNode(hasText("Напоминания отключены.") and hasAnyAncestor(hasTestTag("settings_offsets_dialog"))).assertExists()
         compose.onNodeWithText("Готово").performClick()
-        compose.onNodeWithTag("settings_payment_offsets").assert(hasText("Все интервалы этого вида отключены."))
-        compose.runOnIdle {
-            assertEquals(Triple(true,7,true),calls.first())
-            assertEquals(setOf(3),state.value.data!!.cancellationOffsetsDefault)
-            assertTrue(state.value.data!!.paymentOffsetsDefault.isEmpty())
-        }
+        compose.onNodeWithTag("settings_payment_offsets").assert(hasText("Напоминания отключены."))
+        compose.onNodeWithTag("settings_cancellation_offsets").assertDoesNotExist()
+        compose.runOnIdle { assertEquals(7 to true,calls.first()); assertTrue(state.value.data!!.paymentOffsetsDefault.isEmpty()) }
     }
+
     @Test fun offsetDialogRestoresWithoutAutomaticallySendingAnotherChange() {
         val restoration = StateRestorationTester(compose)
         var changes = 0
-        restoration.setContent { SettingsDemo(onOffset = {_,_,_ -> changes++ }) }
-        compose.openSettingsOffsets(false)
-        compose.onNodeWithTag("settings_cancellation_7").assertIsOn()
+        restoration.setContent { SettingsDemo(onOffset = {_,_ -> changes++ }) }
+        compose.openSettingsOffsets()
+        compose.onNodeWithTag("settings_payment_3").assertIsOn()
         restoration.emulateSavedInstanceStateRestore()
         compose.onNodeWithTag("settings_offsets_dialog").assertExists()
-        compose.onNodeWithTag("settings_cancellation_7").assertIsOn()
+        compose.onNodeWithTag("settings_payment_3").assertIsOn()
         compose.runOnIdle { assertEquals(0,changes) }
     }
     @Test fun settingsLoadingAndReadErrorDoNotInventPreferencesAndRetryWorks() {
@@ -171,7 +163,7 @@ class ArchiveSettingsRedesignUiTest {
         var retries = 0
         compose.setContent { SettingsDemo(state.value,onRetryWrite = { retries++ }) }
         compose.onNodeWithTag("settings_theme_LIGHT").assertIsNotEnabled()
-        compose.onNodeWithTag("settings_time").performScrollTo().assertIsNotEnabled()
+        compose.onNodeWithTag("settings_time").performScrollTo().assert(SemanticsMatcher.keyNotDefined(SemanticsActions.OnClick))
         compose.runOnIdle { state.value = state.value.copy(phase = SettingsPhase.Content,error = R.string.settings_uncertain) }
         compose.onNodeWithText("Повторить сохранение").performScrollTo().performClick()
         compose.runOnIdle { assertEquals(1,retries) }
@@ -188,14 +180,7 @@ class ArchiveSettingsRedesignUiTest {
         compose.onNodeWithContentDescription("Назад").assertIsDisplayed().performClick()
         compose.runOnIdle { assertEquals(1,backs) }
     }
-    @Test fun timeDialogPreservesFieldErrorsAndBusyBlocksConfirmation() {
-        val state = mutableStateOf(data.settings.copy(timeOpen = true,timeError = R.string.settings_invalid_time,hourInput = "25"))
-        compose.setContent { TrackerTheme { SettingsTimeDialog(state.value,{_,_ ->},{},{}) } }
-        compose.onNodeWithTag("settings_hours").assertTextContains("25").assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.Error))
-        compose.runOnIdle { state.value = state.value.copy(phase = SettingsPhase.Saving,pending = true) }
-        compose.onNodeWithText("Применить время").assertIsNotEnabled()
-        compose.onNodeWithTag("settings_minutes").assertIsNotEnabled()
-    }
+
     @Test fun captureLightArchiveEmptyAndSettingsBothScales() = capture(Theme.LIGHT,"light")
     @Test fun captureDarkArchiveEmptyAndSettingsBothScales() = capture(Theme.DARK,"dark")
     private fun capture(theme: Theme,name: String) {

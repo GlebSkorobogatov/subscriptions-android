@@ -96,4 +96,18 @@ class NotificationNavigationUiTest {
             compose.onNodeWithText("Возобновить подписку").performScrollTo().assertIsDisplayed()
         }
     }
+    @Test fun unknownOldNotificationActionCannotMutateSubscriptionOnLaunchOrRecreation() {
+        ActivityScenario.launch<IsolatedMainActivity>(intent().setAction("synthetic.retired.notification.action")).use { scenario ->
+            home(); scenario.recreate(); home()
+            runBlocking(Dispatchers.IO) {
+                val db = TrackerDatabaseFactory.open(context,dataset)
+                try {
+                    assertEquals(sub,db.subscriptions().find(sub.id))
+                    assertTrue(db.payments().all().isEmpty()); assertTrue(db.deliveries().all().isEmpty())
+                } finally { db.close() }
+            }
+            compose.onNodeWithTag("settings_time_dialog").assertDoesNotExist()
+        }
+    }
+
 }

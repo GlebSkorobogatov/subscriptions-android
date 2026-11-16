@@ -4,21 +4,25 @@ import androidx.lifecycle.*
 import com.glebskorobogatov.subscriptiontracker.R
 import com.glebskorobogatov.subscriptiontracker.data.settings.*
 import com.glebskorobogatov.subscriptiontracker.ui.subscriptions.*
-import java.time.LocalTime
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 
 enum class SettingsPhase { Loading, Content, Saving, Error }
 data class SettingsUiState(val phase: SettingsPhase = SettingsPhase.Loading,val data: Settings? = null,
-    val error: Int? = null,val pending: Boolean = false,val timeOpen: Boolean = false,val hour: Int = 9,val minute: Int = 0,
-    val timeError: Int? = null,val hourInput: String = "09",val minuteInput: String = "00")
+    val error: Int? = null,val pending: Boolean = false)
 
 /** Activity owner: one settings reader supplies both the theme and the settings route. */
 class SettingsViewModel(private val saved: SavedStateHandle,private val owner: SubscriptionsViewModel): ViewModel() {
-    private val mutable = MutableStateFlow(SettingsUiState(pending = saved.contains("intent"),timeOpen = saved["timeOpen"] ?: false,
-        hour = saved["hour"] ?: 9,minute = saved["minute"] ?: 0,
-        hourInput = saved["hourInput"] ?: (saved.get<Int>("hour") ?: 9).toString().padStart(2,'0'),
-        minuteInput = saved["minuteInput"] ?: (saved.get<Int>("minute") ?: 0).toString().padStart(2,'0')))
+    private fun restorePending(): Boolean {
+        listOf("timeOpen","hour","minute","hourInput","minuteInput").forEach { saved.remove<Any>(it) }
+        val intent = saved.get<HashMap<String,String>>("intent")
+        if (intent != null && !runCatching {
+            require(intent["kind"] in setOf("theme","payment"))
+            applySetting(Settings(),intent)
+        }.isSuccess) saved.remove<Any>("intent")
+        return saved.contains("intent")
+    }
+    private val mutable = MutableStateFlow(SettingsUiState(pending = restorePending()))
     val state = mutable.asStateFlow()
     private val attempts = MutableStateFlow(0)
     private var discardPendingAfterRead = false
@@ -46,39 +50,9 @@ class SettingsViewModel(private val saved: SavedStateHandle,private val owner: S
         attempts.value++
     }
     fun setTheme(value: Theme) = start(hashMapOf("kind" to "theme","value" to value.name))
-    fun setOffset(payment: Boolean,day: Int,enabled: Boolean) {
+    fun setOffset(day: Int,enabled: Boolean) {
         require(day in setOf(7,3,1,0))
-        start(hashMapOf("kind" to if(payment) "payment" else "cancellation","day" to day.toString(),"enabled" to enabled.toString()))
-    }
-    fun openTime() {
-        val data = state.value.data ?: return
-        if(state.value.phase != SettingsPhase.Content || state.value.pending) return
-        saved["timeOpen"] = true; timeDraft(data.reminderLocalTime.hour,data.reminderLocalTime.minute)
-        mutable.value = state.value.copy(timeOpen = true,timeError = null)
-    }
-    fun timeDraft(hour: Int,minute: Int) {
-        saved["hour"] = hour; saved["minute"] = minute
-        saved["hourInput"] = hour.toString().padStart(2,'0'); saved["minuteInput"] = minute.toString().padStart(2,'0')
-        mutable.value = state.value.copy(hour = hour,minute = minute,timeError = null,
-            hourInput = hour.toString().padStart(2,'0'),minuteInput = minute.toString().padStart(2,'0'))
-    }
-    fun changeTimeInput(hour: Boolean,value: String) {
-        saved[if(hour) "hourInput" else "minuteInput"] = value
-        mutable.value = if(hour) state.value.copy(hourInput = value,timeError = null) else state.value.copy(minuteInput = value,timeError = null)
-    }
-    fun confirmTimeInput() {
-        val hour = state.value.hourInput; val minute = state.value.minuteInput
-        if(!hour.matches(Regex("[0-9]{1,2}")) || !minute.matches(Regex("[0-9]{1,2}"))) {
-            mutable.value = state.value.copy(timeError = R.string.settings_invalid_time); return
-        }
-        confirmTime(hour.toInt(),minute.toInt())
-    }
-    fun dismissTime() { saved["timeOpen"] = false; mutable.value = state.value.copy(timeOpen = false,timeError = null) }
-    fun confirmTime(hour: Int,minute: Int) {
-        val time = try { LocalTime.of(hour,minute) } catch(_: Exception) {
-            mutable.value = state.value.copy(timeError = R.string.settings_invalid_time); return
-        }
-        dismissTime(); start(hashMapOf("kind" to "time","value" to time.toString()))
+        start(hashMapOf("kind" to "payment","day" to day.toString(),"enabled" to enabled.toString()))
     }
     private fun start(intent: HashMap<String,String>) {
         if(state.value.phase != SettingsPhase.Content || state.value.pending) return
@@ -109,9 +83,7 @@ internal fun applySetting(current: Settings,intent: Map<String,String>): Setting
     }
     return when(intent.getValue("kind")) {
         "theme" -> current.copy(theme = Theme.valueOf(intent.getValue("value")))
-        "time" -> current.copy(reminderLocalTime = LocalTime.parse(intent.getValue("value")))
         "payment" -> current.copy(paymentOffsetsDefault = offsets(current.paymentOffsetsDefault))
-        "cancellation" -> current.copy(cancellationOffsetsDefault = offsets(current.cancellationOffsetsDefault))
         else -> error("Unknown preference")
     }
 }

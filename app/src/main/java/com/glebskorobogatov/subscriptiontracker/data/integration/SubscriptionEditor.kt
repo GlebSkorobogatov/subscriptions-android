@@ -28,21 +28,18 @@ data class SubscriptionDraft(
     val id: UUID, val name: String, val accountLabel: String?, val price: Money,
     val mode: RenewalMode, val schedule: RenewalSchedule,
     val periodStart: LocalDate? = null, val paidAccessEnd: LocalDate? = null,
-    val cancellationLeadDays: Int? = null, val logoAssetId: UUID? = null, val catalogLogoId: String? = null,
-    val reminders: List<ReminderOverrideEntity> = emptyList(),
+    val logoAssetId: UUID? = null, val catalogLogoId: String? = null,
 )
 
 data class SubscriptionEdit(
     val name: String, val accountLabel: String?, val price: Money, val mode: RenewalMode,
     val schedule: ScheduleEdit = ScheduleEdit.Keep,
     val extras: SubscriptionExtras? = null,
-    val expectedReminders: List<ReminderOverrideEntity>? = null,
     val image: ImageEdit = ImageEdit.Keep,
 
 )
 
-data class SubscriptionExtras(val periodStart: LocalDate?, val paidAccessEnd: LocalDate?,
-    val cancellationLeadDays: Int?, val reminders: List<ReminderOverrideEntity>)
+data class SubscriptionExtras(val periodStart: LocalDate?, val paidAccessEnd: LocalDate?)
 
 /** Only the missing creation/edit persistence. Lifecycle and money writes stay in C-03–05. */
 internal class SubscriptionEditor(private val db: TrackerDatabase,
@@ -50,6 +47,7 @@ internal class SubscriptionEditor(private val db: TrackerDatabase,
     suspend fun create(draft: SubscriptionDraft, recordedAt: Instant, image: AssetEntity? = null): SubscriptionEntity = withContext(Dispatchers.IO) {
         db.runInTransaction(Callable {
             if (db.subscriptions().find(draft.id) != null) throw LifecycleConflict()
+            require(draft.price.currency == CurrencyCode.of("RUB"))
             require(draft.logoAssetId == null || draft.catalogLogoId == null)
             draft.catalogLogoId?.let(com.glebskorobogatov.subscriptiontracker.data.catalog.OfflineIconCatalog::requireKnown)
             image?.let { require(draft.logoAssetId == it.id); db.assets().insert(it) }
@@ -60,10 +58,9 @@ internal class SubscriptionEditor(private val db: TrackerDatabase,
                 s.schedule.frequency.unit, s.schedule.frequency.count, s.mode, s.state,
                 s.schedule.anchor.yearMonth.year, s.schedule.anchor.yearMonth.monthValue, s.schedule.anchor.day,
                 s.schedule.nextCycleIndex, s.schedule.oneOff?.date, s.schedule.oneOff?.cycleIndex,
-                draft.periodStart, draft.paidAccessEnd, draft.cancellationLeadDays, draft.logoAssetId, draft.catalogLogoId,
+                draft.periodStart, draft.paidAccessEnd, null, draft.logoAssetId, draft.catalogLogoId,
                 recordedAt, recordedAt)
             db.subscriptions().insert(row)
-            saveReminders(row.id, draft.reminders)
             row
         })
     }
@@ -71,7 +68,7 @@ internal class SubscriptionEditor(private val db: TrackerDatabase,
         db.runInTransaction(Callable {
             val current = db.subscriptions().find(expected.id)
             if (current != expected) throw LifecycleConflict()
-            edit.expectedReminders?.let { if (db.reminders().forSubscription(expected.id).toSet() != it.toSet()) throw LifecycleConflict() }
+            require(edit.price.currency == expected.currencyCode)
             val s = expected.toDomain()
             if ((edit.schedule != ScheduleEdit.Keep || edit.mode != s.mode) && s.state != LifecycleState.ACTIVE)
                 throw InvalidTransition("Изменение графика/режима требует ACTIVE; используйте разрешение проблемы или реактивацию")
@@ -103,19 +100,11 @@ internal class SubscriptionEditor(private val db: TrackerDatabase,
                 }
             }
             edit.extras?.let {
-                require(it.cancellationLeadDays == null || it.cancellationLeadDays >= 0)
                 require(it.periodStart == null || it.paidAccessEnd == null || it.periodStart < it.paidAccessEnd)
-                updated = updated.copy(currentPeriodStartOverride = it.periodStart, paidAccessEndDate = it.paidAccessEnd,
-                    cancellationLeadDays = it.cancellationLeadDays)
-                saveReminders(expected.id, it.reminders)
+                updated = updated.copy(currentPeriodStartOverride = it.periodStart, paidAccessEndDate = it.paidAccessEnd)
             }
             check(db.subscriptions().update(updated) == 1)
             updated
         })
-    }
-    private fun saveReminders(id: UUID, values: List<ReminderOverrideEntity>) {
-        require(values.all { it.subscriptionId == id } && values.map { it.eventType }.distinct().size == values.size)
-        ReminderEventType.entries.forEach { db.reminders().delete(id, it) }
-        values.forEach { db.reminders().insert(it) }
     }
 }

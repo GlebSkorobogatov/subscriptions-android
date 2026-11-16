@@ -18,22 +18,20 @@ import java.util.UUID
 
 /** OS state is authoritative; a stored permission flag would become stale. */
 data class NotificationAccess(val runtimeGranted: Boolean, val appEnabled: Boolean,
-    val paymentsEnabled: Boolean, val cancellationsEnabled: Boolean) {
-    val usable get() = runtimeGranted && appEnabled && (paymentsEnabled || cancellationsEnabled)
+    val paymentsEnabled: Boolean) {
+    val usable get() = runtimeGranted && appEnabled && paymentsEnabled
     fun allows(message: ReminderMessage) = runtimeGranted && appEnabled && message.reasons.all {
-        if (it.eventType == ReminderEventType.PAYMENT) paymentsEnabled else cancellationsEnabled
+        it.eventType == ReminderEventType.PAYMENT && paymentsEnabled
     }
 }
 class AndroidReminderWords(context: Context) : ReminderWords {
     private val context = context.applicationContext
     override fun text(key: String, vararg arguments: Any) = context.getString(when (key) {
         "payment_title" -> R.string.notification_payment_title
-        "cancel_title" -> R.string.notification_cancel_title
         "today" -> R.string.notification_today
         "tomorrow" -> R.string.notification_tomorrow
         "in_days" -> R.string.notification_in_days
         "payment_body" -> R.string.notification_payment_body
-        "cancel_body" -> R.string.notification_cancel_body
         else -> error("Unknown notification resource")
     }, *arguments)
     override fun days(value: Long): String = context.getString(when (russianDayForm(value)) {
@@ -49,7 +47,6 @@ class AndroidReminderPublisher(context: Context) : ReminderPublisher {
     private val manager = this.context.getSystemService(NotificationManager::class.java)
     companion object {
         const val PAYMENTS = "subscription_payments_v1"
-        const val CANCELLATIONS = "subscription_cancellations_v1"
         private val gate = Any()
         private const val META = "tracker.reminder."
         const val DISMISS_GROUP = "com.glebskorobogatov.subscriptiontracker.DISMISS_REMINDER_GROUP"
@@ -62,14 +59,12 @@ class AndroidReminderPublisher(context: Context) : ReminderPublisher {
     }
     fun createChannels() {
         manager.createNotificationChannels(listOf(
-            NotificationChannel(PAYMENTS, context.getString(R.string.notification_channel_payments), NotificationManager.IMPORTANCE_DEFAULT),
-            NotificationChannel(CANCELLATIONS, context.getString(R.string.notification_channel_cancellations), NotificationManager.IMPORTANCE_DEFAULT)))
+            NotificationChannel(PAYMENTS, context.getString(R.string.notification_channel_payments), NotificationManager.IMPORTANCE_DEFAULT)))
     }
     fun access(): NotificationAccess {
         createChannels() // Recreating an existing channel does not replace user importance/sound choices.
         return NotificationAccess(Build.VERSION.SDK_INT < 33 || context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED,
-            manager.areNotificationsEnabled(), manager.getNotificationChannel(PAYMENTS).importance != NotificationManager.IMPORTANCE_NONE,
-            manager.getNotificationChannel(CANCELLATIONS).importance != NotificationManager.IMPORTANCE_NONE)
+            manager.areNotificationsEnabled(), manager.getNotificationChannel(PAYMENTS).importance != NotificationManager.IMPORTANCE_NONE)
     }
     override val available get() = access().usable
     override fun publish(identity: NotificationIdentity, message: ReminderMessage) = PublicationResult.UNAVAILABLE
@@ -80,8 +75,7 @@ class AndroidReminderPublisher(context: Context) : ReminderPublisher {
             val route = route(identity.tag) ?: return@synchronized PublicationResult.PERMANENT_SKIP
             require(route.subscription == message.subscriptionId.value && identity.id == 0)
             if (!access().allows(message)) return@synchronized PublicationResult.UNAVAILABLE
-            val cancellation = message.reasons.any { it.eventType == ReminderEventType.CANCELLATION }
-            val channel = if (cancellation) CANCELLATIONS else PAYMENTS
+            val channel = PAYMENTS
             val copy = ReminderText.render(presentation, message, AndroidReminderWords(context))
             val metadata = Bundle().apply {
                 putString(META + "route", route.identity)
@@ -200,7 +194,7 @@ class AndroidReminderPublisher(context: Context) : ReminderPublisher {
         // Cancelling a group summary can cascade to the surviving child. Keep a one-child
         // summary after a group existed, and remove it only when the group is empty.
         if (children.size == 1 && previous == null) return
-        val channel = if (children.values.any { it.channelId == CANCELLATIONS }) CANCELLATIONS else PAYMENTS
+        val channel = PAYMENTS
         if (!manager.areNotificationsEnabled() || manager.getNotificationChannel(channel).importance == NotificationManager.IMPORTANCE_NONE) return
         val members = children.toSortedMap().map { (key, child) -> "$key|${child.extras.getCharSequence(Notification.EXTRA_TITLE)}" }.joinToString("\n")
         if (previous?.channelId == channel && previous.extras.getString(META + "members") == members) return

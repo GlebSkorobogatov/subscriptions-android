@@ -14,8 +14,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.*
 
-data class SubscriptionDetails(val subscription: SubscriptionEntity, val lifecycle: LifecycleView,
-    val reminders: List<ReminderOverrideEntity>)
+data class SubscriptionDetails(val subscription: SubscriptionEntity, val lifecycle: LifecycleView)
 
 /** No owned scope/cache. Caller owns DB and Settings lease; UI may stateIn its own lifecycle scope. */
 class SubscriptionUseCases(
@@ -43,15 +42,12 @@ class SubscriptionUseCases(
         return combine(domainSubscriptions, date.today) { rows, today -> forecast.calendarMonths(rows, today, months, currency) }
             .distinctUntilChanged().flowOn(Dispatchers.Default)
     }
-    val selectedChart = combine(domainSubscriptions, date.today,
-        settings.map { it.chartHorizonMonths to it.selectedChartCurrency }.distinctUntilChanged()) { rows, today, selection ->
-        forecast.calendarMonths(rows, today, selection.first, selection.second)
-    }.distinctUntilChanged().flowOn(Dispatchers.Default)
+    // Fixed selection through the existing engine. Legacy foreign rows retain their own currency;
+    // they are not relabelled or summed into this RUB forecast. Full runtime migration is R1b.4.
+    val selectedChart = forecastMonths(12, CurrencyCode.of("RUB"))
 
-    /** One transactional Room relation: no payment/refund tables are queried by details. */
     fun details(id: UUID): Flow<SubscriptionDetails?> = combine(database.subscriptions().observeDetails(id), date.today) { row, today ->
-        row?.let { SubscriptionDetails(it.subscription, SubscriptionLifecycleService().view(it.subscription.toDomain(), today),
-            it.reminders.sortedBy { reminder -> reminder.eventType.name }) }
+        row?.let { SubscriptionDetails(it, SubscriptionLifecycleService().view(it.toDomain(), today)) }
     }.distinctUntilChanged().flowOn(Dispatchers.Default)
 
     suspend fun stageImage(uri: android.net.Uri): UUID = requireNotNull(assetStore).stage(uri)
@@ -100,15 +96,11 @@ class SubscriptionUseCases(
             val before = settingsRepository.settings.first()
             settingsRepository.update(transform)
             val after = settingsRepository.settings.first()
-            before.reminderLocalTime != after.reminderLocalTime ||
-                before.paymentOffsetsDefault != after.paymentOffsetsDefault ||
-                before.cancellationOffsetsDefault != after.cancellationOffsetsDefault
+            before.paymentOffsetsDefault != after.paymentOffsetsDefault
         }
     }
-    /** Invoke on app return, not a timer. Explicit paid-access check runs before publishing the new day. */
-    suspend fun refreshToday(today: LocalDate, changedAt: Instant): Int {
-        val count = reminderChanges.write { lifecycle.autoArchiveExpired(today, changedAt) }
-        date.update(today)
-        return count
+    /** Calendar refresh never changes subscription status or writes to Room. */
+    suspend fun refreshToday(today: LocalDate, changedAt: Instant) {
+        reminderChanges.write { date.update(today) }
     }
 }

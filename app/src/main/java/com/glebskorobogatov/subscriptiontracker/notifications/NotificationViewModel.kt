@@ -89,7 +89,7 @@ class NotificationViewModel(private val saved: SavedStateHandle, private val own
             val eligible = owner.perform { cases ->
                 val detail = cases.details(id).first() ?: return@perform false
                 val settings = cases.settings.first()
-                ReminderRules().plan(reminderInputs(listOf(detail.subscription), detail.reminders, settings),
+                ReminderRules().plan(reminderInputs(listOf(detail.subscription), settings),
                     settings.reminderLocalTime, now(), zone()).isNotEmpty()
             }
             if (eligible && withContext(io) { environment.claimAutomaticOffer() }) {

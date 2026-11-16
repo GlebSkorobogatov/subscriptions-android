@@ -25,10 +25,23 @@ class EditorStateTest {
         assertTrue("amount" in vm.state.value.errors)
         assertFalse(vm.state.value.saving)
     }
-    @Test fun savedDraftRestoresAllValues() = runTest(dispatcher) {
-        val fields = hashMapOf("name" to "Черновик","amount" to "1,234","currency" to "KWD","PAYMENT" to "","CANCELLATION" to "7,3")
-        val vm = editor(SavedStateHandle(mapOf("fields" to fields)))
-        runCurrent(); assertEquals(fields,vm.state.value.fields); assertTrue(vm.state.value.dirty)
+    @Test fun legacyDraftDropsRetiredRulesAndRequiresForeignAmountReentry() = runTest(dispatcher) {
+        val fields = hashMapOf("name" to "Черновик","amount" to "1,234","currency" to "KWD",
+            "PAYMENT" to "","CANCELLATION" to "7,3","lead" to "7")
+        val saved = SavedStateHandle(mapOf("fields" to fields))
+        val vm = editor(saved); runCurrent()
+        assertEquals("Черновик",vm.state.value.fields["name"])
+        assertEquals("RUB",vm.state.value.fields["currency"]); assertEquals("",vm.state.value.fields["amount"])
+        for (key in listOf("PAYMENT","CANCELLATION","lead")) assertFalse(key in vm.state.value.fields)
+        assertEquals(vm.state.value.fields,saved.get<HashMap<String,String>>("fields")); assertTrue(vm.state.value.dirty)
+        vm.save(); runCurrent(); assertTrue("amount" in vm.state.value.errors); assertFalse(vm.state.value.done)
+    }
+    @Test fun compatibleRubDraftRestoresAndRetiredFieldChangesAreIgnored() = runTest(dispatcher) {
+        val fields = hashMapOf("name" to "Черновик","amount" to "1,23","currency" to "RUB")
+        val vm = editor(SavedStateHandle(mapOf("fields" to fields))); runCurrent()
+        assertEquals(fields,vm.state.value.fields)
+        for (key in listOf("currency","PAYMENT","CANCELLATION","lead")) vm.change(key,"obsolete")
+        assertEquals(fields,vm.state.value.fields)
     }
     @Test fun failedSaveRetainsUserInput() = runTest(dispatcher) {
         val vm = editor(); runCurrent()

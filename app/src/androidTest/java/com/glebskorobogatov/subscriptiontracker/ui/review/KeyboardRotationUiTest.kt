@@ -70,26 +70,24 @@ class KeyboardRotationUiTest {
             compose.onNodeWithText("Добавить первую подписку").performScrollTo().assertIsDisplayed()
         } finally { orient(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT,Configuration.ORIENTATION_PORTRAIT) }
     }
-    @Test fun landscapeTimeDraftRecreationAndCancelPreserveOriginTabAndStoredTime() {
+    @Test fun landscapeGlobalOffsetsRecreationPreservesOriginTabAndFixedTime() {
         orient(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE,Configuration.ORIENTATION_LANDSCAPE)
         try {
             compose.onNodeWithTag("tab_archive").performClick()
             compose.onNodeWithContentDescription("Открыть настройки").performClick()
-            compose.onNodeWithTag("settings_time").performScrollTo().performClick()
-            compose.onNodeWithTag("settings_hours").performScrollTo().performTextReplacement("18")
-            compose.onNodeWithTag("settings_minutes").performScrollTo().performTextReplacement("45")
+            compose.onNodeWithTag("settings_payment_offsets").performScrollTo().performClick()
+            compose.onNodeWithTag("settings_payment_3").assertIsOn()
             compose.activityRule.scenario.recreate()
-            compose.onNodeWithTag("settings_hours").assertTextContains("18")
-            compose.onNodeWithTag("settings_minutes").assertTextContains("45")
-            compose.onNodeWithText("Применить время").assertIsDisplayed()
-            compose.onNodeWithText("Отмена").assertIsDisplayed()
-            deviceScreenshot("settings-time-landscape-draft")
-            compose.onNodeWithText("Отмена").performClick()
-            compose.onNodeWithText("09:00").performScrollTo().assertIsDisplayed()
+            compose.onNodeWithTag("settings_offsets_dialog").assertExists()
+            compose.onNodeWithTag("settings_payment_3").assertIsOn()
+            compose.onNodeWithText("Готово").assertIsDisplayed().performClick()
+            compose.onNodeWithTag("settings_time_value",useUnmergedTree = true).performScrollTo().assertTextEquals("09:00")
+            compose.onNodeWithTag("settings_time_dialog").assertDoesNotExist()
             compose.onNodeWithContentDescription("Назад").performClick()
             compose.onNodeWithTag("tab_archive").assertIsSelected()
         } finally { orient(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT,Configuration.ORIENTATION_PORTRAIT) }
     }
+
     private fun editorAboveIme() {
         var imeTop = 0
         compose.activityRule.scenario.onActivity { a ->

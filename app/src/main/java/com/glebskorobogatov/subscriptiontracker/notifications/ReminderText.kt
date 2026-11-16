@@ -14,8 +14,7 @@ data class ReminderCopy(val title: String, val body: String)
 object ReminderText {
     fun render(presentation: ReminderPresentation, message: ReminderMessage, words: ReminderWords): ReminderCopy {
         require(message.reasons.isNotEmpty())
-        val cancellation = message.reasons.any { it.eventType == ReminderEventType.CANCELLATION }
-        val title = words.text(if (cancellation) "cancel_title" else "payment_title", presentation.name)
+        val title = words.text("payment_title", presentation.name)
         val body = message.reasons.sortedBy { it.eventType.name }.joinToString("\n") { reason ->
             require(reason.daysRemaining >= 0)
             val whenText = when (reason.daysRemaining) {
@@ -24,9 +23,8 @@ object ReminderText {
                 else -> words.text("in_days", words.days(reason.daysRemaining))
             }
             val date = reason.targetDate.format(DateTimeFormatter.ofPattern("dd.MM.uuuu"))
-            if (reason.eventType == ReminderEventType.PAYMENT) words.text("payment_body", whenText,
+            words.text("payment_body", whenText,
                 presentation.price.format(), presentation.price.currency.value, date)
-            else words.text("cancel_body", whenText, date)
         }
         return ReminderCopy(title, body)
     }

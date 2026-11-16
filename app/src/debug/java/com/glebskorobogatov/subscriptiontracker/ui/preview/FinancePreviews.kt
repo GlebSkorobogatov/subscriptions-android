@@ -23,15 +23,15 @@ internal object FinancePreviewData {
             currencyCode = rub,anchorYear = 2027,anchorMonth = 1,anchorDay = 31,nextCycleIndex = 0,oneOffDueDate = null,overrideCycleIndex = null,currentPeriodStartOverride = null,renewalMode = RenewalMode.MANUAL),
         DetailsEditorPreviewData.row.copy(id = UUID(0,803),name = "Другой сервис",accountLabel = null,priceMinor = 12345,
             currencyCode = CurrencyCode.of("KWD"),anchorYear = 2027,anchorMonth = 1,anchorDay = 31,nextCycleIndex = 0,oneOffDueDate = null,overrideCycleIndex = null,currentPeriodStartOverride = null))
-    fun chartState(months: Int = 6): FinanceUiState {
+    fun chartState(months: Int = 12): FinanceUiState {
         val sample = rows.take(2).map { it.copy(anchorYear = 2026,anchorMonth = 11,anchorDay = 30,intervalCount = 3) }
         val today = LocalDate.of(2026,11,15)
         val result = ForecastEngine().calendarMonths(sample.map { it.toDomain() },today,months,rub)
-        return FinanceUiState(FinancePhase.Content,FinanceSnapshot(result,sample,months,rub),rub,YearMonth.of(2026,11))
+        return FinanceUiState(FinancePhase.Content,FinanceSnapshot(result,sample),rub,YearMonth.of(2026,11))
     }
-    fun state(currency: CurrencyCode = rub,months: Int = 3): FinanceUiState {
+    fun state(currency: CurrencyCode = rub,months: Int = 12): FinanceUiState {
         val result = ForecastEngine().calendarMonths(rows.map { it.toDomain() },day,months,currency)
-        return FinanceUiState(FinancePhase.Content,FinanceSnapshot(result,rows,months,currency),currency,YearMonth.from(day))
+        return FinanceUiState(FinancePhase.Content,FinanceSnapshot(result,rows),currency,YearMonth.from(day))
     }
 }
 @Preview(name = "Прогноз · светлая",showBackground = true,widthDp = 390,heightDp = 800)

@@ -21,8 +21,3 @@ class LifecycleCommands(private val service: SubscriptionLifecycleService = Subs
             RenewalSchedule(RenewalAnchor.from(command.nextDate), command.frequency), command.price).subscription
     }
 }
-
-/** paidAccessEnd is the last paid calendar day, inclusive; no system clock. */
-fun autoArchiveExpired(s: Subscription, today: LocalDate): Subscription =
-    if (s.state == LifecycleState.CANCELLATION_SCHEDULED && s.paidAccessEnd?.isBefore(today) == true)
-        SubscriptionLifecycleService().archive(s).subscription else s

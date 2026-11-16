@@ -22,24 +22,19 @@ import org.junit.Assert.*
 
 class FinanceUiTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
-    @Test fun monthsSelectExactExpectedEventsAndCurrenciesNeverMix() {
-        var ui by mutableStateOf(FinancePreviewData.state())
-        compose.setContent { TrackerTheme { FinancePane(ui,onMonth = { ui = ui.copy(month = it) },
-            onHorizon = { ui = FinancePreviewData.state(ui.currency!!,it) },onCurrency = { ui = FinancePreviewData.state(it,ui.snapshot!!.horizon) }) } }
-        compose.onNodeWithTag("finance_total").assertTextEquals("2096,00 RUB")
+    @Test fun monthsSelectExactExpectedEventsWithoutCurrencyOrHorizonControls() {
+        var ui by mutableStateOf(FinancePreviewData.state(months = 12))
+        compose.setContent { TrackerTheme { FinancePane(ui,onMonth = { ui = ui.copy(month = it) }) } }
+        compose.onNodeWithTag("finance_total").assertTextEquals("6587,00 RUB")
         compose.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag("finance_month_2027-02"))
         compose.onNodeWithTag("finance_month_2027-02").performClick().assertIsSelected()
         compose.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag("finance_charge_00000000-0000-0000-0000-000000000321_1"))
-        compose.onNodeWithText("Личный").assertIsDisplayed()
-        compose.onNodeWithText("Семейный").assertDoesNotExist()
-        compose.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag("finance_currency_KWD"))
-        compose.onNodeWithTag("finance_currency_KWD").performClick().assertIsSelected()
-        compose.onNodeWithTag("finance_total").assertTextEquals("37,035 KWD")
-        compose.onNodeWithTag("finance_horizon_6").performScrollTo().performClick().assertIsSelected()
-        compose.onNodeWithTag("finance_total").performScrollTo().assertTextEquals("74,070 KWD")
-        compose.onNodeWithTag("finance_horizon_12").performScrollTo().performClick().assertIsSelected()
-        compose.onNodeWithTag("finance_total").performScrollTo().assertTextEquals("148,140 KWD")
+        compose.onNodeWithText("Личный").assertIsDisplayed(); compose.onNodeWithText("Семейный").assertDoesNotExist()
+        compose.onNodeWithTag("finance_currency_KWD").assertDoesNotExist()
+        compose.onNodeWithTag("finance_currency_RUB").assertDoesNotExist()
+        for (months in listOf(3,6,12)) compose.onNodeWithTag("finance_horizon_$months").assertDoesNotExist()
     }
+
     @Test fun loadingErrorRetryAndEmptyHaveDistinctSemantics() {
         var ui by mutableStateOf(FinanceUiState()); var retries = 0
         compose.setContent { TrackerTheme { FinancePane(ui,onRetry = { retries++ }) } }
@@ -56,7 +51,7 @@ class FinanceUiTest {
             val currency = CurrencyCode.of("JPY")
             val row = FinancePreviewData.rows.first().copy(currencyCode = currency,priceMinor = Long.MAX_VALUE,renewalMode = com.glebskorobogatov.subscriptiontracker.domain.lifecycle.RenewalMode.MANUAL)
             val result = com.glebskorobogatov.subscriptiontracker.domain.forecast.ForecastEngine().calendarMonths(listOf(row.toDomain()),FinancePreviewData.day,3,currency)
-            old.copy(snapshot = FinanceSnapshot(result,listOf(row),3,currency),currency = currency)
+            old.copy(snapshot = FinanceSnapshot(result,listOf(row)),currency = currency)
         })
         compose.setContent { val density = LocalDensity.current
             CompositionLocalProvider(LocalDensity provides Density(density.density,2f)) {

@@ -59,20 +59,19 @@ class ReminderSystemProbeReceiver : BroadcastReceiver() {
                 // CI reuses only this freshly installed disposable package. No production datasets.
                 check(db.subscriptions().all().isEmpty()) { "Fixture requires an empty isolated app" }
                 val now = Instant.now(); val zone = ZoneId.systemDefault()
-                val planned = now.atZone(zone).toLocalDateTime().minusMinutes(1).withSecond(0).withNano(0)
+                val planned = now.atZone(zone).toLocalDate().minusDays(1).atTime(9,0)
                 val target = planned.toLocalDate().plusDays(1)
                 val subscription = UUID.randomUUID()
                 val row = SubscriptionEntity(subscription,"F04 Test Service","Only fake data",39900,CurrencyCode.of("RUB"),
                     FrequencyUnit.MONTH,1,RenewalMode.MANUAL,LifecycleState.ACTIVE,target.year,target.monthValue,target.dayOfMonth,
                     0,null,null,null,null,0,null,null,now,now)
                 db.subscriptions().insert(row)
-                settingsLease.repository.update { it.copy(reminderLocalTime = planned.toLocalTime(),
-                    paymentOffsetsDefault = setOf(1),cancellationOffsetsDefault = setOf(1)) }
+                settingsLease.repository.update { it.copy(paymentOffsetsDefault = setOf(1)) }
                 val settings = settingsLease.repository.settings.first()
                 val ledger = ReminderLedger(db,generation)
                 val earlier = ReminderRules().resolveLocal(planned,zone).toInstant().minusSeconds(60)
                 val records = ledger.reconcile(settings,earlier,zone)
-                check(records.size == 2)
+                check(records.size == 1)
                 val fingerprint = ReminderScheduling.fingerprint(ledger.events(records),zone)
                 // Persist a genuinely delayed WorkRequest; host recovery explicitly reconciles it.
                 scheduler.apply(generation,listOf(ScheduledReminder(subscription,fingerprint,now.plusSeconds(86400))),now.plusSeconds(172800))

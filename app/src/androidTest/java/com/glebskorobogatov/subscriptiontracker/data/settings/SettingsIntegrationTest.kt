@@ -1,6 +1,7 @@
 package com.glebskorobogatov.subscriptiontracker.data.settings
 
 import android.content.Context
+import androidx.datastore.preferences.preferencesDataStoreFile
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -26,14 +27,15 @@ class SettingsIntegrationTest {
         try {
             assertSame(first.repository, shared.repository)
             assertEquals(Settings(), first.repository.settings.first())
-            first.repository.update { it.copy(theme = Theme.DARK, reminderLocalTime = LocalTime.of(18, 45)) }
+            first.repository.update { it.copy(theme = Theme.DARK, paymentOffsetsDefault = setOf(7,0)) }
             assertEquals(Theme.DARK, shared.repository.settings.first().theme)
             assertEquals(Settings(), isolated.repository.settings.first())
         } finally { first.close(); shared.close(); isolated.close() }
         val reopened = DatasetSettingsFactory.acquire(context, id)
         try {
             assertEquals(Theme.DARK, reopened.repository.settings.first().theme)
-            assertEquals(LocalTime.of(18, 45), reopened.repository.settings.first().reminderLocalTime)
+            assertEquals(LocalTime.of(9,0), reopened.repository.settings.first().reminderLocalTime)
+            assertEquals(setOf(7,0),reopened.repository.settings.first().paymentOffsetsDefault)
         } finally { reopened.close() }
     }
     @Test fun reactiveFlowAndInvalidUpdateIsAtomic(): Unit = runBlocking {
@@ -51,11 +53,11 @@ class SettingsIntegrationTest {
             val updated = async(start = CoroutineStart.UNDISPATCHED) {
                 withTimeout(5000) { values.receive() }
             }
-            lease.repository.update { it.copy(chartHorizonMonths = 6) }
-            assertEquals(6, updated.await().chartHorizonMonths)
-            try { lease.repository.update { it.copy(chartHorizonMonths = 5) }; fail("Invalid horizon") }
+            lease.repository.update { it.copy(paymentOffsetsDefault = setOf(0)) }
+            assertEquals(setOf(0),updated.await().paymentOffsetsDefault)
+            try { lease.repository.update { it.copy(paymentOffsetsDefault = setOf(2)) }; fail("Invalid offset") }
             catch (_: IllegalArgumentException) { }
-            assertEquals(6, lease.repository.settings.first().chartHorizonMonths)
+            assertEquals(setOf(0),lease.repository.settings.first().paymentOffsetsDefault)
         } finally { withContext(NonCancellable) {
             observer.cancelAndJoin(); values.close(); lease.close()
             java.io.File(context.filesDir,"datastore/settings-$id.preferences_pb").delete()
@@ -74,12 +76,57 @@ class SettingsIntegrationTest {
             val rule = ReminderOverrideEntity(subscription.id, ReminderEventType.CANCELLATION, ReminderMode.CUSTOM, setOf(0))
             withContext(Dispatchers.IO) { db.subscriptions().insert(subscription); db.reminders().insert(rule) }
             assertEquals(listOf(subscription), withTimeout(5000) { source.subscriptions.first { it.isNotEmpty() } })
-            lease.repository.update { it.copy(paymentOffsetsDefault = emptySet(), cancellationOffsetsDefault = setOf(1)) }
+            lease.repository.update { it.copy(paymentOffsetsDefault = emptySet()) }
             val stored = withContext(Dispatchers.IO) { db.reminders().forSubscription(subscription.id).single() }
             assertEquals(rule, stored)
             val settings = source.settings.first()
-            assertEquals(setOf(0), effectiveOffsets(settings, ReminderEventType.CANCELLATION, stored))
-            assertTrue(effectiveOffsets(settings, ReminderEventType.PAYMENT, null).isEmpty())
+            assertTrue(com.glebskorobogatov.subscriptiontracker.data.integration.reminderInputs(listOf(subscription),settings).single().paymentOffsets.isEmpty())
         } finally { db.close(); lease.close() }
     }
+    @Test fun explicitEmptyGlobalSetStaysDisabledAfterFinalLeaseReopen() = runBlocking {
+        val id = UUID.randomUUID()
+        var lease = DatasetSettingsFactory.acquire(context,id)
+        try {
+            lease.repository.update { it.copy(paymentOffsetsDefault = setOf(7,0)) }
+            lease.close(); lease = DatasetSettingsFactory.acquire(context,id)
+            assertEquals(setOf(7,0),lease.repository.settings.first().paymentOffsetsDefault)
+            lease.repository.update { it.copy(paymentOffsetsDefault = emptySet()) }
+            lease.close(); lease = DatasetSettingsFactory.acquire(context,id)
+            assertTrue(lease.repository.settings.first().paymentOffsetsDefault.isEmpty())
+        } finally { lease.close(); java.io.File(context.filesDir,"datastore/settings-$id.preferences_pb").delete() }
+    }
+
+    @Test fun legacyStoredValuesAreIgnoredAndRemainIntactAfterCurrentWriteAndReopen() = runBlocking {
+        val id = UUID.randomUUID()
+        val file = context.preferencesDataStoreFile("settings-$id")
+        val scope = CoroutineScope(SupervisorJob()+Dispatchers.IO)
+        val raw = androidx.datastore.preferences.core.PreferenceDataStoreFactory.create(scope = scope,produceFile = { file })
+        val time = androidx.datastore.preferences.core.stringPreferencesKey("reminder_time")
+        val currency = androidx.datastore.preferences.core.stringPreferencesKey("chart_currency")
+        val horizon = androidx.datastore.preferences.core.intPreferencesKey("chart_months")
+        val cancellation = androidx.datastore.preferences.core.stringSetPreferencesKey("cancellation_offsets")
+        val offsets = androidx.datastore.preferences.core.stringSetPreferencesKey("payment_offsets")
+        raw.updateData { original -> original.toMutablePreferences().apply {
+            this[time] = "18:45"; this[currency] = "USD"; this[horizon] = 6
+            this[cancellation] = setOf("7","0"); this[offsets] = setOf("7","0","invalid")
+        } }
+        scope.coroutineContext.job.cancelAndJoin()
+        var lease = DatasetSettingsFactory.acquire(context,id)
+        try {
+            assertEquals(setOf(7,0),lease.repository.settings.first().paymentOffsetsDefault)
+            assertEquals(LocalTime.of(9,0),lease.repository.settings.first().reminderLocalTime)
+            lease.repository.update { it.copy(theme = Theme.DARK) }
+            lease.close(); lease = DatasetSettingsFactory.acquire(context,id)
+            assertEquals(Theme.DARK,lease.repository.settings.first().theme)
+            assertEquals(setOf(7,0),lease.repository.settings.first().paymentOffsetsDefault)
+        } finally { lease.close() }
+        val verifyScope = CoroutineScope(SupervisorJob()+Dispatchers.IO)
+        try {
+            val verify = androidx.datastore.preferences.core.PreferenceDataStoreFactory.create(scope = verifyScope,produceFile = { file })
+            val retained = verify.data.first()
+            assertEquals("18:45",retained[time]); assertEquals("USD",retained[currency]); assertEquals(6,retained[horizon])
+            assertEquals(setOf("7","0"),retained[cancellation])
+        } finally { verifyScope.coroutineContext.job.cancelAndJoin(); file.delete() }
+    }
+
 }
