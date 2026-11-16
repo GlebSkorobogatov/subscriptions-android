@@ -52,3 +52,8 @@ private-data/
 exports/
 local-backups/
 local-test-results/
+
+# Local signing and secret configuration
+keystore.properties
+signing.properties
+secrets.properties
