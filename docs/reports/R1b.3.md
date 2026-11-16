@@ -4,7 +4,7 @@
 
 - Исходная ветка: `codex/r1b-02-remove-payment-history`, принятый SHA `7de4e6c4a15f8a334c5ec7dfca58fa527330b3e4`; перед работой HEAD совпал, рабочее дерево было чистым.
 - Ветка: `codex/r1b-03-settings-reminders`, создана непосредственно от принятого коммита.
-- Итоговый SHA проверяемого кода: `34e84cdc9f9ce8fd85d2747101add21956727ae6`. Отчёт добавляется отдельным завершающим коммитом; HEAD с отчётом закреплён в stacked Draft PR и итоговом сообщении.
+- Итоговый SHA проверяемого кода: `a4b3faa432858994c7b84eccf192bc4844e75d6b`. Отчёт добавляется отдельным завершающим коммитом; HEAD с отчётом закреплён в stacked Draft PR и итоговом сообщении.
 - Base PR: `codex/r1b-02-remove-payment-history`. Предыдущие Draft PR #1–#3 остаются открытыми, merge не выполняется.
 - Реализован только R1b.3. Код готов к независимому статическому обзору и инструментальной проверке; полноценная инструментальная приёмка не заявляется.
 
@@ -47,7 +47,7 @@
 - `reminder_time`, `cancellation_offsets`, `chart_months`, `chart_currency` остаются в Preferences как инертные данные, не читаются и не копируются в runtime Settings. Даже некорректные retired значения не включают удалённую функцию.
 - Запись текущей темы/дней сохраняет посторонние Preferences. Настоящие ошибки чтения/IO/повреждение DataStore не заменяются успешными пустыми настройками и не стирают файл.
 - SettingsViewModel удаляет только несовместимые временные intents и поля time dialog. Валидные pending theme/global-days patches сохраняются без автоматической повторной отправки.
-- Диалог дней имеет новый безопасный saved-state формат: прежний Boolean выбора payment/cancellation не восстанавливает отменённый диалог; новое глобальное окно восстанавливается.
+- Диалог дней имеет новый безопасный saved-state формат: прежний Boolean выбора payment/cancellation не восстанавливает отменённый диалог; новое глобальное окно восстанавливается. Явный saver всего MutableState отбрасывает также старый nullable контейнер: null/false/true проверены отдельным JVM-тестом, не могут стать null в новом Boolean.
 - FinanceViewModel не восстанавливает currency/horizon state и ничего не записывает ради fallback. Допустимый выбранный месяц сохраняется; вышедший из окна — возвращается к первому текущему месяцу.
 - Старые поля индивидуальных правил/lead удаляются из черновика редактора. Неизменившийся ожидаемый legacy snapshot с суффиксом правил принимается без чтения правил; изменение самой строки по-прежнему даёт конфликт.
 - Черновик с другой валютой не переименовывает введённую сумму в RUB: сумма очищается с просьбой повторно ввести стоимость. При редактировании существующей иностранной записи валюта берётся из ожидаемой строки и показана без возможности выбора.
@@ -121,6 +121,7 @@ PreservingOpenHelperFactory и блокирующий UI не изменены. 
 | Legacy AUTO/MANUAL, PAYMENT_ISSUE, CANCELLATION_SCHEDULED, Money/CurrencyCode, oneOffDueDate/overrideCycleIndex | Ещё выполняется прежний календарь/отображение старых записей. Нельзя заменить без новой схемы/полного связывания R1a. Одноразовая дата — поле календаря подписки; отдельного snooze/переноса уведомления в принятом коде нет. | R1b.4, финальный scope audit R1b.5. |
 | `forecastMonths(months,currency)`, generic engine, read-only FinanceSnapshot constants | Технический существующий read-wrapper/fixtures. Пользовательских команд выбора/сохранения нет; runtime график строго 12/RUB. | Пересмотреть адаптеры в R1b.4/R2; алгоритм прогноза здесь не менялся. |
 | `refreshToday(today,changedAt)` | Совместимая сигнатура оставляет неиспользуемый changedAt, но не архивирует/не пишет Room; выполняет date refresh и безопасный request. | Снятие остаточных legacy API — R1b.4/R1b.5. |
+| Sanitizers временного Settings/Finance/Editor state и saver global dialog | Выполняются только при восстановлении; удаляют несовместимые временные поля/окна, не Preferences/Room. Защищают старый nullable Boolean и отменённые intents от восстановления/выполнения. | R1b.5: пересмотреть совместимость при выводе поддержки старых черновиков. |
 | Снимок SubscriptionSnapshot и старый nav sanitizer R1b.2 | Выполняются для optimistic checks/совместимых черновиков и безопасного восстановления маршрута истории; не возвращают историю. | Сохраняются; при изменении схемы/Navigation проверить в R1b.4/R1b.5. |
 | Legacy financial Entity/DAO/PaymentSource/tombstones | Результат R1b.2: схема/fixtures и явное каскадное удаление одной подписки. Новых пользовательских финансовых операций нет. | R1b.4. |
 | Pure ReminderRules time parameter и DST helpers | Технический аргумент прежнего алгоритма и регрессионных DST-тестов. Production передаёт только вычисленное 09:00, time command отсутствует. | Существующий pure механизм сохраняется для R2. |
@@ -137,7 +138,7 @@ git diff --check
 | Проверка | Фактический итог |
 |---|---|
 | Diff check, включая полный diff к принятому SHA | PASS |
-| testDebugUnitTest | PASS, 274 реально выполненных теста, 0 failures/errors/skipped; заключительный повтор использовал актуальные успешные outputs |
+| testDebugUnitTest | PASS, 275 реально выполненных тестов, 0 failures/errors/skipped |
 | assembleDebug | PASS |
 | lintDebug | PASS: 8 прежних warnings, 0 errors |
 | compileDebugAndroidTestKotlin | PASS: 328 методов @Test скомпилированы |
@@ -179,7 +180,7 @@ Lint: 6 NewerVersionAvailable, 1 ObsoleteSdkInt, 1 UnusedResources (welcome_mess
 
 | Набор | До | Без изменения тела | Адаптировано | Удалено | Добавлено | После |
 |---|---:|---:|---:|---:|---:|---:|
-| JVM | 281 | 226 | 45 | 10 | 3 | 274 |
+| JVM | 281 | 226 | 45 | 10 | 4 | 275 |
 | Инструментальные | 318 | 257 | 57 | 4 | 14 | 328 |
 
 ### Удалённые тесты — причины и сохранённые проверки
@@ -364,6 +365,7 @@ ReminderWorkManagerTest авторизует новый тестовый UUID р
 - JVM `ui/details/DetailsViewModelTest.kt:savedReactivationCurrencyChangeIsDiscardedWithoutExecuting`.
 - JVM `ui/details/NonFinancialContractTest.kt:retiredSettingsAndPerSubscriptionReminderCommandsHaveNoRuntimeContract`.
 - JVM `ui/editor/EditorStateTest.kt:compatibleRubDraftRestoresAndRetiredFieldChangesAreIgnored`.
+- JVM `ui/settings/SettingsDialogStateTest.kt:oldNullableBooleanDialogStateIsDiscardedAndCurrentGlobalDialogRoundTrips`.
 
 ## Изменённые файлы
 
@@ -437,6 +439,7 @@ app/src/test/java/com/glebskorobogatov/subscriptiontracker/ui/details/NonFinanci
 app/src/test/java/com/glebskorobogatov/subscriptiontracker/ui/editor/EditorStateTest.kt
 app/src/test/java/com/glebskorobogatov/subscriptiontracker/ui/editor/EditorTest.kt
 app/src/test/java/com/glebskorobogatov/subscriptiontracker/ui/finance/FinanceViewModelTest.kt
+app/src/test/java/com/glebskorobogatov/subscriptiontracker/ui/settings/SettingsDialogStateTest.kt
 app/src/test/java/com/glebskorobogatov/subscriptiontracker/ui/settings/SettingsViewModelTest.kt
 docs/reports/R1b.3.md
 ```
