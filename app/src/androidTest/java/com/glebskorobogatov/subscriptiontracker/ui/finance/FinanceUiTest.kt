@@ -23,7 +23,7 @@ import org.junit.Assert.*
 class FinanceUiTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
     @Test fun monthsSelectExactExpectedEventsWithoutCurrencyOrHorizonControls() {
-        var ui by mutableStateOf(FinancePreviewData.state(months = 12))
+        var ui by mutableStateOf(FinancePreviewData.state())
         compose.setContent { TrackerTheme { FinancePane(ui,onMonth = { ui = ui.copy(month = it) }) } }
         compose.onNodeWithTag("finance_total").assertTextEquals("6587,00 RUB")
         compose.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag("finance_month_2027-02"))
@@ -50,8 +50,8 @@ class FinanceUiTest {
         var ui by mutableStateOf(FinancePreviewData.state().let { old ->
             val currency = CurrencyCode.of("RUB")
             val row = FinancePreviewData.rows.first().copy(priceMinor = Long.MAX_VALUE,intervalUnit = com.glebskorobogatov.subscriptiontracker.domain.model.FrequencyUnit.YEAR)
-            val result = com.glebskorobogatov.subscriptiontracker.domain.forecast.ForecastEngine().calendarMonths(listOf(row.toDomain()),FinancePreviewData.day,3,currency)
-            old.copy(snapshot = FinanceSnapshot(result,listOf(row)),currency = currency)
+            val result = com.glebskorobogatov.subscriptiontracker.domain.forecast.ForecastEngine().calculate(listOf(row.toDomain()),FinancePreviewData.day)
+            old.copy(snapshot = FinanceSnapshot(result,listOf(row)))
         })
         compose.setContent { val density = LocalDensity.current
             CompositionLocalProvider(LocalDensity provides Density(density.density,2f)) {
@@ -70,5 +70,29 @@ class FinanceUiTest {
             compose.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag("finance_month_empty"))
             compose.onNodeWithTag("finance_month_empty").assertIsDisplayed()
         }
+    }
+
+    @Test fun successfulZeroForecastKeepsBothZeroTotalsAndAllTwelveBucketsVisible() {
+        val f = com.glebskorobogatov.subscriptiontracker.domain.forecast.ForecastEngine().calculate(emptyList(),FinancePreviewData.day)
+        val ui = FinanceUiState(FinancePhase.Empty,FinanceSnapshot(f,emptyList()),YearMonth.from(FinancePreviewData.day))
+        compose.setContent { TrackerTheme { FinancePane(ui) } }
+        compose.onNodeWithTag("finance_empty").assertIsDisplayed()
+        compose.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag("finance_30_total"))
+        compose.onNodeWithTag("finance_30_total").assertTextEquals("0,00 RUB")
+        compose.onNodeWithTag("finance_total").assertTextEquals("0,00 RUB")
+        compose.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag("finance_month_chart"))
+        for (month in f.months.keys) compose.onNodeWithTag("finance_month_$month").assertExists()
+    }
+    @Test fun monthSelectionChangesDetailsButNeverThirtyDayTotal() {
+        var ui by mutableStateOf(FinancePreviewData.state())
+        compose.setContent { TrackerTheme { FinancePane(ui,onMonth = { ui = ui.copy(month = it) }) } }
+        compose.onNodeWithTag("finance_30_total").assertTextEquals("1597,00 RUB")
+        compose.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag("finance_month_2027-02"))
+        compose.onNodeWithTag("finance_month_2027-02").performClick()
+        compose.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag("finance_selected_total"))
+        compose.onNodeWithTag("finance_selected_total").assertTextEquals("499,00 RUB")
+        compose.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag("finance_30_total"))
+        compose.onNodeWithTag("finance_30_total").assertTextEquals("1597,00 RUB")
+        compose.onNodeWithTag("finance_total").assertTextEquals("6587,00 RUB")
     }
 }

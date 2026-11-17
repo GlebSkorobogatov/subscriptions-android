@@ -86,10 +86,15 @@ class CrossScreenDesignUiTest {
         compose.setContent { val c = case.value;ReviewViewport(c.scene,c.theme,c.font,c.width) }
         for(width in listOf(320,360,390,412)) for(font in listOf(1f,1.5f,2f)) for(theme in listOf(Theme.LIGHT,Theme.DARK)) {
             compose.runOnIdle { case.value = Case(width,font,theme,ReviewScene.SubscriptionsLong) }
-            for(money in ReviewData.amounts) {
-                val node = compose.onNodeWithTag("forecast_${money.currency.value}",useUnmergedTree = true)
-                node.assertTextEquals("${money.format()} ${money.currency.value}")
-                noOverflow(node,"money $width/$font/$theme/${money.currency.value}")
+            val total = compose.onNodeWithTag("forecast_RUB",useUnmergedTree = true)
+            total.assertTextEquals("92233720368547758,07 RUB")
+            noOverflow(total,"forecast $width/$font/$theme")
+            for(row in ReviewData.longContent.active) {
+                compose.onNodeWithTag("subscriptions_screen").performScrollToNode(hasTestTag("subscription_${row.id}"))
+                val price = compose.onNode(hasText("${row.price.format()} RUB") and
+                    hasAnyAncestor(hasTestTag("subscription_${row.id}")),useUnmergedTree = true)
+                price.assertTextEquals("${row.price.format()} RUB")
+                noOverflow(price,"money $width/$font/$theme/${row.id}")
             }
             compose.onNodeWithTag("subscriptions_screen").performScrollToNode(hasTestTag("subscription_${ReviewData.longRow.id}"))
             noOverflow(compose.onNodeWithText(ReviewData.longName,useUnmergedTree = true),"subscription name $width/$font/$theme")

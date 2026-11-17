@@ -27,7 +27,6 @@ import java.util.Locale
 @OptIn(ExperimentalLayoutApi::class)
 @Composable internal fun FinancePane(state: FinanceUiState,onMonth: (YearMonth) -> Unit = {},onRetry: () -> Unit = {}) {
     val snapshot = state.snapshot
-    val currency = state.currency
     val forecast = snapshot?.forecast
     val monthFormat = remember { DateTimeFormatter.ofPattern("LLLL yyyy",Locale.forLanguageTag("ru")) }
     ProvideTextStyle(MaterialTheme.typography.bodyMedium.copy(lineHeightStyle =
@@ -50,26 +49,28 @@ import java.util.Locale
                         Text(stringResource(R.string.finance_empty),Modifier.testTag("finance_empty"),style = MaterialTheme.typography.titleLarge)
                         Text(stringResource(R.string.finance_empty_explanation),color = TrackerDesign.colors.textSecondary)
                     }
-                    if(currency != null && forecast != null) {
+                    if(forecast != null) {
                         item {
                             TrackerSummaryCard(Modifier.fillMaxWidth()) {
+                                Text(stringResource(R.string.forecast_30_days),style = MaterialTheme.typography.titleSmall)
+                                FinanceMoney(Money(forecast.next30Days.totalMinor,CurrencyCode.of("RUB")),Modifier.testTag("finance_30_total"))
                                 Text(stringResource(R.string.finance_expected_total),style = MaterialTheme.typography.titleSmall)
-                                FinanceMoney(forecast.totalsByCurrency[currency] ?: Money(0,currency),Modifier.testTag("finance_total"))
+                                FinanceMoney(Money(forecast.totalMinor,CurrencyCode.of("RUB")),Modifier.testTag("finance_total"))
                                 Text(stringResource(R.string.finance_window,forecast.fromInclusive.toString(),forecast.untilExclusive.minusDays(1).toString()),
                                     style = MaterialTheme.typography.bodySmall,color = TrackerDesign.colors.textSecondary)
                             }
                         }
                         item { Text(stringResource(R.string.finance_months),style = MaterialTheme.typography.titleMedium,modifier = Modifier.semantics { heading() }) }
                         item(key = "monthly_chart") {
-                            MonthlyForecastChart(forecast.months,currency,state.month,onMonth)
+                            MonthlyForecastChart(forecast.months,state.month,onMonth)
                         }
                         item {
                             Text(stringResource(R.string.finance_month_details,state.month?.format(monthFormat).orEmpty()),
                                 style = MaterialTheme.typography.titleMedium,modifier = Modifier.testTag("finance_details_heading").semantics { heading() })
-                            FinanceMoney(forecast.months[state.month]?.totalsByCurrency?.get(currency) ?: Money(0,currency),
+                            FinanceMoney(Money(forecast.months[state.month]?.totalMinor ?: 0L,CurrencyCode.of("RUB")),
                                 Modifier.testTag("finance_selected_total"))
                         }
-                        val charges = forecast.months[state.month]?.charges.orEmpty().filter { it.currencyCode == currency }
+                        val charges = forecast.months[state.month]?.charges.orEmpty()
                         if(charges.isEmpty()) item { Text(stringResource(R.string.finance_month_empty),Modifier.testTag("finance_month_empty"),color = TrackerDesign.colors.textSecondary) }
                         items(charges,key = { "charge_${it.subscriptionId}_${it.dueDate}" }) { charge ->
                             val row = snapshot.rows.firstOrNull { it.id == charge.subscriptionId.value }
@@ -77,7 +78,7 @@ import java.util.Locale
                                 verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Text(row?.name ?: stringResource(R.string.finance_missing_name),style = MaterialTheme.typography.titleSmall)
                                 row?.accountLabel?.takeIf(String::isNotBlank)?.let { Text(it,color = TrackerDesign.colors.textSecondary) }
-                                FinanceMoney(Money(charge.amountMinor,charge.currencyCode))
+                                FinanceMoney(Money(charge.amountMinor,CurrencyCode.of("RUB")))
                                 Text(stringResource(R.string.finance_expected_date,charge.dueDate.toString()))
 
                             }

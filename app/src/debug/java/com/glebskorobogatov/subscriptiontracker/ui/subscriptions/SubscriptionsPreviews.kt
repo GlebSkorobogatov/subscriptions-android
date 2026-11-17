@@ -26,7 +26,7 @@ internal object SubscriptionsPreviewData {
         status = SubscriptionState.CANCELLED, eventDate = null, remainingDays = null, remainingFraction = null)
     fun content(active: List<SubscriptionCardModel> = listOf(video, family),
         cancelledRows: List<SubscriptionCardModel> = listOf(cancelled),
-        forecast: List<Money> = listOf(video.price, family.price)) = SubscriptionsUiState.Content(
+        forecast: Long = Math.addExact(video.price.amountMinor, family.price.amountMinor)) = SubscriptionsUiState.Content(
         forecast, cancelledRows, active, (active + cancelledRows).associate { it.id to it.name })
 }
 

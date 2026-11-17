@@ -2,26 +2,14 @@ package com.glebskorobogatov.subscriptiontracker.ui.finance
 
 import androidx.lifecycle.*
 import com.glebskorobogatov.subscriptiontracker.data.integration.SubscriptionUseCases
-import com.glebskorobogatov.subscriptiontracker.data.room.SubscriptionEntity
-import com.glebskorobogatov.subscriptiontracker.data.mapping.toDomain
-import com.glebskorobogatov.subscriptiontracker.domain.forecast.ForecastEngine
-import com.glebskorobogatov.subscriptiontracker.domain.forecast.ForecastResult
-import com.glebskorobogatov.subscriptiontracker.domain.model.CurrencyCode
 import com.glebskorobogatov.subscriptiontracker.ui.subscriptions.*
 import java.time.YearMonth
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 
-/** Fixed projection using the existing engine; no configurable financial selection. */
-data class FinanceSnapshot(val forecast: ForecastResult, val rows: List<SubscriptionEntity>) {
-    val horizon: Int get() = 12
-    val currency: CurrencyCode get() = CurrencyCode.of("RUB")
-}
-internal fun financeSnapshots(use: SubscriptionUseCases): Flow<FinanceSnapshot> =
-    combine(use.subscriptions,use.date.today) { rows,today ->
-        // Row labels, prices and eligibility must belong to the same authoritative snapshot.
-        FinanceSnapshot(ForecastEngine().calendarMonths(rows.map { it.toDomain() },today,12,CurrencyCode.of("RUB")),rows)
-    }.flowOn(Dispatchers.Default)
+/** Presentation name for the one authoritative forecast/metadata projection. */
+typealias FinanceSnapshot = com.glebskorobogatov.subscriptiontracker.data.integration.SubscriptionForecastSnapshot
+internal fun financeSnapshots(use: SubscriptionUseCases): Flow<FinanceSnapshot> = use.forecasts
 
 interface FinanceSource {
     fun observe(): Flow<FinanceSnapshot>
@@ -41,7 +29,7 @@ private class SessionFinanceSource(private val owner: SubscriptionsViewModel): F
 }
 enum class FinancePhase { Loading, Empty, Content, Error }
 data class FinanceUiState(val phase: FinancePhase = FinancePhase.Loading, val snapshot: FinanceSnapshot? = null,
-    val currency: CurrencyCode? = null, val month: YearMonth? = null)
+    val month: YearMonth? = null)
 
 class FinanceViewModel(private val saved: SavedStateHandle,private val source: FinanceSource): ViewModel() {
     constructor(saved: SavedStateHandle,owner: SubscriptionsViewModel): this(saved,SessionFinanceSource(owner))
@@ -59,9 +47,8 @@ class FinanceViewModel(private val saved: SavedStateHandle,private val source: F
                         val selected = saved.get<String>("month")?.let { runCatching { YearMonth.parse(it) }.getOrNull() }
                             ?.takeIf { it in snapshot.forecast.months } ?: snapshot.forecast.months.keys.firstOrNull()
                         saved["month"] = selected?.toString()
-                        val currency = snapshot.currency.takeIf { it in snapshot.forecast.availableCurrencies }
-                        mutable.value = FinanceUiState(if(currency == null) FinancePhase.Empty else FinancePhase.Content,
-                            snapshot,currency,selected)
+                        mutable.value = FinanceUiState(if(snapshot.forecast.charges.isEmpty()) FinancePhase.Empty else FinancePhase.Content,
+                            snapshot,selected)
                     }
                 } catch(e: CancellationException) { throw e }
                 catch(_: Exception) { mutable.value = FinanceUiState(phase = FinancePhase.Error) }

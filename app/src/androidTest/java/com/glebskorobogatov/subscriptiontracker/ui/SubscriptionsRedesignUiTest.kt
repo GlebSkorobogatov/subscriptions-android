@@ -64,7 +64,7 @@ class SubscriptionsRedesignUiTest {
     }
 
     @Test fun forecastRendersExactRubEstimateWithoutForeignCurrencyControls() {
-        start(samples.content(active=listOf(samples.video),cancelledRows=emptyList(),forecast=listOf(Money(65744,CurrencyCode.of("RUB")))))
+        start(samples.content(active=listOf(samples.video),cancelledRows=emptyList(),forecast=65744L))
         compose.onNodeWithTag("forecast_summary").assertTextContains("Ожидаемые расходы, не фактические списания")
         compose.onNodeWithTag("forecast_summary").assertTextContains("657,44 RUB",substring=true)
         compose.onNodeWithText("Валюта").assertDoesNotExist()
@@ -81,7 +81,7 @@ class SubscriptionsRedesignUiTest {
     }
 
     @Test fun cancelledRowsHaveNoProblemOrAwaitingStatus() {
-        start(samples.content(active=emptyList(),cancelledRows=listOf(samples.cancelled,samples.otherCancelled),forecast=emptyList()))
+        start(samples.content(active=emptyList(),cancelledRows=listOf(samples.cancelled,samples.otherCancelled),forecast=0L))
         show(samples.cancelled.id).assertTextContains("Отменена",substring=true)
         progress(samples.cancelled.id).assertDoesNotExist()
         show(samples.otherCancelled.id).assertTextContains("Отменена",substring=true)
@@ -92,7 +92,7 @@ class SubscriptionsRedesignUiTest {
     @Test fun knownAccessIsShownOnceAndUnknownAccessHasNoProgress() {
         val known = samples.video.copy(status = SubscriptionState.CANCELLED, eventDate = LocalDate.of(2027, 6, 30), remainingDays = 15)
         val unknown = samples.family.copy(status = SubscriptionState.CANCELLED, eventDate = null, remainingDays = null, remainingFraction = null)
-        start(samples.content(active = listOf(known, unknown), cancelledRows = emptyList(), forecast = emptyList()))
+        start(samples.content(active = listOf(known, unknown), cancelledRows = emptyList(), forecast = 0L))
         show(known.id).assertTextContains("Доступ до 30.06.2027 (не включая этот день)")
         compose.onAllNodesWithText("Доступ до 30.06.2027 (не включая этот день)", useUnmergedTree = true).assertCountEquals(1)
         show(unknown.id).assertTextContains("Дата окончания доступа неизвестна")
@@ -100,7 +100,7 @@ class SubscriptionsRedesignUiTest {
     }
 
     @Test fun suppliedDomainFractionIsRenderedWithThinProgressAndTextStatus() {
-        start(samples.content(active = listOf(samples.video), cancelledRows = emptyList(), forecast = emptyList()))
+        start(samples.content(active = listOf(samples.video), cancelledRows = emptyList(), forecast = 0L))
         show(samples.video.id).assertTextContains("Активна").assertTextContains("Осталось дней: 2")
         progress(samples.video.id).assertRangeInfoEquals(ProgressBarRangeInfo(0.75f, 0f..1f))
         val track = compose.onNodeWithTag("subscription_progress_track_${samples.video.id}", useUnmergedTree = true).fetchSemanticsNode()
@@ -112,7 +112,7 @@ class SubscriptionsRedesignUiTest {
         val long = samples.video.copy(name = "Очень длинное название семейного видеосервиса", accountLabel = "Отдельный семейный аккаунт",
             price = Money(Long.MAX_VALUE, CurrencyCode.of("RUB")))
         var adds = 0; var settings = 0
-        start(samples.content(active = listOf(long, samples.family), cancelledRows = emptyList(), forecast = listOf(long.price, samples.family.price)), scale = 2f,
+        start(samples.content(active = listOf(long, samples.family), cancelledRows = emptyList(), forecast = Long.MAX_VALUE), scale = 2f,
             theme = Theme.DARK, onAdd = { adds++ }, onSettings = { settings++ })
         compose.onNodeWithContentDescription("Добавить подписку").assertIsDisplayed().performClick()
         compose.onNodeWithContentDescription("Открыть настройки").assertIsDisplayed().performClick()

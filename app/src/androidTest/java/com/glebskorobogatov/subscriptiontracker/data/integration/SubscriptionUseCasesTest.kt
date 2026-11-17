@@ -91,7 +91,7 @@ class SubscriptionUseCasesTest {
         val start=cancelled.frozenCancelledPeriodStart
         val edited=use.changeLifecycle(cancelled,LifecycleCommand.EditEnd(end.plusDays(4)),now.plusSeconds(1))
         assertEquals(start,edited.frozenCancelledPeriodStart)
-        assertTrue(use.forecast30Days.first().charges.isEmpty())
+        assertTrue(use.forecasts.first().forecast.next30Days.charges.isEmpty())
         use.refreshToday(end.plusYears(5),now.plusSeconds(2))
         assertEquals(SubscriptionState.CANCELLED,details(s.id).subscription.state); assertNull(details(s.id).period.remainingFraction)
     }

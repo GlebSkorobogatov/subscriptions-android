@@ -65,12 +65,12 @@ class ArchiveSettingsIntegrationTest {
         val command = LifecycleCommand.Reactivate(RubPrice(59900), ScheduleEdit(day.plusDays(5),Frequency(FrequencyUnit.MONTH,3)))
         val restored = use.changeLifecycle(archived,command,now.plusSeconds(1))
         withTimeout(5000) { vm.state.first { it.rows.map { row -> row.id } == listOf(b.id) } }
-        // Classification and forecast are independent reactive streams: await both updates.
+        // Classification and both forecast windows come from the same source snapshot.
         val active = withTimeout(5000) { owner.state.first {
-            it is SubscriptionsUiState.Content && it.active.singleOrNull()?.id == a.id && it.forecast.isNotEmpty()
+            it is SubscriptionsUiState.Content && it.active.singleOrNull()?.id == a.id && it.forecast > 0L
         } } as SubscriptionsUiState.Content
-        assertEquals("Reactivated subscription must have one forecast currency",1,active.forecast.size)
-        assertEquals(a.id,restored.id); assertEquals(CurrencyCode.of("RUB"),active.forecast.single().currency); assertEquals(59900L,active.active.single().price.amountMinor)
+        assertEquals("Reactivated subscription contributes its current price",59900L,active.forecast)
+        assertEquals(a.id,restored.id); assertEquals(59900L,active.active.single().price.amountMinor)
         try { use.changeLifecycle(archived,command,now); fail() } catch(_: LifecycleConflict) { }
         assertEquals(restored,details(a.id).subscription)
     }

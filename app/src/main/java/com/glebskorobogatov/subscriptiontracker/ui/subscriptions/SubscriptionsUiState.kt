@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.*
 sealed interface SubscriptionsUiState {
     data object Loading : SubscriptionsUiState
     data class Empty(val names: Map<UUID, String> = emptyMap()) : SubscriptionsUiState
-    data class Content(val forecast: List<Money>, val cancelled: List<SubscriptionCardModel>,
+    data class Content(val forecast: Long, val cancelled: List<SubscriptionCardModel>,
         val active: List<SubscriptionCardModel>, val names: Map<UUID, String>, val archivedNames: Map<UUID,String> = emptyMap()) : SubscriptionsUiState
     data class StorageBlocked(val failure: com.glebskorobogatov.subscriptiontracker.data.room.StorageFailure) : SubscriptionsUiState
     data object Error : SubscriptionsUiState
@@ -36,13 +36,21 @@ internal fun sortedCards(rows: List<SubscriptionEntity>, today: LocalDate) = row
     .sortedWith(compareBy<SubscriptionCardModel> { it.status.ordinal }.thenBy(nullsLast()) { it.eventDate }.thenBy { it.id.toString() })
 
 internal fun subscriptionStates(use: SubscriptionUseCases): Flow<SubscriptionsUiState> =
-    combine(use.subscriptions, use.date.today) { rows, today ->
+    use.forecasts.map { snapshot ->
+        val rows = snapshot.rows
+        val today = snapshot.forecast.fromInclusive
         val cards = sortedCards(rows.filter { it.state != SubscriptionState.ARCHIVED }, today)
         val names = rows.associate { it.id to it.name }
         if (cards.isEmpty()) SubscriptionsUiState.Empty(names)
         else SubscriptionsUiState.Content(
-            com.glebskorobogatov.subscriptiontracker.domain.forecast.ForecastEngine().next30Days(rows.map { it.toDomain() }, today)
-                .totalsByCurrency.values.toList(),
+            snapshot.forecast.next30Days.totalMinor,
             cards.filter { it.status == SubscriptionState.CANCELLED }, cards.filter { it.status == SubscriptionState.ACTIVE }, names,
             rows.filter { it.state == SubscriptionState.ARCHIVED }.associate { it.id to it.name })
-    }.distinctUntilChanged().flowOn(Dispatchers.Default)
+    }.distinctUntilChanged().catch { error ->
+        // Calculation failure is a retryable screen error, not a storage-open failure.
+        // Keep actual read/open failures and coroutine cancellation on their existing paths.
+        when (error) {
+            is com.glebskorobogatov.subscriptiontracker.data.integration.ForecastCalculationFailure -> emit(SubscriptionsUiState.Error)
+            else -> throw error
+        }
+    }.flowOn(Dispatchers.Default)

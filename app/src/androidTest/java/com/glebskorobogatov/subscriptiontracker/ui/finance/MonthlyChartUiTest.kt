@@ -26,16 +26,16 @@ class MonthlyChartUiTest {
     @Test fun everyHorizonMatchesForecastAmountsAndPixelProportions() {
         var ui by mutableStateOf(FinancePreviewData.state())
         compose.setContent { TrackerTheme { FinancePane(ui,onMonth = { ui = ui.copy(month = it) }) } }
-        for(count in listOf(3,6,12)) {
-            compose.runOnIdle { ui = FinancePreviewData.state(months = count) }
+        run {
+            compose.runOnIdle { ui = FinancePreviewData.state() }
             chart()
             val forecast = ui.snapshot!!.forecast
-            val maximum = forecast.months.values.maxOf { it.totalsByCurrency.getValue(ui.currency!!).amountMinor }
+            val maximum = forecast.months.values.maxOf { it.totalMinor }
             for((month,data) in forecast.months) {
-                column(month).performScrollTo().assertHasClickAction().assertContentDescriptionEquals(description(month,data.totalsByCurrency.getValue(ui.currency!!)))
+                column(month).performScrollTo().assertHasClickAction().assertContentDescriptionEquals(description(month,Money(data.totalMinor,CurrencyCode.of("RUB"))))
                 val plot = compose.onNodeWithTag("finance_plot_$month",useUnmergedTree = true).fetchSemanticsNode().size.height
                 val actual = compose.onNodeWithTag("finance_bar_$month",useUnmergedTree = true).fetchSemanticsNode().size.height
-                val expected = java.math.BigInteger.valueOf(data.totalsByCurrency.getValue(ui.currency!!).amountMinor)
+                val expected = java.math.BigInteger.valueOf(data.totalMinor)
                     .multiply(java.math.BigInteger.valueOf(plot.toLong())).divide(java.math.BigInteger.valueOf(maximum)).toInt()
                 assertEquals(expected,actual)
             }
@@ -53,11 +53,11 @@ class MonthlyChartUiTest {
         compose.onNodeWithText("Другой сервис").assertDoesNotExist()
     }
     @Test fun allTwelveMonthsIncludingZerosAndYearBoundaryAreSelectable() {
-        var ui by mutableStateOf(FinancePreviewData.chartState(12))
+        var ui by mutableStateOf(FinancePreviewData.chartState())
         compose.setContent { TrackerTheme { FinancePane(ui,onMonth = { ui = ui.copy(month = it) }) } }
         for((month,data) in ui.snapshot!!.forecast.months) {
             select(month)
-            val money = data.totalsByCurrency[ui.currency] ?: Money(0,ui.currency!!)
+            val money = Money(data.totalMinor,CurrencyCode.of("RUB"))
             column(month).assertContentDescriptionEquals(description(month,money))
             if(money.amountMinor == 0L) {
                 assertEquals(0,compose.onNodeWithTag("finance_bar_$month",useUnmergedTree = true).fetchSemanticsNode().size.height)
@@ -74,12 +74,12 @@ class MonthlyChartUiTest {
         compose.setContent { TrackerTheme { FinancePane(ui,onMonth = { ui = ui.copy(month = it) }) } }
         select(YearMonth.of(2027,2))
         val rows = FinancePreviewData.rows.map { if(it.id == FinancePreviewData.rows.first().id) it.copy(priceMinor = 10000) else it }
-        val result = ForecastEngine().calendarMonths(rows.map { it.toDomain() },FinancePreviewData.day,3,FinancePreviewData.rub)
+        val result = ForecastEngine().calculate(rows.map { it.toDomain() },FinancePreviewData.day)
         compose.runOnIdle { ui = ui.copy(snapshot = FinanceSnapshot(result,rows),month = YearMonth.of(2027,2)) }
         chart(); column(YearMonth.of(2027,2)).assertIsSelected().assertContentDescriptionEquals("февраль 2027. Ожидаемые расходы: 100,00 RUB")
         compose.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag("finance_selected_total"))
         compose.onNodeWithTag("finance_selected_total").assertTextEquals("100,00 RUB")
-        compose.runOnIdle { ui = FinancePreviewData.state(CurrencyCode.of("RUB")) }
+        compose.runOnIdle { ui = FinancePreviewData.state() }
         chart(); column(YearMonth.of(2027,1)).assertContentDescriptionEquals("январь 2027. Ожидаемые расходы: 1098,00 RUB")
     }
 }

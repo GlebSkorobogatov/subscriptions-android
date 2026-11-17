@@ -14,6 +14,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.*
 
+/** The exact source rows provide all labels/appearance for both financial windows. */
+data class SubscriptionForecastSnapshot(val forecast: ForecastResult, val rows: List<SubscriptionEntity>)
+/** Distinguish calculation failures from exceptions raised while reading/mapping storage. */
+internal class ForecastCalculationFailure : IllegalStateException("Forecast calculation failed")
+
 data class SubscriptionDetails(val subscription: SubscriptionEntity, val period: com.glebskorobogatov.subscriptiontracker.domain.subscription.SubscriptionPeriod)
 
 /** No owned scope/cache. Caller owns DB and Settings lease; UI may stateIn its own lifecycle scope. */
@@ -35,14 +40,14 @@ class SubscriptionUseCases(
     val active = groups.map { it.active }.distinctUntilChanged()
     val cancelled = groups.map { it.cancelled }.distinctUntilChanged()
     val archive = groups.map { it.archived }.distinctUntilChanged()
-    val forecast30Days = combine(domainSubscriptions, date.today) { rows, today -> forecast.next30Days(rows, today) }
-        .distinctUntilChanged().flowOn(Dispatchers.Default)
-    fun forecastMonths(months: Int, currency: CurrencyCode? = null): Flow<ForecastResult> {
-        require(months in setOf(3, 6, 12))
-        return combine(domainSubscriptions, date.today) { rows, today -> forecast.calendarMonths(rows, today, months, currency) }
-            .distinctUntilChanged().flowOn(Dispatchers.Default)
-    }
-    val selectedChart = forecastMonths(12, CurrencyCode.of("RUB"))
+    val forecasts: Flow<SubscriptionForecastSnapshot> = combine(subscriptions, date.today) { rows, today ->
+        val records = rows.map { it.toDomain() }
+        val result = try { forecast.calculate(records, today) }
+            catch (_: ArithmeticException) { throw ForecastCalculationFailure() }
+            catch (_: DateTimeException) { throw ForecastCalculationFailure() }
+            catch (_: com.glebskorobogatov.subscriptiontracker.domain.calendar.CalendarCalculationException) { throw ForecastCalculationFailure() }
+        SubscriptionForecastSnapshot(result, rows)
+    }.distinctUntilChanged().flowOn(Dispatchers.Default)
 
     fun details(id: UUID): Flow<SubscriptionDetails?> = combine(database.subscriptions().observeDetails(id), date.today) { row, today ->
         row?.let { SubscriptionDetails(it, com.glebskorobogatov.subscriptiontracker.domain.subscription.SubscriptionDomain().period(it.toDomain(), today)) }
