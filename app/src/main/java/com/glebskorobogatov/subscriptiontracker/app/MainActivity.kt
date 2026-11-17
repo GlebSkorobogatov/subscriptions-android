@@ -2,6 +2,10 @@ package com.glebskorobogatov.subscriptiontracker.app
 
 import android.os.Bundle
 import android.content.Intent
+import android.content.Context
+import android.content.BroadcastReceiver
+import android.content.IntentFilter
+import androidx.core.content.ContextCompat
 import android.Manifest
 import android.provider.Settings as AndroidSettings
 import androidx.activity.result.contract.ActivityResultContracts
@@ -38,6 +42,7 @@ import com.glebskorobogatov.subscriptiontracker.ui.design.TrackerTheme
 import com.glebskorobogatov.subscriptiontracker.ui.navigation.TrackerApp
 
 open class MainActivity : ComponentActivity() {
+    private val calendarChanges = CalendarRefreshReceiver { subscriptions.refreshToday() }
     private val subscriptions: SubscriptionsViewModel by viewModels {
         object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
@@ -79,6 +84,15 @@ open class MainActivity : ComponentActivity() {
         super.onResume()
         subscriptions.refreshToday()
         notifications.refresh()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        ContextCompat.registerReceiver(this, calendarChanges, CalendarRefreshReceiver.filter(), ContextCompat.RECEIVER_NOT_EXPORTED)
+    }
+    override fun onStop() {
+        unregisterReceiver(calendarChanges)
+        super.onStop()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -124,5 +138,17 @@ open class MainActivity : ComponentActivity() {
                     dismissButton = { TextButton(onClick = notifications::dismissExplanation) { Text(stringResource(R.string.notifications_later)) } })
             }
         }
+    }
+}
+
+/** Foreground dates change without an Activity resume at midnight or after a clock/zone change.
+ * Reuse the existing session refresh: no second calendar, database reopen or persisted cycle. */
+internal class CalendarRefreshReceiver(private val refresh: () -> Unit) : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action in actions) refresh()
+    }
+    companion object {
+        private val actions = setOf(Intent.ACTION_DATE_CHANGED, Intent.ACTION_TIME_CHANGED, Intent.ACTION_TIMEZONE_CHANGED)
+        fun filter() = IntentFilter().apply { actions.forEach(::addAction) }
     }
 }

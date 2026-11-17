@@ -275,4 +275,93 @@ class EditorScheduleIntegrationTest {
         assertFalse(restored.state.value.done); assertEquals(concurrent,stored(row.id))
         assertEquals(1,reconciliations)
     }
+
+    @Test fun revertedDateAndFrequencyPreserveScopedPeriodThroughRecreationAndSave() = runBlocking {
+        date.update(LocalDate.of(2027,2,15))
+        for (field in listOf("date","unit","count")) {
+            val base = fixture(FrequencyUnit.MONTH,LocalDate.of(2027,1,31))
+            val row = base.copy(currentPeriodStartOverride = LocalDate.of(2027,2,1),currentPeriodEnd = LocalDate.of(2027,2,28))
+            withContext(Dispatchers.IO) { db.subscriptions().update(row) }
+            val handle = SavedStateHandle(); val vm = model(row,handle)
+            val original = vm.state.value.fields.getValue(field)
+            change(vm,field,when(field) { "date" -> "2027-03-02"; "unit" -> "WEEK"; else -> "2" })
+            change(vm,field,original)
+            assertTrue(vm.validate(vm.state.value.fields).isEmpty())
+            val snapshot = restored(handle); clearModels()
+            val next = model(row,snapshot)
+            change(next,"amount","2,34")
+            val updated = save(next)
+            unchangedSeries(row,updated); assertEquals(234L,updated.priceMinor)
+        }
+    }
+    @Test fun explicitPeriodClearAfterRevertingScheduleStillClearsOnlyOverride() = runBlocking {
+        date.update(LocalDate.of(2027,2,15))
+        val base = fixture(FrequencyUnit.MONTH,LocalDate.of(2027,1,31))
+        val row = base.copy(currentPeriodStartOverride = LocalDate.of(2027,2,1),currentPeriodEnd = LocalDate.of(2027,2,28))
+        withContext(Dispatchers.IO) { db.subscriptions().update(row) }
+        val vm = model(row)
+        change(vm,"date","2027-03-02"); change(vm,"date","2027-02-28"); change(vm,"start","")
+        val updated = save(vm)
+        assertNull(updated.currentPeriodStartOverride); assertNull(updated.currentPeriodEnd)
+        assertEquals(row.toDomain().schedule,updated.toDomain().schedule)
+    }
+    @Test fun imageOnlyDraftRecreationPreservesFieldsAndOriginalSeriesAsTodayAdvances() = runBlocking {
+        val row = fixture(); val handle = SavedStateHandle(); val vm = model(row,handle)
+        withContext(Dispatchers.Main) { vm.selectCatalog("generic-ai") }
+        val snapshot = restored(handle); clearModels(); date.update(LocalDate.of(2026,12,3))
+        val next = model(row,snapshot)
+        assertEquals("2026-11-08",next.state.value.fields["date"])
+        val updated = save(next)
+        assertEquals("generic-ai",updated.catalogLogoId); unchangedSeries(row,updated)
+    }
+    @Test fun imageOnlyRestoredDraftRejectsConcurrentRowBeforeMutation() = runBlocking {
+        val row = fixture(); val handle = SavedStateHandle(); val vm = model(row,handle)
+        withContext(Dispatchers.Main) { vm.selectCatalog("generic-ai") }
+        // Accepted v5 builds could save image-only drafts without the fields map.
+        handle.remove<HashMap<String,String>>("fields")
+        val snapshot = restored(handle); clearModels()
+        val concurrent = use.editSubscription(row,SubscriptionEdit("Конкурентная версия",row.accountLabel,RubPrice(999)),Instant.now())
+        val next = model(row,snapshot)
+        assertTrue(next.state.value.conflict)
+        withContext(Dispatchers.Main) { next.save() }
+        assertFalse(next.state.value.done); assertEquals(concurrent,stored(row.id))
+        assertEquals(1,mutations); assertEquals(1,reconciliations)
+    }
+    @Test fun imageOnlyRestoredDraftRejectsChangedGenerationBeforeMutation() = runBlocking {
+        val row = fixture(); val handle = SavedStateHandle(); val vm = model(row,handle)
+        withContext(Dispatchers.Main) { vm.removeImage() }
+        handle.remove<HashMap<String,String>>("fields")
+        val snapshot = restored(handle); clearModels(); generation = UUID.randomUUID()
+        val next = model(row,snapshot)
+        assertTrue(next.state.value.conflict)
+        withContext(Dispatchers.Main) { next.save() }
+        assertFalse(next.state.value.done); assertEquals(row,stored(row.id))
+        assertEquals(0,mutations); assertEquals(0,reconciliations)
+    }
+
+    @Test fun temporaryScheduleDraftRetainsEditedStartAcrossRecreationBeforeRevert() = runBlocking {
+        date.update(LocalDate.of(2027,2,15))
+        val row = fixture(FrequencyUnit.MONTH,LocalDate.of(2027,1,31))
+        val handle = SavedStateHandle(); val vm = model(row,handle)
+        change(vm,"start","2027-02-02"); change(vm,"date","2027-03-02")
+        val snapshot = restored(handle); clearModels()
+        val next = model(row,snapshot)
+        change(next,"date","2027-02-28")
+        val updated = save(next)
+        assertEquals(row.toDomain().schedule,updated.toDomain().schedule)
+        assertEquals(LocalDate.of(2027,2,2),updated.currentPeriodStartOverride)
+        assertEquals(LocalDate.of(2027,2,28),updated.currentPeriodEnd)
+    }
+    @Test fun temporaryDailyAndWeeklyEditsAcrossMonthReturnToOriginalSeries() = runBlocking {
+        date.update(LocalDate.of(2026,12,3))
+        for ((unit,count) in listOf(FrequencyUnit.DAY to 5,FrequencyUnit.WEEK to 1)) {
+            val row = fixture(unit,count = count); val vm = model(row)
+            val originalDate = vm.state.value.fields.getValue("date")
+            change(vm,"date","2026-12-10"); change(vm,"unit","MONTH")
+            change(vm,"date",originalDate); change(vm,"unit",unit.name)
+            change(vm,"name","Изменено только имя")
+            val updated = save(vm)
+            unchangedSeries(row,updated); assertEquals("Изменено только имя",updated.name)
+        }
+    }
 }
