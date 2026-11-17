@@ -1,5 +1,10 @@
 # R1b.4 — целевая схема Room и интеграция доменной модели
 
+> Актуальное исправление редактора — в дополнении **R1b.4-fix** в конце файла.
+> Его проверенный код: `b3af153596647a6948557a551fad74951cc46ae1`; текущие результаты —
+> 254 выполненных JVM-теста и 337 скомпилированных Android-тестов (выполнение Android NOT RUN).
+> Прежние результаты 248/319 ниже относятся к исходному R1b.4 до исправления.
+
 ## База и статус
 
 Исходная ветка: `codex/r1b-03-settings-reminders`, принятый SHA `32902ae332c19dbb53fd2b57b63ff4dedec77a1e`, Draft PR #4.
@@ -901,3 +906,132 @@ app/src/test/java/com/glebskorobogatov/subscriptiontracker/ui/settings/SettingsV
 app/src/test/java/com/glebskorobogatov/subscriptiontracker/ui/subscriptions/SubscriptionCardModelTest.kt
 docs/reports/R1b.4.md
 ```
+
+
+## Дополнение R1b.4-fix — неизменённое расписание редактора
+
+Дата: 17.11.2026. Исходный SHA `df6fd2a3a8c62177ac549bc4a1484d2bbc76faeb`, существующая ветка
+`codex/r1b-04-room-domain-integration`, существующий Draft PR #5. Перед работой HEAD совпал,
+рабочее дерево было чистым. Новая ветка/PR не создавались.
+
+Итоговый SHA проверенного исправления: `b3af153596647a6948557a551fad74951cc46ae1`.
+Следующий коммит изменяет только этот отчёт; SHA вершины ветки с отчётом приводится в PR #5 и итоговом сообщении.
+Это дополнение заменяет предыдущие сведения об актуальном SHA/количестве тестов, сохраняя исходный отчёт R1b.4 как историю.
+
+### Первопричина и воспроизведение
+
+fromRow() помещал в форму вычисленный ближайший due и исходный anchorDay серии.
+validate() и save() безусловно вызывали schedule(fields) до определения, менял ли пользователь расписание.
+Для WEEK с опорой 01.11.2026 и today=08.11.2026 форма содержит date=08.11.2026 и anchorDay=1.
+Это корректные представления существующей серии, но не согласованные параметры нового первого события.
+RecurringSchedule.starting() правильно отклоняет эту пару; ошибка появлялась у anchorDay даже при правке только цены.
+То же затрагивало DAY, переход месяца, отменённые/архивные записи и сохранённые черновики.
+
+Дефект воспроизведён на исходном production-коде шестью новыми JVM-тестами EditorScheduleValidationTest:
+**6 выполнено, 5 упали** (weekly, daily, month rollover, inactive и stale draft).
+После исправления эти же **6 тестов прошли**. Месячная/годовая контрольная проверка проходила и до исправления.
+Это проверка настоящих fromRow()/validate() EditorViewModel; JVM fixture через reflection устанавливает
+уже загруженный ожидаемый row, чтобы не вводить тестовый обход в production API хранилища.
+Полная загрузка и запись проверяются отдельными Android-сценариями ниже, которые скомпилированы, но NOT RUN.
+
+### Исправление
+
+Общий scheduleEdit(fields) используется и в validate(), и в save(). Он различает:
+
+- Создание: всегда формирует и полностью проверяет новую серию.
+- Редактирование без изменения date/frequency/опорного уточнения: возвращает null до вызова
+  RecurringSchedule.starting(); исходные year/month/day/частота остаются без изменений.
+- Явное изменение: проверяет доступность изменения по состоянию, date>=today и полную согласованность
+  нового RecurringSchedule.starting(). Невалидные поля блокируют сохранение.
+
+Для сравнения используется первоначальный displayedDue из черновика, а не заново вычисленный due сегодня.
+Поэтому пересоздание ViewModel и переход времени не превращают изменение имени/цены/оформления в reanchor.
+Устаревшая неизменённая дата не проверяется как начало новой серии.
+
+Существующий change() сбрасывает унаследованный anchorDay при явной смене date/unit/count.
+Новые DAY/WEEK серии получают день выбранной первой даты, а исходный день старой серии не переносится.
+Явно введённое несовместимое уточнение по-прежнему отклоняется строгим RecurringSchedule.starting().
+MONTH/YEAR сохраняют возможность явного уточнения 31/29, включая короткий февраль и високосные годы.
+Если дата/период возвращены к исходным значениям, отсутствие дополнительного уточнения сохраняет старую опору.
+Отменённые и архивные записи разрешают обычные правки без построения новой серии; изменение их расписания остаётся недоступным.
+
+Сохранены полный expected row, fingerprint восстановленного черновика, проверка generation внутри owner.perform(),
+mutation gate и optimistic проверка репозитория. CancellationException не заменяется ошибкой поля.
+Ни RecurringSchedule, ни Domain, ни схема/защита Room не изменены.
+
+### Изменённые файлы
+
+- app/src/main/java/com/glebskorobogatov/subscriptiontracker/ui/editor/EditorViewModel.kt.
+- app/src/test/java/com/glebskorobogatov/subscriptiontracker/ui/editor/EditorScheduleValidationTest.kt — новый файл.
+- app/src/androidTest/java/com/glebskorobogatov/subscriptiontracker/ui/editor/EditorScheduleIntegrationTest.kt — новый файл.
+- docs/reports/R1b.4.md — это дополнение.
+
+Иных production-изменений нет. Схема v5 и все snapshots, безопасное открытие/журнал/gates,
+forecast/reminder algorithms, настройки, зависимости/Gradle/CI и продуктовые требования побайтово сохранены относительно базы исправления.
+UI и дизайн не менялись. Прежние тесты не удалялись, не ослаблялись и не адаптировались ради PASS.
+
+### Новые тесты
+
+6 JVM-методов проверяют реальную валидацию EditorViewModel с данными fromRow(), а не только доменные функции.
+Сценарии: weekly price; daily name; DAY/WEEK после перехода месяца; CANCELLED/ARCHIVED;
+устаревший неизменённый displayedDue; месячный 31/годовой leap29 и отклонение явного anchor32.
+
+18 Android-методов используют настоящие EditorViewModel, SubscriptionUseCases, домен и защищённо открытую Room v5
+для отдельного синтетического поколения. Авторизация создания вызывается один раз в setup; при восстановлении
+черновика база/READY/UUID не сбрасываются. Каждый успешный save проверяет фактическую сохранённую строку
+и всю исходную опору; при отказе — неизменность строки/отсутствие мутации.
+
+| Требуемая регрессия | Android сценарий (скомпилирован, NOT RUN) |
+|---|---|
+| Weekly, несколько циклов, только цена | weeklyPriceEditAfterSeveralCyclesSavesWithoutReanchor |
+| DAY, несколько циклов, только название | dailyNameEditAfterSeveralCyclesSavesWithoutReanchor |
+| DAY/WEEK после смены месяца | dailyAndWeeklyPriceEditsAcrossMonthPreserveWholeOriginalAnchor |
+| Только оформление | appearanceOnlyEditSavesWithoutRebuildingWeeklySchedule |
+| Явная дата → новая серия | explicitDateEditCreatesWholeWeeklySeriesWithoutInheritedDay |
+| Явный период → новая серия | frequencyEditCreatesNewDailySeriesWithoutInheritedWeekAnchor |
+| Месячный 31 при due=28 февраля | monthly31AtFebruary28IsPreservedByUnrelatedSave |
+| Високосная годовая опора | leapYearAnchorIsPreservedByUnrelatedSave |
+| Некорректное явное уточнение | explicitInvalidRefinementIsRejectedBeforeMutation |
+| CANCELLED/ARCHIVED редактируются без нового графика | cancelledAndArchivedDailyAndWeeklyRecordsSaveOtherFields |
+| Восстановленный черновик | restoredDraftUsesOriginalDisplayedDueEvenAfterTodayAdvances |
+| Устаревшая дата открытой формы | staleUnchangedDateInOpenDraftDoesNotBlockPriceEdit |
+| Новое создание и повторный Save | newSubscriptionStillRequiresValidNewSeriesAndOnlyOneSave |
+| Прошлая дата новой серии отклоняется | newSeriesWithPastDateIsRejectedWhileUnchangedDraftMayBeOld |
+| Явные MONTH/YEAR уточнения | explicitMonthlyAndAnnualRefinementsRemainAvailable |
+| Конкурентный optimistic snapshot | concurrentRowChangeStillRejectsOptimisticSave |
+| Смена generation | changedGenerationStillRejectsSaveBeforeMutation |
+| Восстановление устаревшего snapshot | restoredSnapshotStillDetectsConcurrentEdit |
+
+### Фактические результаты исправления
+
+Среда: JDK21 / SDK36 / Build Tools35.0.0. Проверки проведены для исходников исправляющего коммита,
+а не заимствованы из предыдущего R1b.4.
+
+| Проверка | Результат |
+|---|---|
+| Исходное воспроизведение новым JVM-классом | 6 выполнено, 5 FAIL до исправления; ожидаемое подтверждение дефекта |
+| Повтор того же JVM-класса после исправления | PASS: 6/6 |
+| git diff --check | PASS |
+| :app:testDebugUnitTest | PASS: **254 выполнено**, 0 failures/errors/skipped; 248 прежних + 6 новых |
+| :app:assembleDebug | PASS |
+| :app:lintDebug | PASS: **0 ошибок, 8 прежних предупреждений** |
+| :app:compileDebugAndroidTestKotlin | PASS: **337 скомпилированных @Test-методов**, 319 прежних + 18 новых; подтверждено аннотациями class-файлов |
+| Инструментальное выполнение | **NOT RUN**: ADB недоступен (exit -6), доступное устройство/эмулятор не подтверждено; ограничений не обходили |
+| Проверка scope/diff/конфиденциальности | PASS: production diff только EditorViewModel, остальные перечисленные изменения — тесты и отчёт; только синтетические fixtures |
+
+Полная обязательная команда завершилась BUILD SUCCESSFUL:
+
+```bash
+./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug :app:compileDebugAndroidTestKotlin --no-daemon --max-workers=2 --console=plain
+```
+
+### Ограничения и повторная приёмка
+
+Все 18 новых Android-сценариев полного EditorViewModel → запись остаются NOT RUN, как и прежняя инструментальная регрессия.
+JVM-проверка воспроизводит и проверяет исправление валидации; её нельзя считать доказательством выполнения Room/Activity
+или успешного полного сохранения на устройстве. Требуется запуск подготовленных сценариев на доступном устройстве,
+включая восстановление черновика, конфликт снимка и смену поколения.
+
+Исправление готово к повторной независимой статической приёмке с этими ограничениями.
+Автор и коммитер используют GitHub noreply. Merge и ручной запуск GitHub Actions не выполнялись.
+R1b.5 и R2 не начинались. После обновления существующего Draft PR #5 работа останавливается.
