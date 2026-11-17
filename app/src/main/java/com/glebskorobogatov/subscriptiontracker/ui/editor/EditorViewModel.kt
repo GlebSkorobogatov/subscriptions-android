@@ -140,25 +140,22 @@ class EditorViewModel(private val saved: SavedStateHandle, private val owner: Su
                 owner.perform { use ->
                     if (saved.get<String>("generation")?.let { it != owner.activeDatasetId()?.toString() } == true) throw LifecycleConflict()
                     val price = RubPrice.parse(fields.getValue("amount"))
-                    val schedule = schedule(fields)
+                    val schedule = scheduleEdit(fields)
                     val uuid = id ?: newId
                     val start = fields["start"]?.takeIf { it.isNotBlank() }?.let(LocalDate::parse)
                     val label = fields["label"]?.trim()?.takeIf { it.isNotEmpty() }
                     val old = expected
-                    if (old == null) use.createSubscription(SubscriptionDraft(uuid, fields.getValue("name").trim(), label,
-                        price, schedule, start?.let { PeriodStart(it, schedule.firstDue) }, logoAssetId = pendingImage, catalogLogoId = catalogChoice), Instant.now())
-                    else {
-                        val original = old.toDomain().schedule
-                        val date = LocalDate.parse(fields.getValue("date"))
-                        val oldDue = fields.getValue("displayedDue").let(LocalDate::parse)
-                        val changed = schedule.frequency != original.frequency || date != oldDue ||
-                            fields["anchorDay"]?.toInt()?.let { it != original.anchor.day } == true
-                        val edit = if (changed) schedule else null
-                        val periodStart = start?.let { PeriodStart(it, fields["periodDue"]?.takeIf(String::isNotBlank)?.let(LocalDate::parse) ?: date) }
+                    if (old == null) {
+                        val initial = requireNotNull(schedule)
+                        use.createSubscription(SubscriptionDraft(uuid, fields.getValue("name").trim(), label,
+                            price, initial, start?.let { PeriodStart(it, initial.firstDue) }, logoAssetId = pendingImage, catalogLogoId = catalogChoice), Instant.now())
+                    } else {
+                        val periodStart = start?.let { PeriodStart(it, fields["periodDue"]?.takeIf(String::isNotBlank)?.let(LocalDate::parse)
+                            ?: LocalDate.parse(fields.getValue("date"))) }
                         val imageEdit = pendingImage?.let { ImageEdit.Set(it) }
                             ?: catalogChoice?.let { ImageEdit.Catalog(it) }
                             ?: if (imageRemoved) ImageEdit.Remove else ImageEdit.Keep
-                        use.editSubscription(old, SubscriptionEdit(fields.getValue("name").trim(), label, price, edit, PeriodStartEdit.Set(periodStart), imageEdit), Instant.now())
+                        use.editSubscription(old, SubscriptionEdit(fields.getValue("name").trim(), label, price, schedule, PeriodStartEdit.Set(periodStart), imageEdit), Instant.now())
                     }
                 }
                 saved.remove<HashMap<String,String>>("fields")
@@ -185,13 +182,8 @@ class EditorViewModel(private val saved: SavedStateHandle, private val owner: Su
         fun check(key: String, block: () -> Unit) { try { block() } catch (_: Exception) { result[key] = R.string.editor_invalid } }
         check("name") { require(!f["name"].isNullOrBlank()) }
         check("amount") { RubPrice.parse(f["amount"].orEmpty()) }
-        check("count") { Frequency(FrequencyUnit.valueOf(f.getValue("unit")), f.getValue("count").toInt()) }
-        check("date") {
-            val date = LocalDate.parse(f.getValue("date"))
-            // An unchanged displayed date can pass during a long-lived draft; a new series cannot start in the past.
-            require(date >= owner.today() || expected != null && f["date"] == f["displayedDue"])
-        }
-        check("anchorDay") { schedule(f) }
+        try { scheduleEdit(f) }
+        catch (error: ScheduleFieldError) { result[error.field] = R.string.editor_invalid }
         check("start") {
             f["start"]?.takeIf(String::isNotBlank)?.let {
                 val start = LocalDate.parse(it)
@@ -200,14 +192,37 @@ class EditorViewModel(private val saved: SavedStateHandle, private val owner: Su
         }
         return result
     }
+    /** The same decision and full new-series validation serve both validate() and save(). */
+    private fun scheduleEdit(f: Map<String,String>): ScheduleEdit? = scheduleEdit(f, expected?.toDomain(), owner.today())
+
+    private class ScheduleFieldError(val field: String) : IllegalArgumentException()
     companion object {
         private val FIELD_KEYS = setOf("name", "label", "amount", "unit", "count", "date", "displayedDue", "anchorDay", "start", "periodDue")
-        fun schedule(f: Map<String,String>): ScheduleEdit {
-            val date = LocalDate.parse(f.getValue("date"))
-            val frequency = Frequency(FrequencyUnit.valueOf(f.getValue("unit")), f.getValue("count").toInt())
-            val day = f["anchorDay"]?.takeIf(String::isNotBlank)?.toInt()
-            RecurringSchedule.starting(date, frequency, day)
+        private inline fun <T> scheduleField(key: String, block: () -> T): T = try { block() }
+            catch (error: CancellationException) { throw error }
+            catch (_: Exception) { throw ScheduleFieldError(key) }
+
+        private fun scheduleEdit(f: Map<String,String>, original: SubscriptionRecord?, today: LocalDate): ScheduleEdit? {
+            val frequency = scheduleField("count") {
+                Frequency(FrequencyUnit.valueOf(f.getValue("unit")), f.getValue("count").toInt())
+            }
+            val date = scheduleField("date") { LocalDate.parse(f.getValue("date")) }
+            val day = scheduleField("anchorDay") { f["anchorDay"]?.takeIf(String::isNotBlank)?.toInt() }
+            // displayedDue is the date originally loaded into this draft, not a new series anchor.
+            // It remains stable on recreation and when today advances. An absent refinement inherits
+            // the stored anchor if the user reverted the other schedule fields to their loaded values.
+            val keep = original != null && date.toString() == f["displayedDue"] && frequency == original.schedule.frequency &&
+                (!f.containsKey("anchorDay") || (day ?: date.dayOfMonth) == original.schedule.anchor.day)
+            if (keep) return null
+            scheduleField("date") {
+                require(original == null || original.state == SubscriptionState.ACTIVE)
+                require(date >= today)
+            }
+            scheduleField("anchorDay") { RecurringSchedule.starting(date, frequency, day) }
             return ScheduleEdit(date, frequency, day)
         }
+
+        /** Explicit new-series input; unchanged edits must use the nullable decision above. */
+        fun schedule(f: Map<String,String>): ScheduleEdit = requireNotNull(scheduleEdit(f, null, LocalDate.MIN))
     }
 }
