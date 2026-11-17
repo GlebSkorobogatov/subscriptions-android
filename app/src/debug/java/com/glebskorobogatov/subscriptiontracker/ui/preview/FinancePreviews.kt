@@ -6,7 +6,6 @@ import androidx.compose.ui.tooling.preview.Preview
 import com.glebskorobogatov.subscriptiontracker.data.mapping.toDomain
 import com.glebskorobogatov.subscriptiontracker.data.settings.Theme
 import com.glebskorobogatov.subscriptiontracker.domain.forecast.ForecastEngine
-import com.glebskorobogatov.subscriptiontracker.domain.model.CurrencyCode
 import com.glebskorobogatov.subscriptiontracker.ui.design.TrackerTheme
 import com.glebskorobogatov.subscriptiontracker.ui.finance.*
 import java.time.*
@@ -14,21 +13,20 @@ import java.util.UUID
 
 internal object FinancePreviewData {
     val day: LocalDate = LocalDate.of(2027,1,31)
-    val rub = CurrencyCode.of("RUB")
     val rows = listOf(
         DetailsEditorPreviewData.row.copy(id = UUID(0,801),name = "Учебный сервис",accountLabel = "Личный",priceMinor = 49900,
             anchorYear = 2027,anchorMonth = 1,anchorDay = 31,currentPeriodStartOverride = null,currentPeriodEnd = null),
         DetailsEditorPreviewData.row.copy(id = UUID(0,802),name = "Учебный сервис",accountLabel = "Семейный",priceMinor = 59900,
             anchorYear = 2027,anchorMonth = 1,anchorDay = 31,currentPeriodStartOverride = null,currentPeriodEnd = null,intervalUnit = com.glebskorobogatov.subscriptiontracker.domain.model.FrequencyUnit.YEAR))
-    fun chartState(months: Int = 12): FinanceUiState {
+    fun chartState(): FinanceUiState {
         val sample = rows.take(2).map { it.copy(anchorYear = 2026,anchorMonth = 11,anchorDay = 30,intervalCount = 3) }
         val today = LocalDate.of(2026,11,15)
-        val result = ForecastEngine().calendarMonths(sample.map { it.toDomain() },today,months,rub)
-        return FinanceUiState(FinancePhase.Content,FinanceSnapshot(result,sample),rub,YearMonth.of(2026,11))
+        val result = ForecastEngine().calculate(sample.map { it.toDomain() },today)
+        return FinanceUiState(FinancePhase.Content,FinanceSnapshot(result,sample),YearMonth.of(2026,11))
     }
-    fun state(currency: CurrencyCode = rub,months: Int = 12): FinanceUiState {
-        val result = ForecastEngine().calendarMonths(rows.map { it.toDomain() },day,months,currency)
-        return FinanceUiState(FinancePhase.Content,FinanceSnapshot(result,rows),currency,YearMonth.from(day))
+    fun state(): FinanceUiState {
+        val result = ForecastEngine().calculate(rows.map { it.toDomain() },day)
+        return FinanceUiState(FinancePhase.Content,FinanceSnapshot(result,rows),YearMonth.from(day))
     }
 }
 @Preview(name = "Прогноз · светлая",showBackground = true,widthDp = 390,heightDp = 800)

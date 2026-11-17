@@ -32,10 +32,10 @@ import java.util.Locale
 import kotlinx.coroutines.flow.first
 
 /** One selection owned by E-01. This component owns only transient scroll/pixel geometry. */
-@Composable internal fun MonthlyForecastChart(months: Map<YearMonth,MonthlyForecast>,currency: CurrencyCode,
+@Composable internal fun MonthlyForecastChart(months: Map<YearMonth,MonthlyForecast>,
     selectedMonth: YearMonth?,onMonth: (YearMonth) -> Unit) {
     val entries = months.entries.toList()
-    val maximum = entries.maxOfOrNull { it.value.totalsByCurrency[currency]?.amountMinor ?: 0L } ?: 0L
+    val maximum = entries.maxOfOrNull { it.value.totalMinor } ?: 0L
     val fullMonth = remember { DateTimeFormatter.ofPattern("LLLL yyyy",Locale.forLanguageTag("ru")) }
     val shortMonth = remember { DateTimeFormatter.ofPattern("LLL",Locale.forLanguageTag("ru")) }
     val scroll = rememberScrollState()
@@ -49,7 +49,7 @@ import kotlinx.coroutines.flow.first
         val width = maxOf(80.dp * density.fontScale.coerceAtLeast(1f),(maxWidth - gap * (visibleCount - 1)) / visibleCount)
         val widthPx = with(density) { width.roundToPx() }
         val gapPx = with(density) { gap.roundToPx() }
-        LaunchedEffect(selectedMonth,months.keys.toList(),currency,widthPx,viewportPx,scroll.maxValue) {
+        LaunchedEffect(selectedMonth,months.keys.toList(),widthPx,viewportPx,scroll.maxValue) {
             val index = entries.indexOfFirst { it.key == selectedMonth }
             if(index >= 0 && viewportPx > 0) {
                 snapshotFlow { scroll.maxValue }.first { it != Int.MAX_VALUE }
@@ -67,9 +67,9 @@ import kotlinx.coroutines.flow.first
             .horizontalScroll(scroll).testTag("finance_month_chart").semantics { isTraversalGroup = true },
             horizontalArrangement = Arrangement.spacedBy(gap)) {
             entries.forEach { (month,data) ->
-                val money = data.totalsByCurrency[currency] ?: Money(0,currency)
+                val money = Money(data.totalMinor,CurrencyCode.of("RUB"))
                 val active = month == selectedMonth
-                val description = stringResource(R.string.finance_chart_column,month.format(fullMonth),money.format(),currency.value)
+                val description = stringResource(R.string.finance_chart_column,month.format(fullMonth),money.format(),"RUB")
                 val choose = stringResource(R.string.finance_choose_month)
                 val color = if(active) TrackerDesign.colors.textPrimary else TrackerDesign.colors.textSecondary
                 Column(Modifier.width(width).heightIn(min = TrackerDimensions.minimumTouchTarget)

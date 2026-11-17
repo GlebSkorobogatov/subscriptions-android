@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="projection_calendar_error">Не удалось рассчитать дату продления. Проверьте дату и периодичность подписки.</string>
     <string name="app_name">Менеджер подписок</string>
     <string name="welcome_message">Добро пожаловать в Менеджер подписок!</string>
     <string name="subscriptions">Подписки</string>
@@ -152,7 +153,7 @@
     <string name="finance_expected_total">Ожидаемые расходы</string>
     <string name="finance_window">С %1$s по %2$s включительно</string>
     <string name="finance_empty">Ожидаемых списаний пока нет</string>
-    <string name="finance_empty_explanation">В выбранном периоде нет будущих платежей действующих подписок. Можно выбрать другой период.</string>
+    <string name="finance_empty_explanation">В ближайших 12 календарных месяцах нет ожидаемых продлений активных подписок.</string>
     <string name="finance_months">Прогноз по месяцам</string>
     <string name="finance_month_details">Ожидаемые платежи: %1$s</string>
     <string name="finance_month_empty">В этом месяце ожидаемых списаний нет.</string>

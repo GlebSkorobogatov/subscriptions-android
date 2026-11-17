@@ -144,6 +144,8 @@ internal fun EditorForm(state: EditorState, onChange: (String, String) -> Unit, 
                 }
             }
             date("date", R.string.editor_date)
+            if (state.fields["displayedDue"] == "" && value("date").isBlank())
+                Text(stringResource(R.string.projection_calendar_error),color = TrackerDesign.colors.error)
             if (!state.scheduleEditable) Text(stringResource(R.string.editor_restore_schedule), color = TrackerDesign.colors.textSecondary)
             Text(stringResource(R.string.editor_series), color = TrackerDesign.colors.textSecondary)
             var expanded by rememberSaveable { mutableStateOf(false) }

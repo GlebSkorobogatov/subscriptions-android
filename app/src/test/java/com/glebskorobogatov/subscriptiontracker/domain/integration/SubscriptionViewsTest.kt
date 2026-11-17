@@ -20,11 +20,11 @@ class SubscriptionViewsTest {
         val active=sub(); val cancelled=domain.cancel(sub(),day); val archived=domain.archive(sub(),day,true)
         val groups=groupSubscriptions(listOf(archived,cancelled,active),day)
         assertEquals(listOf(active),groups.active); assertEquals(listOf(cancelled),groups.cancelled); assertEquals(listOf(archived),groups.archived)
-        assertTrue(ForecastEngine().calendarMonths(listOf(cancelled,archived),day,12).charges.isEmpty())
+        assertTrue(ForecastEngine().calculate(listOf(cancelled,archived),day).charges.isEmpty())
     }
     @Test fun changedDateStartsWholeNewSeries() {
         val changed=domain.edit(sub(),day,scheduleEdit=ScheduleEdit(day.plusDays(1),Frequency(FrequencyUnit.MONTH,1)))
-        assertEquals(listOf("2027-02-01","2027-03-01"),ForecastEngine().calendarMonths(listOf(changed),day,3).charges.map { it.dueDate.toString() })
+        assertEquals(listOf("2027-02-01","2027-03-01"),ForecastEngine().calculate(listOf(changed),day).charges.take(2).map { it.dueDate.toString() })
     }
     @Test fun restoreRetainsIdentityAndUsesOnlyNewScheduleAndPrice() {
         val original=sub(); val archived=domain.archive(original,day,true)

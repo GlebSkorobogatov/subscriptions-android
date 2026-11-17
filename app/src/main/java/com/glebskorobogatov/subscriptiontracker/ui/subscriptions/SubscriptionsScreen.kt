@@ -23,7 +23,8 @@ import com.glebskorobogatov.subscriptiontracker.ui.design.*
 import java.util.UUID
 
 @Composable
-fun SubscriptionsScreen(state: SubscriptionsUiState, onAdd: () -> Unit, onOpen: (UUID) -> Unit, onRetry: () -> Unit) {
+fun SubscriptionsScreen(state: SubscriptionsUiState, onAdd: () -> Unit, onOpen: (UUID) -> Unit, onRetry: () -> Unit,
+    onForecastRetry: () -> Unit = onRetry) {
     ProvideTextStyle(MaterialTheme.typography.bodyMedium.copy(
         lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.None))) {
         LazyColumn(Modifier.fillMaxSize().testTag("subscriptions_screen"),
@@ -51,7 +52,7 @@ fun SubscriptionsScreen(state: SubscriptionsUiState, onAdd: () -> Unit, onOpen: 
                     }
                 }
                 is SubscriptionsUiState.Content -> {
-                    item(key = "forecast") { ForecastSummary(state.forecast) }
+                    item(key = "forecast") { ForecastSummary(state.forecast,onForecastRetry) }
                     if (state.active.isNotEmpty()) {
                         item(key = "active") {
                             SectionTitle(stringResource(R.string.active_subscriptions),

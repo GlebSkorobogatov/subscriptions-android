@@ -16,21 +16,22 @@ import com.glebskorobogatov.subscriptiontracker.ui.design.*
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun ForecastSummary(totals: List<Money>) {
+internal fun ForecastSummary(totalMinor: Long?, onRetry: () -> Unit = {}) {
     TrackerSummaryCard(Modifier.fillMaxWidth().testTag("forecast_summary").semantics(mergeDescendants = true) {}) {
         SectionTitle(stringResource(R.string.forecast_30_days))
         Text(stringResource(R.string.forecast_explanation), style = MaterialTheme.typography.bodySmall,
             color = TrackerDesign.colors.textSecondary)
-        if (totals.isEmpty()) Text(stringResource(R.string.forecast_empty))
-        else FlowRow(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            totals.forEach { money ->
-                val value = buildAnnotatedString {
-                    append(money.format())
-                    withStyle(MaterialTheme.typography.bodyMedium.toSpanStyle()) { append(" "); append(money.currency.value) }
-                }
-                Text(value, style = MaterialTheme.typography.displaySmall,
-                    modifier = Modifier.testTag("forecast_${money.currency.value}"))
-            }
+        if (totalMinor == null) {
+            Text(stringResource(R.string.finance_error),modifier = Modifier.testTag("forecast_error"),color = TrackerDesign.colors.error)
+            TrackerSecondaryButton(stringResource(R.string.retry_loading),onRetry)
+            return@TrackerSummaryCard
         }
+        val money = Money(totalMinor, com.glebskorobogatov.subscriptiontracker.domain.model.CurrencyCode.of("RUB"))
+        val value = buildAnnotatedString {
+            append(money.format())
+            withStyle(MaterialTheme.typography.bodyMedium.toSpanStyle()) { append(" RUB") }
+        }
+        Text(value, style = MaterialTheme.typography.displaySmall, modifier = Modifier.testTag("forecast_RUB"))
+        if (totalMinor == 0L) Text(stringResource(R.string.forecast_empty))
     }
 }

@@ -41,7 +41,7 @@ internal object ReviewData {
     val longContent = SubscriptionsPreviewData.content(active = listOf(longRow,
         SubscriptionsPreviewData.family.copy(name = "Учебный сервис 2",price = amounts[1]),
         SubscriptionsPreviewData.video.copy(id = SubscriptionsPreviewData.cancelled.id,name = "Учебный сервис RUB",price = amounts[2])),
-        cancelledRows = emptyList(),forecast = amounts)
+        cancelledRows = emptyList(),forecast = Long.MAX_VALUE)
     val longDetails = DetailsEditorPreviewData.details.copy(data = DetailsEditorPreviewData.details.data!!.copy(
         subscription = DetailsEditorPreviewData.row.copy(name = longName,priceMinor = Long.MAX_VALUE)))
     val editorError = DetailsEditorPreviewData.editor.copy(fields = DetailsEditorPreviewData.editor.fields + ("name" to longName),errors = mapOf("amount" to R.string.editor_invalid))

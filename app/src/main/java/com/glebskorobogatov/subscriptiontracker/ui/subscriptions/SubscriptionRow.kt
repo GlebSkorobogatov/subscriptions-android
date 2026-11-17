@@ -65,6 +65,8 @@ internal fun SubscriptionRow(model: SubscriptionCardModel, onOpen: (UUID) -> Uni
                 }
             }
             if (model.eventDate == null) Text(stringResource(R.string.event_unknown), style = MaterialTheme.typography.bodySmall)
+            if (model.calendarError) Text(stringResource(R.string.projection_calendar_error),
+                modifier = Modifier.testTag("calendar_error_${model.id}"),color = TrackerDesign.colors.error)
             val progress = if (model.status == SubscriptionState.ARCHIVED) null else model.remainingFraction
             progress?.let {
                 val progressText = stringResource(R.string.progress_status, stringResource(status))

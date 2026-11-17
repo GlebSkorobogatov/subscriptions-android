@@ -3,6 +3,7 @@ package com.glebskorobogatov.subscriptiontracker.ui.details
 import androidx.lifecycle.*
 import com.glebskorobogatov.subscriptiontracker.R
 import com.glebskorobogatov.subscriptiontracker.data.integration.SubscriptionDetails as Detail
+import com.glebskorobogatov.subscriptiontracker.data.integration.calculationOrNull
 import com.glebskorobogatov.subscriptiontracker.data.lifecycle.LifecycleConflict
 import com.glebskorobogatov.subscriptiontracker.data.room.SubscriptionEntity
 import com.glebskorobogatov.subscriptiontracker.data.mapping.SubscriptionSnapshot
@@ -53,7 +54,7 @@ class DetailsViewModel(private val saved: SavedStateHandle, private val owner: S
         reader = owner.viewModelScope.launch {
             mutable.value = state.value.copy(phase = DetailsPhase.Loading, error = null)
             try {
-                owner.state.first { it !is SubscriptionsUiState.Loading }
+                check(owner.state.first { it !is SubscriptionsUiState.Loading }.let { it !is SubscriptionsUiState.Error && it !is SubscriptionsUiState.StorageBlocked })
                 owner.details(id).collect { detail ->
                     mutable.value = state.value.copy(data = detail,today = owner.today(),
                         phase = if (state.value.phase == DetailsPhase.OperationInProgress) DetailsPhase.OperationInProgress
@@ -74,8 +75,12 @@ class DetailsViewModel(private val saved: SavedStateHandle, private val owner: S
         if (state.value.phase != DetailsPhase.Content || state.value.action != null) return
         val row = state.value.data?.subscription ?: return
         if (!allowed(row, action)) return
+        val record = row.toDomain()
+        val end = row.cancelledAccessEndExclusive ?: calculationOrNull {
+            SubscriptionDomain().nextDue(record.schedule,owner.today())
+        }
         val fields = hashMapOf("amount" to RubPrice(row.priceMinor).format(),
-            "date" to owner.today().toString(), "end" to (row.cancelledAccessEndExclusive ?: SubscriptionDomain().nextDue(row.toDomain().schedule, owner.today())).toString(),
+            "date" to owner.today().toString(), "end" to end?.toString().orEmpty(),
             "unit" to row.intervalUnit.name, "count" to row.intervalCount.toString())
         saved["snapshot"] = SubscriptionSnapshot.snapshot(row)
         owner.activeDatasetId()?.let { saved["generation"] = it.toString() }

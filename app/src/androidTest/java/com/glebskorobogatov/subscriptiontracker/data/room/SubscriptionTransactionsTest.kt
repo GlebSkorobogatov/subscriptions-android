@@ -66,11 +66,11 @@ class SubscriptionTransactionsTest {
     }
     @Test fun deliveryAcknowledgementCannotChangeSubscriptionOrForecast() = runBlocking {
         val (row,event)=fixture()
-        val before=ForecastEngine().calendarMonths(listOf(row.toDomain()),day,3)
+        val before=ForecastEngine().calculate(listOf(row.toDomain()),day)
         withContext(Dispatchers.IO) {
             db.deliveries().update(event.copy(state=DeliveryState.DELIVERED,deliveredAt=now))
             val stored=db.subscriptions().find(row.id)!!
-            assertEquals(row,stored); assertEquals(before,ForecastEngine().calendarMonths(listOf(stored.toDomain()),day,3))
+            assertEquals(row,stored); assertEquals(before,ForecastEngine().calculate(listOf(stored.toDomain()),day))
         }
     }
     @Test fun confirmationAndCascadeAffectOnlySelectedSubscription() = runBlocking {
