@@ -22,7 +22,6 @@ import com.glebskorobogatov.subscriptiontracker.R
 import com.glebskorobogatov.subscriptiontracker.domain.subscription.*
 import com.glebskorobogatov.subscriptiontracker.domain.model.*
 import java.time.LocalDate
-import java.time.temporal.ChronoUnit
 import java.util.UUID
 
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -92,24 +91,19 @@ internal fun DetailsPane(state: DetailsUiState, id: UUID, onBack: () -> Unit, on
                         val event = detail.period.due
                         if (detail.calendarError) Text(stringResource(R.string.projection_calendar_error),
                             modifier = Modifier.testTag("details_calendar_error"),color = TrackerDesign.colors.error)
-                        val days = event?.let { ChronoUnit.DAYS.between(state.today,it) }
+                        val days = detail.period.remainingDays
                         TrackerSummaryCard(Modifier.fillMaxWidth()) {
-                            Text(stringResource(status),style = MaterialTheme.typography.titleMedium)
+                            TrackerStatusLabel(stringResource(status),secondary = s.state != SubscriptionState.ACTIVE,style = MaterialTheme.typography.titleMedium)
                             if(event != null) {
                                 Text(stringResource(if(s.state == SubscriptionState.CANCELLED) R.string.access_until else R.string.expected_on,event.toString()))
                                 if(days == 0L) Text(stringResource(R.string.event_today))
                                 else if(days != null && days > 0) Text(stringResource(R.string.days_remaining,days))
                             } else Text(stringResource(if(s.state == SubscriptionState.CANCELLED) R.string.access_unknown else R.string.event_unknown),
                                 color = TrackerDesign.colors.textSecondary)
-                            val fraction = detail.period.remainingFraction?.toFloat()
-                            fraction?.let {
-                                val progressText = stringResource(R.string.progress_status,stringResource(status))
-                                val color = when { days != null && days <= 1 -> TrackerDesign.colors.statusUrgent; days != null && days <= 3 -> TrackerDesign.colors.statusSoon; else -> TrackerDesign.colors.statusCalm }
-                                Box(Modifier.fillMaxWidth().height(TrackerDimensions.progressHeight).testTag("details_progress_track")) {
-                                    LinearProgressIndicator(progress = { it },modifier = Modifier.fillMaxSize().testTag("details_progress").semantics { stateDescription = progressText },
-                                        color = color,trackColor = TrackerDesign.colors.divider,gapSize = 0.dp,drawStopIndicator = {},strokeCap = androidx.compose.ui.graphics.StrokeCap.Round)
-                                }
-                            }
+                            TrackerPeriodIndicator(detail.period.remainingFraction,days,s.state,
+                                stringResource(R.string.progress_status,stringResource(status)),
+                                modifier = Modifier.testTag("details_progress_track"),
+                                indicatorModifier = Modifier.testTag("details_progress"))
                         }
                         var management by rememberSaveable { mutableStateOf(false) }
                         val managementState = stringResource(if(management) R.string.ui_expanded else R.string.ui_collapsed)

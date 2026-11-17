@@ -2,15 +2,12 @@ package com.glebskorobogatov.subscriptiontracker.ui.subscriptions
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -53,7 +50,7 @@ internal fun SubscriptionRow(model: SubscriptionCardModel, onOpen: (UUID) -> Uni
                 SubscriptionState.CANCELLED -> R.string.status_cancelled
                 SubscriptionState.ARCHIVED -> R.string.status_archived
             }
-            Text(stringResource(status), style = MaterialTheme.typography.bodyMedium)
+            TrackerStatusLabel(stringResource(status),secondary = model.status == SubscriptionState.CANCELLED)
             model.eventDate?.let { date ->
                 Text(stringResource(if (model.status == SubscriptionState.CANCELLED) R.string.access_until else R.string.expected_on,
                     date.format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))),
@@ -67,23 +64,10 @@ internal fun SubscriptionRow(model: SubscriptionCardModel, onOpen: (UUID) -> Uni
             if (model.eventDate == null) Text(stringResource(R.string.event_unknown), style = MaterialTheme.typography.bodySmall)
             if (model.calendarError) Text(stringResource(R.string.projection_calendar_error),
                 modifier = Modifier.testTag("calendar_error_${model.id}"),color = TrackerDesign.colors.error)
-            val progress = if (model.status == SubscriptionState.ARCHIVED) null else model.remainingFraction
-            progress?.let {
-                val progressText = stringResource(R.string.progress_status, stringResource(status))
-                val color = when {
-                    (model.remainingDays != null && model.remainingDays <= 1) -> TrackerDesign.colors.statusUrgent
-                    model.remainingDays != null && model.remainingDays <= 3 -> TrackerDesign.colors.statusSoon
-                    else -> TrackerDesign.colors.statusCalm
-                }
-                // The visible track is 4 dp; Material retains its larger accessibility semantics bounds.
-                Box(Modifier.fillMaxWidth().height(TrackerDimensions.progressHeight)
-                    .testTag("subscription_progress_track_${model.id}")) {
-                    LinearProgressIndicator(progress = { it }, color = color, trackColor = TrackerDesign.colors.divider,
-                        strokeCap = StrokeCap.Round, gapSize = 0.dp, drawStopIndicator = {},
-                        modifier = Modifier.fillMaxSize().clip(CircleShape)
-                            .testTag("subscription_progress_${model.id}").semantics { stateDescription = progressText })
-                }
-            }
+            TrackerPeriodIndicator(model.remainingFraction,model.remainingDays,model.status,
+                stringResource(R.string.progress_status,stringResource(status)),
+                modifier = Modifier.testTag("subscription_progress_track_${model.id}"),
+                indicatorModifier = Modifier.testTag("subscription_progress_${model.id}"))
         }
     }
 }

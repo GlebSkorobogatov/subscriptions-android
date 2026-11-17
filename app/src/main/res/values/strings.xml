@@ -173,4 +173,8 @@
     <string name="archived_on">В архиве с %1$s</string>
     <string name="archived_date_unknown">Дата архивирования неизвестна</string>
     <string name="editor_restore_schedule">Дату и периодичность можно изменить при возобновлении подписки.</string>
+    <string name="tracker_period_remaining">Осталось %1$d%% расчётного периода</string>
+    <string name="tracker_loading">Загрузка…</string>
+    <string name="tracker_selected">Выбрано</string>
+    <string name="tracker_not_selected">Не выбрано</string>
 </resources>

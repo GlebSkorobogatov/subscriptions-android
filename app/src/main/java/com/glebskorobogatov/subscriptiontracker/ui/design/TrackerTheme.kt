@@ -16,7 +16,7 @@ object TrackerDesign {
         @Composable @ReadOnlyComposable get() = LocalTrackerColors.current
 }
 
-private fun scheme(c: TrackerColors, dark: Boolean): ColorScheme {
+internal fun trackerColorScheme(c: TrackerColors, dark: Boolean): ColorScheme {
     val base = if (dark) darkColorScheme() else lightColorScheme()
     return base.copy(
         primary = c.primaryButtonBg, onPrimary = c.primaryButtonText,
@@ -37,13 +37,11 @@ private fun scheme(c: TrackerColors, dark: Boolean): ColorScheme {
         inverseSurface = if (dark) LightTrackerColors.surface else DarkTrackerColors.surface,
         inverseOnSurface = if (dark) LightTrackerColors.textPrimary else DarkTrackerColors.textPrimary,
         outline = c.textSecondary, outlineVariant = c.divider, error = c.error,
-        onError = if (dark) Color(0xFF690005) else Color.White,
-        errorContainer = if (dark) Color(0xFF93000A) else Color(0xFFFFDAD6),
-        onErrorContainer = if (dark) Color(0xFFFFDAD6) else Color(0xFF410002),
+        onError = c.onError, errorContainer = c.errorContainer, onErrorContainer = c.onErrorContainer,
     )
 }
-private val Light = scheme(LightTrackerColors, false)
-private val Dark = scheme(DarkTrackerColors, true)
+private val Light = trackerColorScheme(LightTrackerColors, false)
+private val Dark = trackerColorScheme(DarkTrackerColors, true)
 
 internal fun resolveDarkTheme(theme: Theme, systemDark: Boolean) = when (theme) {
     Theme.SYSTEM -> systemDark

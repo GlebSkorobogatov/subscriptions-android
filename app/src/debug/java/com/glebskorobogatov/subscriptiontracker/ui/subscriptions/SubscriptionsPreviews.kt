@@ -17,9 +17,9 @@ import java.util.UUID
 internal object SubscriptionsPreviewData {
     val video = SubscriptionCardModel(UUID.fromString("00000000-0000-0000-0000-000000000001"), "Видеосервис", "Личный",
         Money(49900, CurrencyCode.of("RUB")), Frequency(FrequencyUnit.MONTH, 1), SubscriptionState.ACTIVE,
-        LocalDate.of(2027, 6, 17), 2, 0.75f)
+        LocalDate.of(2027, 6, 17), 2, 0.75)
     val family = video.copy(id = UUID.fromString("00000000-0000-0000-0000-000000000002"), accountLabel = "Семейный",
-        price = Money(1999, CurrencyCode.of("RUB")), eventDate = LocalDate.of(2027, 6, 24), remainingDays = 9, remainingFraction = 0.5f)
+        price = Money(1999, CurrencyCode.of("RUB")), eventDate = LocalDate.of(2027, 6, 24), remainingDays = 9, remainingFraction = 0.5)
     val cancelled = video.copy(id = UUID.fromString("00000000-0000-0000-0000-000000000003"), name = "Облачное хранилище", accountLabel = null,
         status = SubscriptionState.CANCELLED, eventDate = null, remainingDays = null, remainingFraction = null)
     val otherCancelled = video.copy(id = UUID.fromString("00000000-0000-0000-0000-000000000004"), name = "Музыкальный сервис", accountLabel = null,
