@@ -58,15 +58,16 @@ class SubscriptionsRedesignUiTest {
         compose.onNodeWithText("Подписок пока нет").assertDoesNotExist()
         compose.onNodeWithText("Повторить загрузку").performClick()
         compose.runOnIdle { assertEquals(1, retries); state.value = SubscriptionsUiState.Empty() }
-        compose.onNodeWithTag("subscriptions_screen").performScrollToNode(hasText("Добавить первую подписку"))
-        compose.onNodeWithText("Добавить первую подписку").assertIsDisplayed().performClick()
+        compose.onNodeWithTag("subscriptions_screen").performScrollToNode(hasText("Добавить подписку"))
+        compose.onNodeWithText("Добавить подписку").assertIsDisplayed().performClick()
         compose.runOnIdle { assertEquals(1, adds) }
     }
 
     @Test fun forecastRendersExactRubEstimateWithoutForeignCurrencyControls() {
-        start(samples.content(active=listOf(samples.video),cancelledRows=emptyList(),forecast=65744L))
-        compose.onNodeWithTag("forecast_summary").assertTextContains("Ожидаемые расходы, не фактические списания")
-        compose.onNodeWithTag("forecast_summary").assertTextContains("657,44 RUB",substring=true)
+        start(samples.content(active=listOf(samples.video),cancelledRows=emptyList()))
+        compose.onNodeWithTag("forecast_summary").assertDoesNotExist()
+        show(samples.video.id).assertTextContains("499 ₽")
+        compose.onNodeWithTag("active_subscriptions_heading").assertDoesNotExist()
         compose.onNodeWithText("Валюта").assertDoesNotExist()
     }
     @Test fun duplicateNamesKeepLabelsDividersAndCorrectUuid() {
@@ -74,14 +75,14 @@ class SubscriptionsRedesignUiTest {
         start(samples.content(cancelledRows = emptyList()), onOpen = { opened = it })
         show(samples.video.id).assertTextContains("Личный").performClick()
         compose.runOnIdle { assertEquals(samples.video.id, opened) }
-        compose.onNodeWithTag("subscription_divider_${samples.video.id}", useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag("subscription_divider_${samples.video.id}", useUnmergedTree = true).assertDoesNotExist()
         show(samples.family.id).assertTextContains("Семейный").performClick()
         compose.runOnIdle { assertEquals(samples.family.id, opened) }
         compose.onNodeWithTag("subscription_divider_${samples.family.id}", useUnmergedTree = true).assertDoesNotExist()
     }
 
     @Test fun cancelledRowsHaveNoProblemOrAwaitingStatus() {
-        start(samples.content(active=emptyList(),cancelledRows=listOf(samples.cancelled,samples.otherCancelled),forecast=0L))
+        start(samples.content(active=emptyList(),cancelledRows=listOf(samples.cancelled,samples.otherCancelled)))
         show(samples.cancelled.id).assertTextContains("Отменена",substring=true)
         progress(samples.cancelled.id).assertDoesNotExist()
         show(samples.otherCancelled.id).assertTextContains("Отменена",substring=true)
@@ -92,16 +93,16 @@ class SubscriptionsRedesignUiTest {
     @Test fun knownAccessIsShownOnceAndUnknownAccessHasNoProgress() {
         val known = samples.video.copy(status = SubscriptionState.CANCELLED, eventDate = LocalDate.of(2027, 6, 30), remainingDays = 15)
         val unknown = samples.family.copy(status = SubscriptionState.CANCELLED, eventDate = null, remainingDays = null, remainingFraction = null)
-        start(samples.content(active = listOf(known, unknown), cancelledRows = emptyList(), forecast = 0L))
-        show(known.id).assertTextContains("Доступ до 30.06.2027 (не включая этот день)")
-        compose.onAllNodesWithText("Доступ до 30.06.2027 (не включая этот день)", useUnmergedTree = true).assertCountEquals(1)
+        start(samples.content(active = listOf(known, unknown), cancelledRows = emptyList()))
+        show(known.id).assertTextContains("Доступ до 30 июн. (не включая этот день)")
+        compose.onAllNodesWithText("Доступ до 30 июн. (не включая этот день)", useUnmergedTree = true).assertCountEquals(1)
         show(unknown.id).assertTextContains("Дата окончания доступа неизвестна")
         progress(unknown.id).assertDoesNotExist()
     }
 
     @Test fun suppliedDomainFractionIsRenderedWithThinProgressAndTextStatus() {
-        start(samples.content(active = listOf(samples.video), cancelledRows = emptyList(), forecast = 0L))
-        show(samples.video.id).assertTextContains("Активна").assertTextContains("Осталось дней: 2")
+        start(samples.content(active = listOf(samples.video), cancelledRows = emptyList()))
+        show(samples.video.id).assertTextContains("Активна").assertTextContains("17 июн. · 2 дн.")
         progress(samples.video.id).assertRangeInfoEquals(ProgressBarRangeInfo(0.75f, 0f..1f))
         val track = compose.onNodeWithTag("subscription_progress_track_${samples.video.id}", useUnmergedTree = true).fetchSemanticsNode()
         assertEquals("Visible track height must be 4dp", 4f * compose.density.density, track.size.height.toFloat(), 1f)
@@ -112,15 +113,15 @@ class SubscriptionsRedesignUiTest {
         val long = samples.video.copy(name = "Очень длинное название семейного видеосервиса", accountLabel = "Отдельный семейный аккаунт",
             price = Money(Long.MAX_VALUE, CurrencyCode.of("RUB")))
         var adds = 0; var settings = 0
-        start(samples.content(active = listOf(long, samples.family), cancelledRows = emptyList(), forecast = Long.MAX_VALUE), scale = 2f,
+        start(samples.content(active = listOf(long, samples.family), cancelledRows = emptyList()), scale = 2f,
             theme = Theme.DARK, onAdd = { adds++ }, onSettings = { settings++ })
         compose.onNodeWithContentDescription("Добавить подписку").assertIsDisplayed().performClick()
-        compose.onNodeWithContentDescription("Открыть настройки").assertIsDisplayed().performClick()
+        compose.onNodeWithTag("tab_settings").assertIsDisplayed().performClick()
         compose.runOnIdle { assertEquals(1, adds); assertEquals(1, settings) }
         show(long.id).assertTextContains(long.name)
-        compose.onNodeWithTag("subscriptions_screen").performScrollToNode(hasText(long.price.format() + " RUB"))
+        compose.onNodeWithTag("subscriptions_screen").performScrollToNode(hasText(com.glebskorobogatov.subscriptiontracker.ui.design.formatTrackerRub(long.price.amountMinor)))
         val layouts = mutableListOf<TextLayoutResult>()
-        compose.onNodeWithText(long.price.format() + " RUB", useUnmergedTree = true).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText(com.glebskorobogatov.subscriptiontracker.ui.design.formatTrackerRub(long.price.amountMinor), useUnmergedTree = true).performScrollTo().assertIsDisplayed()
             .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
         assertTrue("Scaled amount must expose its layout", layouts.isNotEmpty())
         assertTrue("Scaled amount must not overflow: " + layouts.joinToString { "${it.size}, ${it.multiParagraph.width}x${it.multiParagraph.height}, widthOverflow=${it.didOverflowWidth}, heightOverflow=${it.didOverflowHeight}" },
@@ -135,13 +136,14 @@ class SubscriptionsRedesignUiTest {
         val state = mutableStateOf<SubscriptionsUiState>(samples.content())
         compose.setContent { SubscriptionsShowcase(state.value, theme) }
         compose.onNodeWithTag(if (theme == Theme.DARK) "theme_dark" else "theme_light").assertExists()
-        compose.onNodeWithTag("forecast_summary").assertIsDisplayed()
+        compose.onNodeWithTag("forecast_summary").assertDoesNotExist()
+        compose.onNodeWithTag("root_header").assertIsDisplayed()
         saveScreenshot("$name-top")
         show(samples.family.id)
         saveScreenshot("$name-list")
         compose.runOnIdle { state.value = SubscriptionsUiState.Empty() }
-        compose.onNodeWithTag("subscriptions_screen").performScrollToNode(hasText("Добавить первую подписку"))
-        compose.onNodeWithText("Добавить первую подписку").assertIsDisplayed()
+        compose.onNodeWithTag("subscriptions_screen").performScrollToNode(hasText("Добавить подписку"))
+        compose.onNodeWithText("Добавить подписку").assertIsDisplayed()
         saveScreenshot("$name-empty")
     }
     private fun saveScreenshot(name: String) {

@@ -77,7 +77,7 @@ class CrossScreenDesignUiTest {
             val value = compose.onNodeWithTag("settings_time_value",useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
             if(font == 1f) assertTrue("Time on right $width",value.left >= label.right)
             targets(density,"time $width/$font/$theme")
-            compose.onNodeWithTag("bottom_navigation").assertDoesNotExist()
+            compose.onNodeWithTag("bottom_navigation").assertIsDisplayed()
         }
     }
     @Test fun longAmountsKeepZeroTwoAndThreeFractionDigitsAcrossWidthsAndFonts() {
@@ -86,21 +86,22 @@ class CrossScreenDesignUiTest {
         compose.setContent { val c = case.value;ReviewViewport(c.scene,c.theme,c.font,c.width) }
         for(width in listOf(320,360,390,412)) for(font in listOf(1f,1.5f,2f)) for(theme in listOf(Theme.LIGHT,Theme.DARK)) {
             compose.runOnIdle { case.value = Case(width,font,theme,ReviewScene.SubscriptionsLong) }
-            val total = compose.onNodeWithTag("forecast_RUB",useUnmergedTree = true)
-            total.assertTextEquals("92233720368547758,07 RUB")
-            noOverflow(total,"forecast $width/$font/$theme")
+            compose.onNodeWithTag("forecast_summary").assertDoesNotExist()
             for(row in ReviewData.longContent.active) {
                 compose.onNodeWithTag("subscriptions_screen").performScrollToNode(hasTestTag("subscription_${row.id}"))
-                val price = compose.onNode(hasText("${row.price.format()} RUB") and
+                val price = compose.onNode(hasText(com.glebskorobogatov.subscriptiontracker.ui.design.formatTrackerRub(row.price.amountMinor)) and
                     hasAnyAncestor(hasTestTag("subscription_${row.id}")),useUnmergedTree = true)
-                price.assertTextEquals("${row.price.format()} RUB")
+                price.assertTextEquals(com.glebskorobogatov.subscriptiontracker.ui.design.formatTrackerRub(row.price.amountMinor))
                 noOverflow(price,"money $width/$font/$theme/${row.id}")
             }
             compose.onNodeWithTag("subscriptions_screen").performScrollToNode(hasTestTag("subscription_${ReviewData.longRow.id}"))
             noOverflow(compose.onNodeWithText(ReviewData.longName,useUnmergedTree = true),"subscription name $width/$font/$theme")
             val island = compose.onNodeWithTag("bottom_navigation").fetchSemanticsNode().boundsInRoot
             val list = compose.onNodeWithTag("subscriptions_screen").fetchSemanticsNode().boundsInRoot
-            assertTrue("Content must end above island",list.bottom <= island.top)
+            assertTrue("Viewport extends behind island",list.bottom > island.top)
+            compose.onNodeWithTag("subscriptions_screen").performScrollToIndex(ReviewData.longContent.active.lastIndex)
+            val last = compose.onNodeWithTag("subscription_${ReviewData.longContent.active.last().id}").fetchSemanticsNode().boundsInRoot
+            assertTrue("Last row remains above island",last.bottom <= island.top)
             compose.runOnIdle { case.value = Case(width,font,theme,ReviewScene.DetailsLong) }
             val price = compose.onNodeWithText("92233720368547758,07 RUB",useUnmergedTree = true)
             price.performScrollTo();noOverflow(price,"details money $width/$font/$theme")
@@ -146,16 +147,19 @@ class CrossScreenDesignUiTest {
             val artifacts = ReviewArtifacts("landscape-roots-light")
             for(s in listOf(ReviewScene.SubscriptionsEmpty,ReviewScene.ArchiveEmpty,ReviewScene.FinancePlaceholder)) {
                 compose.runOnIdle { scene.value = s }
-                compose.onNodeWithTag("bottom_navigation").assertIsDisplayed()
+                if(s == ReviewScene.ArchiveEmpty) compose.onNodeWithTag("bottom_navigation").assertDoesNotExist()
+                else compose.onNodeWithTag("bottom_navigation").assertIsDisplayed()
                 if(s == ReviewScene.SubscriptionsEmpty) {
-                    compose.onNodeWithTag("subscriptions_screen").performScrollToNode(hasText("Добавить первую подписку"))
-                    compose.onNodeWithText("Добавить первую подписку").assertIsDisplayed().assertHasClickAction()
+                    compose.onNodeWithTag("subscriptions_screen").performScrollToNode(hasText("Добавить подписку"))
+                    compose.onNodeWithText("Добавить подписку").assertIsDisplayed().assertHasClickAction()
                 }
-                if(s != ReviewScene.FinancePlaceholder) {
+                if(s == ReviewScene.SubscriptionsEmpty) {
                     val tag = if(s == ReviewScene.SubscriptionsEmpty) "subscriptions_screen" else "archive_screen"
                     val content = compose.onNodeWithTag(tag).fetchSemanticsNode().boundsInRoot
                     val island = compose.onNodeWithTag("bottom_navigation").fetchSemanticsNode().boundsInRoot
-                    assertTrue("Landscape content must not overlap island: $s",content.bottom <= island.top)
+                    assertTrue("Root viewport extends behind translucent island: $s",content.bottom > island.top)
+                    val action = compose.onNodeWithText("Добавить подписку").fetchSemanticsNode().boundsInRoot
+                    assertTrue("CTA stays above island",action.bottom <= island.top)
                 }
                 targets(density,"landscape root $s")
                 artifacts.capture(compose,s,"light",2f,density)

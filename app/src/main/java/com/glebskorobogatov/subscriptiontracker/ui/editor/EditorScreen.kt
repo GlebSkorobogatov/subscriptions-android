@@ -27,7 +27,7 @@ import androidx.compose.ui.Alignment
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun EditorScreen(vm: EditorViewModel, exitRequest: Int, onSaved: (java.util.UUID) -> Unit = {}, onBack: () -> Unit) {
+fun EditorScreen(vm: EditorViewModel, exitRequest: Int, onSaved: (java.util.UUID) -> Unit = {}, onExitCancelled: () -> Unit = {}, onBack: () -> Unit) {
     val state by vm.state.collectAsStateWithLifecycle()
     var confirm by rememberSaveable { mutableStateOf(false) }
     var picker by rememberSaveable { mutableStateOf<String?>(null) }
@@ -43,7 +43,7 @@ fun EditorScreen(vm: EditorViewModel, exitRequest: Int, onSaved: (java.util.UUID
     if (confirm) TrackerConfirmationDialog(
         title = stringResource(R.string.editor_unsaved), message = stringResource(R.string.editor_unsaved_explanation),
         confirmText = stringResource(R.string.editor_discard), dismissText = stringResource(R.string.editor_continue),
-        onConfirm = { vm.discardImageDraft(); onBack() }, onDismiss = { confirm = false })
+        onConfirm = { vm.discardImageDraft(); onBack() }, onDismiss = { confirm = false; onExitCancelled() })
     EditorForm(state, vm::change, vm::save, { vm.reload(false) }, { vm.reload() }, { leave() }, { picker = it },
         onRemoveImage = vm::removeImage, onPickCatalog = { catalogOpen = true })
     if (catalogOpen) CatalogPickerDialog(state.catalogLogoId, { catalogOpen = false }, { catalogId ->

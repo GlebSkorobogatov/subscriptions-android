@@ -23,27 +23,27 @@ class ForecastIsolationTest {
         val snapshot = forecastSnapshot(rows,today)
         assertEquals(rows,snapshot.rows)
         assertNull(snapshot.forecast)
-        val main = subscriptionStates(flowOf(snapshot)).first() as SubscriptionsUiState.Content
+        val main = subscriptionStates(flowOf(snapshot.rows),flowOf(snapshot.today)).first() as SubscriptionsUiState.Content
         assertEquals(rows.map { it.id }.toSet(),main.active.map { it.id }.toSet())
-        assertNull(main.forecast)
+        assertEquals(ForecastState.Error,snapshot.state)
     }
     @Test fun unrepresentableDateRetainsProblemRecordAndOtherSubscriptions() = runTest {
         val bad = row(unit = FrequencyUnit.YEAR,count = Int.MAX_VALUE)
         val good = row(id = 2)
         val snapshot = forecastSnapshot(listOf(bad,good),today.plusDays(1))
-        val main = subscriptionStates(flowOf(snapshot)).first() as SubscriptionsUiState.Content
+        val main = subscriptionStates(flowOf(snapshot.rows),flowOf(snapshot.today)).first() as SubscriptionsUiState.Content
         assertEquals(2,main.active.size)
         assertNull(main.active.single { it.id == bad.id }.eventDate)
         assertEquals(good.name,main.active.single { it.id == good.id }.name)
-        assertNull(main.forecast)
+        assertEquals(ForecastState.Error,snapshot.state)
     }
     @Test fun actualEventBudgetFailureKeepsAllRowsManageable() = runTest {
         val rows = (1L..300L).map { row(it,unit = FrequencyUnit.DAY) }
         val snapshot = forecastSnapshot(rows,today)
         assertEquals(300,snapshot.rows.size)
         assertNull(snapshot.forecast)
-        val main = subscriptionStates(flowOf(snapshot)).first() as SubscriptionsUiState.Content
-        assertEquals(300,main.active.size); assertNull(main.forecast)
+        val main = subscriptionStates(flowOf(snapshot.rows),flowOf(snapshot.today)).first() as SubscriptionsUiState.Content
+        assertEquals(300,main.active.size); assertEquals(ForecastState.Error,snapshot.state)
     }
 
     @Test fun oneCollectionRecoversAfterPriceCorrectionWithoutRecreatingFlow() = runTest {
@@ -94,10 +94,10 @@ class ForecastIsolationTest {
     @Test fun readFailureDoesNotPublishRowsOrAnEmptyFinancialSuccess() = runTest {
         var published = false
         try {
-            subscriptionStates(flow<SubscriptionForecastSnapshot> {
+            subscriptionStates(flow<List<com.glebskorobogatov.subscriptiontracker.data.room.SubscriptionEntity>> {
                 throw com.glebskorobogatov.subscriptiontracker.data.room.StorageUnavailable(
                     com.glebskorobogatov.subscriptiontracker.data.room.StorageFailure.CORRUPT)
-            }).collect { published = true }
+            },flowOf(today)).collect { published = true }
             fail("Expected storage failure")
         } catch (error: com.glebskorobogatov.subscriptiontracker.data.room.StorageUnavailable) {
             assertEquals(com.glebskorobogatov.subscriptiontracker.data.room.StorageFailure.CORRUPT,error.failure)

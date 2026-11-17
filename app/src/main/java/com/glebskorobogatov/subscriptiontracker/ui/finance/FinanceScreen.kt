@@ -2,6 +2,7 @@ package com.glebskorobogatov.subscriptiontracker.ui.finance
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -26,13 +27,17 @@ import java.util.Locale
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable internal fun FinancePane(state: FinanceUiState,onMonth: (YearMonth) -> Unit = {},onRetry: () -> Unit = {}) {
+    val list = rememberLazyListState()
+    BindRootList(TrackerTab.Finance,list,canHide = state.phase == FinancePhase.Content)
+    val chrome = LocalRootContentPadding.current
     val snapshot = state.snapshot
     val forecast = snapshot?.forecast
     val monthFormat = remember { DateTimeFormatter.ofPattern("LLLL yyyy",Locale.forLanguageTag("ru")) }
     ProvideTextStyle(MaterialTheme.typography.bodyMedium.copy(lineHeightStyle =
         LineHeightStyle(LineHeightStyle.Alignment.Center,LineHeightStyle.Trim.None))) {
-        LazyColumn(Modifier.fillMaxSize().testTag("finance_screen"),
-            contentPadding = PaddingValues(horizontal = TrackerDimensions.screenPadding,vertical = 12.dp),
+        LazyColumn(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)).testTag("finance_screen"),state = list,
+            contentPadding = PaddingValues(start = trackerPageHorizontalPadding(),end = trackerPageHorizontalPadding(),
+                top = chrome.calculateTopPadding()+12.dp,bottom = chrome.calculateBottomPadding()+12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item { Text(stringResource(R.string.finance_explanation),color = TrackerDesign.colors.textSecondary) }
             when(state.phase) {

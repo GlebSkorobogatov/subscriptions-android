@@ -98,7 +98,7 @@ class SubscriptionsUiTest {
     @Test fun cleanLaunchAndFirstAddNavigateToRealEditor() {
         start()
         compose.onNodeWithText("Подписок пока нет").assertIsDisplayed()
-        compose.onNodeWithText("Добавить первую подписку").performClick()
+        compose.onNodeWithText("Добавить подписку").performClick()
         compose.onNodeWithTag("subscription_editor").assertIsDisplayed()
         compose.onNodeWithText("Добавление подписки").assertIsDisplayed()
         compose.waitUntil(5000) { compose.onAllNodesWithTag("field_name").fetchSemanticsNodes().isNotEmpty() }
@@ -119,15 +119,14 @@ class SubscriptionsUiTest {
     @Test fun useCaseInsertionIsReactiveAndDuplicateServicesRetainLabels() {
         start(); val a = create(); val b = create("Семейный", day.plusDays(3))
         awaitContent(2)
-        compose.waitUntil(5000) { (vm.state.value as? SubscriptionsUiState.Content)?.forecast == 149700L }
         show(a.id); compose.onNodeWithText("Личный").assertIsDisplayed()
         show(b.id); compose.onNodeWithText("Семейный").assertIsDisplayed()
         compose.onNodeWithText("Требуют решения").assertDoesNotExist()
         val state = vm.state.value as SubscriptionsUiState.Content
         assertEquals(listOf(a.id, b.id), state.active.map { it.id })
-        assertEquals(149700L, state.forecast)
+        assertEquals(149700L,runBlocking { use.forecasts.first().forecast!!.next30Days.totalMinor })
         compose.onNodeWithTag("subscriptions_screen").performScrollToIndex(0)
-        compose.onNodeWithTag("forecast_summary").assertTextContains("1497,00 RUB", substring = true)
+        compose.onNodeWithTag("forecast_summary").assertDoesNotExist()
     }
     @Test fun cancelledRowsAreBelowActiveWithoutDuplicatesOrProblemStates() {
         val cancelled=create("Отменённая")
@@ -149,9 +148,9 @@ class SubscriptionsUiTest {
         val state = vm.state.value as SubscriptionsUiState.Content
         assertTrue(state.active.isEmpty())
         assertNull(state.cancelled.single().eventDate)
-        assertEquals(0L,state.forecast)
+        assertEquals(0L,runBlocking { use.forecasts.first().forecast!!.next30Days.totalMinor })
         compose.onNodeWithTag("subscriptions_screen").performScrollToIndex(0)
-        compose.onNodeWithText("В ближайшие 30 дней ожидаемых списаний нет").assertIsDisplayed()
+        compose.onNodeWithText("В ближайшие 30 дней ожидаемых списаний нет").assertDoesNotExist()
     }
     @Test fun cardRoutesByUuidAndDeletedTargetShowsNotFound() {
         val a = create(); val b = create("Семейный")
@@ -171,13 +170,13 @@ class SubscriptionsUiTest {
         start()
         assertTrue(vm.state.value is SubscriptionsUiState.Empty)
         compose.onNodeWithText("Подписок пока нет").assertIsDisplayed()
-        compose.onNodeWithTag("tab_archive").performClick()
-        compose.onNodeWithTag("tab_archive").assertIsSelected()
+        compose.openArchive()
+        compose.onNodeWithTag("archive_screen").assertExists()
     }
     @Test fun largeFontKeepsPrimaryActionsReachableByScrolling() {
         start(fontScale = 2f)
-        compose.onNodeWithTag("subscriptions_screen").performScrollToNode(hasText("Добавить первую подписку"))
-        compose.onNodeWithText("Добавить первую подписку").assertIsDisplayed().performClick()
+        compose.onNodeWithTag("subscriptions_screen").performScrollToNode(hasText("Добавить подписку"))
+        compose.onNodeWithText("Добавить подписку").assertIsDisplayed().performClick()
         compose.onNodeWithText("Назад").performScrollTo().assertIsDisplayed().performClick()
         compose.onNodeWithTag("tab_subscriptions").assertIsSelected()
     }
@@ -194,8 +193,12 @@ class SubscriptionsUiTest {
     @Test fun realForecastOverflowShowsErrorAndRetryPreservesSubscription() {
         val row = create(price = Long.MAX_VALUE)
         start()
+        awaitContent(1)
+        compose.onNodeWithTag("tab_finance").performClick()
+        val failure = context.getString(com.glebskorobogatov.subscriptiontracker.R.string.finance_error)
+        compose.waitUntil(5000) { compose.onAllNodesWithText(failure).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Повторить загрузку").performClick()
-        compose.waitUntil(5000) { vm.state.value == SubscriptionsUiState.Error }
+        assertTrue(vm.state.value is SubscriptionsUiState.Content)
         compose.onNodeWithText("Подписок пока нет").assertDoesNotExist()
         runBlocking { assertEquals(row, use.subscriptions.first().single()) }
     }
@@ -219,8 +222,12 @@ class SubscriptionsUiTest {
     @Test fun financialOverflowLeavesLibraryDetailsAndEditorAvailableUntilUserRepairsPrice() {
         val row = create(price = Long.MAX_VALUE)
         start(); awaitContent(1)
-        compose.onNodeWithTag("forecast_error",useUnmergedTree = true).assertIsDisplayed()
-        compose.onNodeWithTag("forecast_RUB",useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithTag("forecast_summary").assertDoesNotExist()
+        compose.onNodeWithTag("tab_finance").performClick()
+        val failure = context.getString(com.glebskorobogatov.subscriptiontracker.R.string.finance_error)
+        compose.waitUntil(5000) { compose.onAllNodesWithText(failure).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("finance_total").assertDoesNotExist()
+        compose.onNodeWithTag("tab_subscriptions").performClick()
         show(row.id); compose.onNodeWithTag("subscription_${row.id}").performClick()
         compose.onNodeWithTag("details_${row.id}").assertIsDisplayed()
         compose.onNodeWithText(context.getString(com.glebskorobogatov.subscriptiontracker.R.string.editor_edit)).performClick()
@@ -228,11 +235,15 @@ class SubscriptionsUiTest {
         compose.onNodeWithTag("field_amount").performScrollTo().performTextClearance()
         compose.onNodeWithTag("field_amount").performTextInput("1,23")
         compose.onNodeWithText("Сохранить").performScrollTo().performClick()
-        compose.waitUntil(5000) { (vm.state.value as? SubscriptionsUiState.Content)?.forecast == 246L }
+        compose.waitUntil(5000) { (vm.state.value as? SubscriptionsUiState.Content)?.active?.singleOrNull()?.price?.amountMinor == 123L }
         compose.onNodeWithContentDescription("Назад").performClick()
         compose.onNodeWithTag("subscriptions_screen").performScrollToIndex(0)
         compose.onNodeWithTag("forecast_error",useUnmergedTree = true).assertDoesNotExist()
-        compose.onNodeWithTag("forecast_RUB",useUnmergedTree = true).assertTextEquals("2,46 RUB")
+        compose.onNodeWithTag("forecast_summary").assertDoesNotExist()
+        compose.onNodeWithTag("tab_finance").performClick()
+        compose.waitUntil(5000) { compose.onAllNodesWithTag("finance_30_total").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag("finance_30_total"))
+        compose.onNodeWithTag("finance_30_total").assertTextEquals("2,46 RUB")
         val saved = runBlocking { withContext(Dispatchers.IO) { db.subscriptions().find(row.id) } }!!
         assertEquals(123L,saved.priceMinor)
         assertEquals(row.id,saved.id); assertEquals(row.anchorDay,saved.anchorDay)

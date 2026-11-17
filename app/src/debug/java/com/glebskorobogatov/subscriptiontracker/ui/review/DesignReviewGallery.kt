@@ -29,7 +29,7 @@ import kotlin.math.min
 
 /** Debug-only deterministic states; no database, commands, network or production data access. */
 internal enum class ReviewScene {
-    DesignSystem,
+    DesignSystem, SubscriptionsHidden, FinanceContent,
     Subscriptions, SubscriptionsEmpty, SubscriptionsError, SubscriptionsLong, FinancePlaceholder,
     Details, DetailsCancelled, DetailsLong, EditorCreate, EditorEdit, EditorError,
     Archive, ArchiveEmpty, Settings, DeleteDialog, UnsavedDialog,
@@ -42,7 +42,10 @@ internal object ReviewData {
     val longContent = SubscriptionsPreviewData.content(active = listOf(longRow,
         SubscriptionsPreviewData.family.copy(name = "Учебный сервис 2",price = amounts[1]),
         SubscriptionsPreviewData.video.copy(id = SubscriptionsPreviewData.cancelled.id,name = "Учебный сервис RUB",price = amounts[2])),
-        cancelledRows = emptyList(),forecast = Long.MAX_VALUE)
+        cancelledRows = emptyList())
+    val scrolling = SubscriptionsPreviewData.content(active = (1L..30L).map {
+        SubscriptionsPreviewData.video.copy(id = java.util.UUID(0,it),name = "Учебная подписка $it")
+    },cancelledRows = emptyList())
     val longDetails = DetailsEditorPreviewData.details.copy(data = DetailsEditorPreviewData.details.data!!.copy(
         subscription = DetailsEditorPreviewData.row.copy(name = longName,priceMinor = Long.MAX_VALUE)))
     val editorError = DetailsEditorPreviewData.editor.copy(fields = DetailsEditorPreviewData.editor.fields + ("name" to longName),errors = mapOf("amount" to R.string.editor_invalid))
@@ -76,12 +79,13 @@ internal fun ReviewViewport(scene: ReviewScene,theme: Theme = Theme.SYSTEM,fontS
 @Composable private fun ReviewContent(scene: ReviewScene,theme: Theme) {
     when(scene) {
         ReviewScene.DesignSystem -> DesignSystemGallery(theme)
+        ReviewScene.SubscriptionsHidden -> SubscriptionsShowcase(ReviewData.scrolling,theme,panelsVisible = false)
+        ReviewScene.FinanceContent -> TrackerTheme(theme) { TrackerRootChrome(TrackerTab.Finance,{},{}) { FinancePane(FinancePreviewData.state()) } }
         ReviewScene.Subscriptions -> SubscriptionsShowcase(SubscriptionsPreviewData.content(),theme)
         ReviewScene.SubscriptionsEmpty -> SubscriptionsShowcase(SubscriptionsUiState.Empty(),theme)
         ReviewScene.SubscriptionsError -> SubscriptionsShowcase(SubscriptionsUiState.Error,theme)
         ReviewScene.SubscriptionsLong -> SubscriptionsShowcase(ReviewData.longContent,theme)
-        ReviewScene.FinancePlaceholder -> TrackerTheme(theme) { Scaffold(topBar = { TrackerPageHeader(stringResource(R.string.finance),onSettings = {}) },
-            bottomBar = { TrackerBottomNavigation(TrackerTab.Finance,{}) }) { padding -> Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) { FinancePane(FinanceUiState(phase = FinancePhase.Empty)) } } }
+        ReviewScene.FinancePlaceholder -> TrackerTheme(theme) { TrackerRootChrome(TrackerTab.Finance,{},{}) { FinancePane(FinanceUiState(phase = FinancePhase.Empty)) } }
         ReviewScene.Details -> DetailsDemo(theme = theme)
         ReviewScene.DetailsCancelled -> DetailsDemo(ReviewData.cancelled,theme)
         ReviewScene.DetailsLong -> DetailsDemo(ReviewData.longDetails,theme)
@@ -115,3 +119,8 @@ internal fun ReviewViewport(scene: ReviewScene,theme: Theme = Theme.SYSTEM,fontS
 @Composable private fun ReviewNarrowPreview() = ReviewViewport(ReviewScene.Settings,fontScale = 2f)
 @Preview(name = "Аудит • большие суммы",widthDp = 390,heightDp = 844,uiMode = Configuration.UI_MODE_NIGHT_YES)
 @Composable private fun ReviewMoneyPreview() = ReviewViewport(ReviewScene.SubscriptionsLong)
+
+@Preview(name = "R4a · скрытые панели",widthDp = 390,heightDp = 844)
+@Composable private fun ReviewHiddenHomePreview() = ReviewViewport(ReviewScene.SubscriptionsHidden)
+@Preview(name = "R4a · статистика",widthDp = 390,heightDp = 844,uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Composable private fun ReviewStatisticsPreview() = ReviewViewport(ReviewScene.FinanceContent)

@@ -56,9 +56,9 @@ object TrackerDimensions {
     // Reference, never a fixed row height. Rows grow with text and accessibility settings.
     val rowStepReference = 98.dp
     fun horizontalPadding(width: androidx.compose.ui.unit.Dp) = if(width < 360.dp) compactScreenPadding else screenPadding
-    val navigationHeight = 68.dp
+    val navigationHeight = 60.dp
     val navigationGap = 12.dp
-    val navigationMaxWidth = 600.dp
+    val navigationMaxWidth = 204.dp
     const val navigationAnimationMillis = TrackerMotion.transitionMillis
 }
 

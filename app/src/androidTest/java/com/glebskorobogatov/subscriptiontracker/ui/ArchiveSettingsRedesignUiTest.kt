@@ -44,9 +44,9 @@ class ArchiveSettingsRedesignUiTest {
     @Test fun emptyArchiveIsMinimalAndIslandKeepsArchiveSelected() {
         compose.setContent { ArchiveDemo(ArchiveUiState(ArchivePhase.Empty)) }
         compose.onNodeWithText("В архиве пока пусто").assertIsDisplayed()
-        compose.onNodeWithText("Добавить первую подписку").assertDoesNotExist()
-        compose.onNodeWithTag("tab_archive").assertIsSelected()
-        compose.onNodeWithContentDescription("Открыть настройки").assertHasClickAction()
+        compose.onNodeWithText("Добавить подписку").assertDoesNotExist()
+        compose.onNodeWithTag("archive_screen").assertExists()
+        compose.onNodeWithContentDescription("Назад").assertHasClickAction()
     }
     @Test fun archiveLoadingErrorAndEmptyAreDistinctAndRetryWorks() {
         val state = mutableStateOf(ArchiveUiState())
@@ -79,8 +79,8 @@ class ArchiveSettingsRedesignUiTest {
         compose.onNodeWithTag("archive_screen").performScrollToNode(hasTestTag("archive_${long.id}"))
         compose.onNodeWithTag("archive_${long.id}").assertHasClickAction()
         compose.onNodeWithText(long.name).assertExists()
-        compose.onNodeWithTag("tab_archive").assertIsDisplayed().assertIsSelected()
-        compose.onNodeWithContentDescription("Открыть настройки").assertIsDisplayed()
+        compose.onNodeWithTag("bottom_navigation").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Назад").assertIsDisplayed()
     }
     @Test fun fixedTimeRowKeepsValueAndHasNoEditingAction() {
         compose.setContent { Box(Modifier.widthIn(max = 390.dp).fillMaxSize()) { SettingsDemo() } }
@@ -176,8 +176,8 @@ class ArchiveSettingsRedesignUiTest {
         compose.onNodeWithText("Подписки, настройки и изображения хранятся на этом устройстве.")
             .assert(SemanticsMatcher.keyNotDefined(SemanticsActions.OnClick))
         compose.onNodeWithTag("settings_version").performScrollTo().assertTextEquals("Версия 0.1")
-        compose.onNodeWithTag("bottom_navigation").assertDoesNotExist()
-        compose.onNodeWithContentDescription("Назад").assertIsDisplayed().performClick()
+        compose.onNodeWithTag("bottom_navigation").assertIsDisplayed()
+        compose.onNodeWithTag("tab_subscriptions").assertIsDisplayed().performClick()
         compose.runOnIdle { assertEquals(1,backs) }
     }
 

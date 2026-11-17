@@ -25,21 +25,19 @@ internal object SubscriptionsPreviewData {
     val otherCancelled = video.copy(id = UUID.fromString("00000000-0000-0000-0000-000000000004"), name = "Музыкальный сервис", accountLabel = null,
         status = SubscriptionState.CANCELLED, eventDate = null, remainingDays = null, remainingFraction = null)
     fun content(active: List<SubscriptionCardModel> = listOf(video, family),
-        cancelledRows: List<SubscriptionCardModel> = listOf(cancelled),
-        forecast: Long = Math.addExact(video.price.amountMinor, family.price.amountMinor)) = SubscriptionsUiState.Content(
-        forecast, cancelledRows, active, (active + cancelledRows).associate { it.id to it.name })
+        cancelledRows: List<SubscriptionCardModel> = listOf(cancelled)) = SubscriptionsUiState.Content(
+        cancelledRows, active, (active + cancelledRows).associate { it.id to it.name })
 }
 
 /** Same screen, header and island as the application, with callbacks owned by the caller. */
 @Composable
 internal fun SubscriptionsShowcase(state: SubscriptionsUiState, theme: Theme = Theme.SYSTEM,
-    onAdd: () -> Unit = {}, onSettings: () -> Unit = {}, onOpen: (UUID) -> Unit = {}, onRetry: () -> Unit = {}) {
+    onAdd: () -> Unit = {}, onSettings: () -> Unit = {}, onOpen: (UUID) -> Unit = {}, onRetry: () -> Unit = {},panelsVisible: Boolean? = null) {
     TrackerTheme(theme) {
-        Scaffold(topBar = { SubscriptionsTopBar(onAdd, onSettings) },
-            bottomBar = { TrackerBottomNavigation(TrackerTab.Subscriptions, {}) }) { padding ->
-            Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
-                SubscriptionsScreen(state, onAdd, onOpen, onRetry)
-            }
+        TrackerRootChrome(TrackerTab.Subscriptions,{ if(it == TrackerTab.Settings) onSettings() },onAdd,visibleOverride = panelsVisible) {
+            val list = androidx.compose.foundation.lazy.rememberLazyListState()
+            androidx.compose.runtime.LaunchedEffect(panelsVisible) { if(panelsVisible == false) list.scrollToItem(6) }
+            SubscriptionsScreen(state,onAdd,onOpen,onRetry,list)
         }
     }
 }
@@ -58,3 +56,6 @@ internal fun SubscriptionsShowcase(state: SubscriptionsUiState, theme: Theme = T
 
 @Preview(name = "Загрузка", widthDp = 390, heightDp = 844)
 @Composable private fun LoadingPreview() = SubscriptionsShowcase(SubscriptionsUiState.Loading)
+
+@Preview(name = "R4a · landscape ×2",widthDp = 640,heightDp = 360,fontScale = 2f)
+@Composable private fun LandscapeHomePreview() = SubscriptionsShowcase(SubscriptionsPreviewData.content())

@@ -23,10 +23,10 @@ class NotificationPermissionUiTest {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         ActivityScenario.launch<IsolatedMainActivity>(Intent(context,IsolatedMainActivity::class.java)).use { scenario ->
-            compose.waitUntil(5_000) { compose.onAllNodesWithText("Добавить первую подписку").fetchSemanticsNodes().isNotEmpty() }
+            compose.waitUntil(5_000) { compose.onAllNodesWithText("Добавить подписку").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithText("Подписка сохранена.",substring=true).assertDoesNotExist()
             assertNull(device.findObject(By.res("com.android.permissioncontroller","permission_allow_button")))
-            compose.onNodeWithText("Добавить первую подписку").performClick()
+            compose.onNodeWithText("Добавить подписку").performClick()
             compose.waitUntil(5_000) { compose.onAllNodesWithTag("field_name").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithTag("field_name").performTextInput("Проверка разрешения")
             compose.onNodeWithTag("field_amount").performTextInput("399")
@@ -50,7 +50,7 @@ class NotificationPermissionUiTest {
             compose.onNodeWithText("Подписка сохранена.",substring=true).assertDoesNotExist()
             compose.onNodeWithTag("subscriptions_screen").performScrollToNode(hasText("Проверка разрешения"))
             compose.onNodeWithText("Проверка разрешения").assertIsDisplayed()
-            compose.onNodeWithContentDescription("Открыть настройки").performClick()
+            compose.onNodeWithTag("tab_settings").performClick()
             compose.onNodeWithText("Настройки уведомлений").performScrollTo().assertIsDisplayed()
             if (Build.VERSION.SDK_INT >= 33) compose.onNodeWithText("Требуется разрешение на уведомления").performScrollTo().assertIsDisplayed()
             assertNull(device.findObject(By.res("com.android.permissioncontroller","permission_allow_button")))

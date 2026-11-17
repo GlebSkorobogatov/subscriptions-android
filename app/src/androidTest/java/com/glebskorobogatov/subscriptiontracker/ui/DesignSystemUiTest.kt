@@ -53,8 +53,8 @@ class DesignSystemUiTest {
 
     @Test fun tabsExposeNamesRolesAndExactlyOneSelection() {
         navigation()
-        for ((tab, label) in listOf(TrackerTab.Subscriptions to "Подписки", TrackerTab.Finance to "Финансы", TrackerTab.Archive to "Архив")) {
-            compose.onNodeWithTag(tab.tag).assertTextContains(label).assertHasClickAction()
+        for ((tab, label) in listOf(TrackerTab.Subscriptions to "Подписки", TrackerTab.Finance to "Статистика", TrackerTab.Settings to "Настройки")) {
+            compose.onNodeWithTag(tab.tag).assertContentDescriptionEquals(label).assertHasClickAction()
                 .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Tab)).performClick().assertIsSelected()
             compose.onAllNodes(isSelected()).assertCountEquals(1)
         }
@@ -65,10 +65,10 @@ class DesignSystemUiTest {
         val density = compose.density.density
         val host = compose.onNodeWithTag("host").fetchSemanticsNode().boundsInRoot
         val island = compose.onNodeWithTag("bottom_navigation").fetchSemanticsNode().boundsInRoot
-        assertEquals(16f * density, island.left - host.left, 1f)
-        assertEquals(16f * density, host.right - island.right, 1f)
+        assertEquals((host.width-204f*density)/2,island.left-host.left,1f)
+        assertEquals((host.width-204f*density)/2,host.right-island.right,1f)
         assertEquals(36f * density, host.bottom - island.bottom, 1f)
-        assertEquals(68f * density, island.height, 1f)
+        assertEquals(60f * density,island.height,1f)
         compose.onNodeWithTag("test_list").performScrollToIndex(99)
         compose.onNodeWithTag("row_99").assertIsDisplayed()
         assertTrue(compose.onNodeWithTag("row_99").fetchSemanticsNode().boundsInRoot.bottom < island.top)
@@ -81,13 +81,9 @@ class DesignSystemUiTest {
             val bounds = node.fetchSemanticsNode().boundsInRoot
             assertTrue("$tab touch width ${bounds.width}px must be at least 48dp", bounds.width >= 48 * compose.density.density)
             assertTrue("$tab touch height ${bounds.height}px must be at least 48dp", bounds.height >= 48 * compose.density.density)
-            val layouts = mutableListOf<TextLayoutResult>()
-            compose.onNode(hasText(when(tab) {
-                TrackerTab.Subscriptions -> "Подписки"; TrackerTab.Finance -> "Финансы"; TrackerTab.Archive -> "Архив"
-            }), useUnmergedTree = true).performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
-            assertTrue("$tab must expose its text layout", layouts.isNotEmpty())
-            assertTrue("$tab text must not overflow: " + layouts.joinToString { "size=${it.size}, paragraph=${it.multiParagraph.width}x${it.multiParagraph.height}, lines=${it.lineCount}, widthOverflow=${it.didOverflowWidth}, heightOverflow=${it.didOverflowHeight}" },
-                layouts.none { it.hasVisualOverflow })
+            val label = when(tab) { TrackerTab.Subscriptions -> "Подписки"; TrackerTab.Finance -> "Статистика"; TrackerTab.Settings -> "Настройки" }
+            node.assertContentDescriptionEquals(label)
+            compose.onAllNodesWithText(label).assertCountEquals(0) // icons only, accessible labels remain.
             node.performClick().assertIsSelected()
         }
     }
@@ -96,10 +92,10 @@ class DesignSystemUiTest {
         // The actual test window can be smaller than a tablet; requiredWidth exercises the cap.
         compose.setContent {
             TrackerTheme { Box(Modifier.requiredWidth(840.dp)) {
-                TrackerBottomNavigation(TrackerTab.Archive, {}, windowInsets = WindowInsets(0, 0, 0, 0))
+                TrackerBottomNavigation(TrackerTab.Settings, {}, windowInsets = WindowInsets(0, 0, 0, 0))
             } }
         }
-        assertEquals(600f * compose.density.density,
+        assertEquals(204f * compose.density.density,
             compose.onNodeWithTag("bottom_navigation").fetchSemanticsNode().size.width.toFloat(), 1f)
     }
 

@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.*
 sealed interface SubscriptionsUiState {
     data object Loading : SubscriptionsUiState
     data class Empty(val names: Map<UUID, String> = emptyMap()) : SubscriptionsUiState
-    data class Content(val forecast: Long?, val cancelled: List<SubscriptionCardModel>,
+    data class Content(val cancelled: List<SubscriptionCardModel>,
         val active: List<SubscriptionCardModel>, val names: Map<UUID, String>, val archivedNames: Map<UUID,String> = emptyMap()) : SubscriptionsUiState
     data class StorageBlocked(val failure: com.glebskorobogatov.subscriptiontracker.data.room.StorageFailure) : SubscriptionsUiState
     data object Error : SubscriptionsUiState
@@ -36,18 +36,18 @@ internal fun card(row: SubscriptionEntity, today: LocalDate): SubscriptionCardMo
 internal fun sortedCards(rows: List<SubscriptionEntity>, today: LocalDate) = rows.map { card(it, today) }
     .sortedWith(compareBy<SubscriptionCardModel> { it.status.ordinal }.thenBy(nullsLast()) { it.eventDate }.thenBy { it.id.toString() })
 
+/** Library reads rows/today directly. Opening the home never subscribes to a financial projection. */
 internal fun subscriptionStates(use: SubscriptionUseCases): Flow<SubscriptionsUiState> =
-    subscriptionStates(use.forecasts)
+    subscriptionStates(use.subscriptions,use.date.today)
 
-internal fun subscriptionStates(snapshots: Flow<com.glebskorobogatov.subscriptiontracker.data.integration.SubscriptionForecastSnapshot>): Flow<SubscriptionsUiState> =
-    snapshots.map { snapshot ->
-        val rows = snapshot.rows
-        val today = snapshot.today
-        val cards = sortedCards(rows.filter { it.state != SubscriptionState.ARCHIVED }, today)
-        val names = rows.associate { it.id to it.name }
-        if (cards.isEmpty()) SubscriptionsUiState.Empty(names)
-        else SubscriptionsUiState.Content(
-            snapshot.forecast?.next30Days?.totalMinor,
-            cards.filter { it.status == SubscriptionState.CANCELLED }, cards.filter { it.status == SubscriptionState.ACTIVE }, names,
-            rows.filter { it.state == SubscriptionState.ARCHIVED }.associate { it.id to it.name })
-    }.distinctUntilChanged().flowOn(Dispatchers.Default)
+internal fun subscriptionStates(rows: Flow<List<SubscriptionEntity>>, today: Flow<LocalDate>): Flow<SubscriptionsUiState> =
+    combine(rows,today) { snapshot,date -> librarySnapshot(snapshot,date) }.distinctUntilChanged().flowOn(Dispatchers.Default)
+
+internal fun librarySnapshot(rows: List<SubscriptionEntity>, today: LocalDate): SubscriptionsUiState {
+    val cards = sortedCards(rows.filter { it.state != SubscriptionState.ARCHIVED },today)
+    val names = rows.associate { it.id to it.name }
+    return if(cards.isEmpty()) SubscriptionsUiState.Empty(names)
+    else SubscriptionsUiState.Content(cards.filter { it.status == SubscriptionState.CANCELLED },
+        cards.filter { it.status == SubscriptionState.ACTIVE },names,
+        rows.filter { it.state == SubscriptionState.ARCHIVED }.associate { it.id to it.name })
+}

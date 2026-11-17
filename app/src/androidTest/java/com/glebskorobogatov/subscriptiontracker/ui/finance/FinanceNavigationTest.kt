@@ -1,5 +1,6 @@
 package com.glebskorobogatov.subscriptiontracker.ui.finance
 
+import com.glebskorobogatov.subscriptiontracker.ui.openArchive
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import com.glebskorobogatov.subscriptiontracker.app.IsolatedMainActivity
@@ -20,8 +21,8 @@ class FinanceNavigationTest {
         compose.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag(tag))
     }
     @Test fun createdSubscriptionAppearsInForecastAndSelectionSurvivesRecreationAndSettingsBack() {
-        compose.waitUntil(5000) { compose.onAllNodesWithText("Добавить первую подписку").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithText("Добавить первую подписку").performClick()
+        compose.waitUntil(5000) { compose.onAllNodesWithText("Добавить подписку").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Добавить подписку").performClick()
         compose.waitUntil(5000) { compose.onAllNodesWithTag("field_name").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("field_name").performTextInput("Учебная подписка")
         compose.onNodeWithTag("field_amount").performTextInput("499")
@@ -41,15 +42,15 @@ class FinanceNavigationTest {
         forecastReady(); compose.onNodeWithTag("finance_horizon_6").assertDoesNotExist()
         compose.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag("finance_month_$month"))
         compose.onNodeWithTag("finance_month_$month").assertIsSelected()
-        compose.onNodeWithContentDescription("Открыть настройки").performClick()
-        compose.onNodeWithContentDescription("Назад").performClick()
+        compose.onNodeWithTag("tab_settings").performClick()
+        compose.onNodeWithTag("tab_finance").performClick()
         compose.onNodeWithTag("tab_finance").assertIsSelected()
         forecastReady(); scrollTo("finance_month_$month")
         compose.onNodeWithTag("finance_month_$month").assertIsSelected()
     }
     @Test fun lastChartMonthSurvivesThemeTabReturnRecreationAndActualRotation() {
-        compose.waitUntil(5000) { compose.onAllNodesWithText("Добавить первую подписку").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithText("Добавить первую подписку").performClick()
+        compose.waitUntil(5000) { compose.onAllNodesWithText("Добавить подписку").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Добавить подписку").performClick()
         compose.waitUntil(5000) { compose.onAllNodesWithTag("field_name").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("field_name").performTextInput("График — учебный сервис")
         compose.onNodeWithTag("field_amount").performTextInput("100")
@@ -66,11 +67,11 @@ class FinanceNavigationTest {
         scrollTo("finance_month_chart")
         compose.onNodeWithTag("finance_month_$last").performScrollTo().performClick().assertIsSelected()
         compose.activityRule.scenario.recreate(); chartSelected()
-        compose.onNodeWithContentDescription("Открыть настройки").performClick()
+        compose.onNodeWithTag("tab_settings").performClick()
         compose.onNodeWithTag("settings_theme_DARK").performScrollTo().performClick()
         compose.waitUntil(5000) { compose.onAllNodes(hasTestTag("settings_theme_DARK") and isSelected()).fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithContentDescription("Назад").performClick(); chartSelected()
-        compose.onNodeWithTag("tab_archive").performClick(); compose.onNodeWithTag("tab_finance").performClick(); chartSelected()
+        compose.onNodeWithTag("tab_finance").performClick(); chartSelected()
+        compose.openArchive(); compose.onNodeWithContentDescription("Назад").performClick(); compose.onNodeWithTag("tab_finance").performClick(); chartSelected()
         fun orient(request: Int,expected: Int) {
             compose.activityRule.scenario.onActivity { it.requestedOrientation = request }
             compose.waitUntil(10_000) {
@@ -84,7 +85,7 @@ class FinanceNavigationTest {
             chartSelected(); compose.onNodeWithTag("tab_finance").assertIsSelected()
             val content = compose.onNodeWithTag("finance_screen").fetchSemanticsNode().boundsInRoot
             val island = compose.onNodeWithTag("bottom_navigation").fetchSemanticsNode().boundsInRoot
-            org.junit.Assert.assertTrue(content.bottom <= island.top)
+            org.junit.Assert.assertTrue(content.bottom > island.top) // Root viewport extends behind the translucent island.
         } finally { orient(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT,android.content.res.Configuration.ORIENTATION_PORTRAIT) }
         chartSelected()
     }

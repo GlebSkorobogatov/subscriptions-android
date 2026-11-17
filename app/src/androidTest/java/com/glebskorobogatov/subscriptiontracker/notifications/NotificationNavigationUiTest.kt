@@ -83,7 +83,7 @@ class NotificationNavigationUiTest {
     @Test fun deletedSubscriptionHasSafeHomeFallback() {
         runBlocking(Dispatchers.IO) { val db = TrackerDatabaseFactory.open(context,dataset); try { db.subscriptions().delete(sub.id) } finally { db.close() } }
         ActivityScenario.launch<IsolatedMainActivity>(intent()).use {
-            compose.waitUntil(5_000) { compose.onAllNodesWithText("Добавить первую подписку").fetchSemanticsNodes().isNotEmpty() }
+            compose.waitUntil(5_000) { compose.onAllNodesWithText("Добавить подписку").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithText("Изменить").assertDoesNotExist()
         }
     }
@@ -109,4 +109,48 @@ class NotificationNavigationUiTest {
         }
     }
 
+
+    private fun draft(scenario: ActivityScenario<IsolatedMainActivity>) {
+        home(); compose.onNodeWithContentDescription("Добавить подписку").performClick()
+        compose.waitUntil(5000) { compose.onAllNodesWithTag("field_name").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("field_name").performTextInput("Несохранённый учебный черновик")
+        scenario.onActivity { it.startActivity(intent().addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)) }
+        compose.waitUntil(5000) { compose.onAllNodesWithText("Продолжить редактирование").fetchSemanticsNodes().isNotEmpty() }
+    }
+    @Test fun notificationDuringEditorRequiresDiscardAndKeepCancelsPendingNavigation() {
+        ActivityScenario.launch<IsolatedMainActivity>(intent().setAction(Intent.ACTION_MAIN).setData(null)).use { scenario ->
+            draft(scenario)
+            compose.onNodeWithText("Продолжить редактирование").performClick()
+            compose.onNodeWithTag("field_name").assertTextContains("Несохранённый учебный черновик")
+            compose.onNodeWithTag("bottom_navigation").assertDoesNotExist()
+            scenario.recreate()
+            compose.waitUntil(5000) { compose.onAllNodesWithTag("field_name").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("field_name").assertTextContains("Несохранённый учебный черновик")
+            compose.onNodeWithContentDescription("Назад").performClick()
+            compose.onNodeWithText("Выйти без сохранения").performClick()
+            home(); compose.onNodeWithTag("details_${sub.id}").assertDoesNotExist()
+        }
+    }
+    @Test fun confirmedDiscardContinuesNotificationToCorrectDetailsWithoutSavingDraft() {
+        ActivityScenario.launch<IsolatedMainActivity>(intent().setAction(Intent.ACTION_MAIN).setData(null)).use { scenario ->
+            draft(scenario)
+            compose.onNodeWithText("Выйти без сохранения").performClick()
+            details(); compose.onNodeWithTag("bottom_navigation").assertDoesNotExist()
+            runBlocking(Dispatchers.IO) {
+                val db = TrackerDatabaseFactory.open(context,dataset)
+                try { assertEquals(listOf(sub),db.subscriptions().all()) } finally { db.close() }
+            }
+        }
+    }
+    @Test fun deferredNotificationRechecksRecordAfterDeletionBeforeDiscard() {
+        ActivityScenario.launch<IsolatedMainActivity>(intent().setAction(Intent.ACTION_MAIN).setData(null)).use { scenario ->
+            draft(scenario)
+            runBlocking(Dispatchers.IO) {
+                val db = TrackerDatabaseFactory.open(context,dataset)
+                try { db.subscriptions().delete(sub.id) } finally { db.close() }
+            }
+            compose.onNodeWithText("Выйти без сохранения").performClick()
+            home(); compose.onNodeWithTag("details_${sub.id}").assertDoesNotExist()
+        }
+    }
 }

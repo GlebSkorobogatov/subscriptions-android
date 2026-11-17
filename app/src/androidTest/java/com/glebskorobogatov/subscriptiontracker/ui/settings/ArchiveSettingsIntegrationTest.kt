@@ -65,11 +65,11 @@ class ArchiveSettingsIntegrationTest {
         val command = LifecycleCommand.Reactivate(RubPrice(59900), ScheduleEdit(day.plusDays(5),Frequency(FrequencyUnit.MONTH,3)))
         val restored = use.changeLifecycle(archived,command,now.plusSeconds(1))
         withTimeout(5000) { vm.state.first { it.rows.map { row -> row.id } == listOf(b.id) } }
-        // Classification and both forecast windows come from the same source snapshot.
+        // Home classification and the separate finance projection both react to the committed restore.
         val active = withTimeout(5000) { owner.state.first {
-            it is SubscriptionsUiState.Content && it.active.singleOrNull()?.id == a.id && it.forecast != null && it.forecast!! > 0L
+            it is SubscriptionsUiState.Content && it.active.singleOrNull()?.id == a.id
         } } as SubscriptionsUiState.Content
-        assertEquals("Reactivated subscription contributes its current price",59900L,active.forecast)
+        assertEquals("Reactivated subscription contributes its current price",59900L,use.forecasts.first().forecast!!.next30Days.totalMinor)
         assertEquals(a.id,restored.id); assertEquals(59900L,active.active.single().price.amountMinor)
         try { use.changeLifecycle(archived,command,now); fail() } catch(_: LifecycleConflict) { }
         assertEquals(restored,details(a.id).subscription)

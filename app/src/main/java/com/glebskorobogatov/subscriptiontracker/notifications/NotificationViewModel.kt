@@ -48,7 +48,7 @@ class AndroidNotificationEnvironment(context: Context,
     override fun dismiss(route: NotificationRoute) = publisher.dismiss(route)
     companion object { private val offerGate = Any() }
 }
-data class NotificationNavigation(val sequence: Long, val subscription: UUID?)
+data class NotificationNavigation(val sequence: Long, val subscription: UUID?, val generation: UUID? = null)
 data class NotificationUiState(val access: NotificationAccess? = null, val explanation: Boolean = false,
     val navigation: NotificationNavigation? = null)
 
@@ -139,7 +139,7 @@ class NotificationViewModel(private val saved: SavedStateHandle, private val own
             }
             val sequence = (saved.get<Long>("navigationSequence") ?: 0) + 1
             saved["navigationSequence"] = sequence
-            mutable.value = state.value.copy(navigation = NotificationNavigation(sequence, subscription))
+            mutable.value = state.value.copy(navigation = NotificationNavigation(sequence, subscription, route?.generation))
         }
     }
     fun consumed(sequence: Long) {

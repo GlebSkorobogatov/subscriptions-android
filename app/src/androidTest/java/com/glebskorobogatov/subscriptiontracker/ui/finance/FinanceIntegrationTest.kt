@@ -142,7 +142,8 @@ class FinanceIntegrationTest {
         assertEquals(YearMonth.of(2027,2),after.forecast!!.months.keys.first())
         val main = com.glebskorobogatov.subscriptiontracker.ui.subscriptions.subscriptionStates(use).first()
             as com.glebskorobogatov.subscriptiontracker.ui.subscriptions.SubscriptionsUiState.Content
-        assertEquals(after.forecast!!.next30Days.totalMinor,main.forecast)
+        assertEquals(row.id,main.active.single().id)
+        assertEquals(LocalDate.of(2027,2,28),main.active.single().eventDate)
         assertEquals(row,after.rows.single())
     }
     @Test fun emptyAndFutureOnlySnapshotsKeepTwelveZeroBuckets() = runBlocking {
@@ -177,7 +178,7 @@ class FinanceIntegrationTest {
         val bad = use.editSubscription(row,SubscriptionEdit(row.name,row.accountLabel,RubPrice(Long.MAX_VALUE)),now)
         val failed = com.glebskorobogatov.subscriptiontracker.ui.subscriptions.subscriptionStates(use).first()
         assertTrue(failed is com.glebskorobogatov.subscriptiontracker.ui.subscriptions.SubscriptionsUiState.Content)
-        assertNull((failed as com.glebskorobogatov.subscriptiontracker.ui.subscriptions.SubscriptionsUiState.Content).forecast)
+        assertEquals(bad.id,(failed as com.glebskorobogatov.subscriptiontracker.ui.subscriptions.SubscriptionsUiState.Content).active.single().id)
         assertNull(snapshot().forecast)
         assertEquals(bad,snapshot().rows.single())
         use.editSubscription(bad,SubscriptionEdit(row.name,row.accountLabel,RubPrice(29950)),now)
