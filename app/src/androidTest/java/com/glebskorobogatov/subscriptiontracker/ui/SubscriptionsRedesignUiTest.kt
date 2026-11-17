@@ -10,6 +10,7 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.text.TextLayoutResult
@@ -102,11 +103,34 @@ class SubscriptionsRedesignUiTest {
 
     @Test fun suppliedDomainFractionIsRenderedWithThinProgressAndTextStatus() {
         start(samples.content(active = listOf(samples.video), cancelledRows = emptyList()))
-        show(samples.video.id).assertTextContains("Активна").assertTextContains("17 июн. · 2 дн.")
+        val row = show(samples.video.id).assertTextContains("17 июн. · 2 дн.")
+        assertNoVisibleActiveBadge(row)
+        assertActiveStatusInSemantics(row)
         progress(samples.video.id).assertRangeInfoEquals(ProgressBarRangeInfo(0.75f, 0f..1f))
         val track = compose.onNodeWithTag("subscription_progress_track_${samples.video.id}", useUnmergedTree = true).fetchSemanticsNode()
         assertEquals("Visible track height must be 4dp", 4f * compose.density.density, track.size.height.toFloat(), 1f)
         assertTrue("Accessibility bounds must cover the visible track", progress(samples.video.id).fetchSemanticsNode().size.height >= track.size.height)
+    }
+
+    @Test fun activeStatusRemainsInSemanticsWhenTheIndicatorIsHidden() {
+        val quiet = samples.video.copy(remainingFraction = null, remainingDays = null, eventDate = null)
+        start(samples.content(active = listOf(quiet), cancelledRows = emptyList()))
+        val row = show(quiet.id).assertTextContains("Дата следующего события неизвестна")
+        progress(quiet.id).assertDoesNotExist()
+        compose.onNodeWithTag("subscription_progress_track_${quiet.id}", useUnmergedTree = true).assertDoesNotExist()
+        assertNoVisibleActiveBadge(row)
+        assertActiveStatusInSemantics(row)
+    }
+
+    private fun assertNoVisibleActiveBadge(row: SemanticsNodeInteraction) {
+        val texts = row.fetchSemanticsNode().config.getOrElse(SemanticsProperties.Text) { emptyList() }
+        assertTrue("Active row must not show a visible Активна badge: $texts", texts.none { "Активна" in it.text })
+    }
+
+    private fun assertActiveStatusInSemantics(row: SemanticsNodeInteraction) {
+        val config = row.fetchSemanticsNode().config
+        val description = if(config.contains(SemanticsProperties.StateDescription)) config[SemanticsProperties.StateDescription] else null
+        assertTrue("Active status must be available to assistive technology: $description", description?.contains("Активна") == true)
     }
 
     @Test fun largeFontKeepsLongNamesAmountsAndToolbarActionsAvailable() {

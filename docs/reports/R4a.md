@@ -485,3 +485,77 @@ Android API 31, один прогон после исправления:
 Весь накопленный Android-набор, TalkBack, шторка уведомлений и process death не запускались. Старая позиция прокрутки legacy Archive при починке по-прежнему не переносится. Видимая подпись «Активна» на активной строке не добавлялась.
 
 Статус: готово к независимой приёмке ChatGPT. PERSONAL-READY не объявляется.
+
+## R4a-fix-3 — «Активна» в семантике, без видимой плашки
+
+Исходный SHA: `5b11502fbb4b97f08863afc7db57dfc747d20db6`.
+SHA исправления публикуется следующей строкой после коммита кода; до него раздел входит в тот же коммит.
+Base остаётся `codex/r3-design-system`. Новый PR не создавался. Force push, merge и ручной запуск Actions не выполнялись.
+PERSONAL-READY не объявляется. R4b не начинался.
+
+### Причина
+
+`SubscriptionsRedesignUiTest.suppliedDomainFractionIsRenderedWithThinProgressAndTextStatus` требовал видимый текст «Активна». Утверждённый список его не рисует.
+
+UI_DESIGN_SPEC §3.1 показывает у активной строки название, подпись, дату и линию 4 dp. Плашка есть только у отменённой: «[Отменена]». R-UI-02 описывает ту же строку: дата и оставшееся время слева, цена и период справа, индикатор 4 dp по R-LIFE-06. Отдельной плашки «Активна» нет. R-LIFE-01 называет состояние ACTIVE «Активна», но это имя состояния, не элемент строки.
+
+На строке с индикатором слово уже было в `StateDescription`: «Оставшийся период. Активна. Осталось 75% расчётного периода». `assertTextContains` смотрит текст, не это описание, поэтому тест падал при верном оформлении.
+
+Без индикатора статус для вспомогательных технологий пропадал. `TrackerPeriodIndicator` при `PeriodTone.HIDDEN` выходит до семантики. Это неизвестная, некорректная или архивная доля по R-LIFE-06. Для активной строки без линии на текстовую колонку добавлено только `stateDescription = «Активна»`. Пиксели, цвета, высота и плашки не менялись. Видимая «Отменена» остаётся текстом строки.
+
+### Что проверяет тест
+
+Прежний метод сохранён и переведён на утверждённый контракт:
+
+- в тексте строки нет «Активна»;
+- `StateDescription` содержит «Активна»;
+- дата «17 июн. · 2 дн.»;
+- `ProgressBarRangeInfo` 0,75 на диапазоне 0..1;
+- высота дорожки 4 dp;
+- область доступности индикатора покрывает видимую дорожку.
+
+Добавлен `activeStatusRemainsInSemanticsWhenTheIndicatorIsHidden`: активная строка без доли не рисует индикатор и плашку, а «Активна» остаётся в семантике. `cancelledRowsHaveNoProblemOrAwaitingStatus` по-прежнему требует видимую «Отменена» и запрещает «Проблема с оплатой» и «Ожидает продления».
+
+### Изменённые файлы
+
+- `app/src/main/java/.../ui/subscriptions/SubscriptionRow.kt` — семантика статуса только когда активная строка без индикатора.
+- `app/src/androidTest/.../ui/SubscriptionsRedesignUiTest.kt` — прежний тест и новая проверка.
+- `docs/reports/R4a.md`.
+
+### Фактические проверки
+
+Среда: тот же VM, JDK 21, SDK `/opt/android-sdk`, emulator-5554, API 31.
+
+`git diff --check` — PASS.
+
+`./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug :app:compileDebugAndroidTestKotlin --no-daemon --max-workers=2 --console=plain` — PASS.
+
+- JVM: **365 выполнено, 365 успешно, 0 падений, 0 пропущено.** Их выполнил первый запуск этой команды в 16:55 UTC. Успешный повтор в 16:58 UTC отметил `testDebugUnitTest` как UP-TO-DATE. `overflowNeverProducesEmptyOrPartialTotals` не повторился.
+- `assembleDebug` — PASS.
+- Lint: **0 ошибок, 19 предупреждений.** `lintReportDebug` остался UP-TO-DATE. Категории те же: GradleDependency 9, NewerVersionAvailable 6, AndroidGradlePluginVersion 2, ObsoleteSdkInt 1, UnusedResources 1. В изменённых файлах их нет. Предупреждения не подавлялись.
+- `compileDebugAndroidTestKotlin` — PASS.
+
+Android API 31, один прогон после исправления, прежний набор плюс новая проверка:
+
+| Набор | Выполнено | Успешно | Падения | Пропуски |
+|---|---:|---:|---:|---:|
+| `LegacyNavigationUiTest` | 2 | 2 | 0 | 0 |
+| `RootNavigationUiTest` | 4 | 4 | 0 | 0 |
+| `NavigationUiTest` | 15 | 15 | 0 | 0 |
+| `NotificationNavigationUiTest` | 14 | 14 | 0 | 0 |
+| `NotificationNavigationRaceUiTest` | 7 | 7 | 0 | 0 |
+| `EditorUiTest` | 8 | 8 | 0 | 0 |
+| `RootChromeUiTest` | 9 | 9 | 0 | 0 |
+| `SubscriptionsRedesignUiTest` | 10 | 10 | 0 | 0 |
+| `R4aGalleryUiTest` | 1 | 1 | 0 | 0 |
+| Итого | 70 | 70 | 0 | 0 |
+
+### Первоначальное падение сборки
+
+Первые два запуска обязательной команды остановились на `compileDebugAndroidTestKotlin`: импортов `getOrElse` и `getOrNull` в этой версии Compose нет. Чтение семантики переведено на `config.contains` и `config[]`, как в остальных UI-тестах. После этого команда прошла. Продуктовый код из-за этой ошибки не менялся повторно.
+
+### Ограничения
+
+Не менялись бизнес-логика, оформление, Room, Gradle и зависимости. Не запускались весь накопленный Android-набор, TalkBack на устройстве, шторка уведомлений и process death. Видимая плашка «Активна» не добавлялась.
+
+Статус: готово к независимой приёмке. PERSONAL-READY не объявляется.

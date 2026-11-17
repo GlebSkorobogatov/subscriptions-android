@@ -10,6 +10,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import com.glebskorobogatov.subscriptiontracker.R
 import com.glebskorobogatov.subscriptiontracker.domain.subscription.SubscriptionState
@@ -22,6 +24,8 @@ import java.util.UUID
 @Composable internal fun SubscriptionRow(model: SubscriptionCardModel,onOpen: (UUID) -> Unit) {
     val cancelled = model.status == SubscriptionState.CANCELLED
     val foreground = if(cancelled) TrackerDesign.colors.textSecondary else TrackerDesign.colors.textPrimary
+    val activeStatus = stringResource(R.string.details_active)
+    val statusWithoutIndicator = !cancelled && periodTone(model.remainingFraction,model.remainingDays,model.status) == PeriodTone.HIDDEN
     Row(Modifier.fillMaxWidth().heightIn(min = TrackerDimensions.minimumTouchTarget).testTag("subscription_${model.id}")
         .clickable(role = Role.Button,onClickLabel = stringResource(R.string.open_subscription_details)) { onOpen(model.id) }
         .padding(vertical = 16.dp),horizontalArrangement = Arrangement.spacedBy(12.dp),verticalAlignment = Alignment.Top) {
@@ -29,7 +33,9 @@ import java.util.UUID
             SubscriptionImage(model.name,model.logoAssetId,catalogId = model.catalogLogoId)
         }
         CompositionLocalProvider(LocalContentColor provides foreground) {
-            Column(Modifier.weight(1f).testTag("subscription_text_${model.id}"),verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.weight(1f).testTag("subscription_text_${model.id}").then(
+                if(statusWithoutIndicator) Modifier.semantics { stateDescription = activeStatus } else Modifier),
+                verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 BoxWithConstraints(Modifier.fillMaxWidth()) {
                     val priceWidth = maxWidth*0.45f
                     if(maxWidth < 240.dp || LocalDensity.current.fontScale >= 1.5f) {
