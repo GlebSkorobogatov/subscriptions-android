@@ -21,11 +21,37 @@ import org.junit.*
 class LegacyNavigationUiTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
     private val store = ViewModelStore()
+    private lateinit var restored: StateRestorationTester
     @After fun close() { compose.runOnIdle { store.clear() } }
+
     @Test fun legacyArchiveParentIsRepairedAndNestedArchiveSurvivesStateRestoration() {
+        showLegacyArchive()
+        compose.onNodeWithTag("archive_screen").assertExists()
+        compose.onNodeWithTag("bottom_navigation").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Назад").performClick()
+        compose.onNodeWithTag("tab_settings").assertIsSelected()
+        compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        compose.onNodeWithTag("tab_subscriptions").assertIsSelected()
+        compose.onNodeWithTag("subscriptions_screen").assertExists()
+        compose.onNodeWithTag("archive_screen").assertDoesNotExist()
+    }
+
+    @Test fun repairedSettingsSurviveAnotherRestoreAndSystemBackReturnsHome() {
+        showLegacyArchive()
+        compose.onNodeWithContentDescription("Назад").performClick()
+        compose.onNodeWithTag("tab_settings").assertIsSelected()
+        restored.emulateSavedInstanceStateRestore()
+        compose.onNodeWithTag("settings_screen").assertExists()
+        compose.onNodeWithTag("tab_settings").assertIsSelected()
+        compose.onNodeWithTag("bottom_navigation").assertExists()
+        compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        compose.onNodeWithTag("tab_subscriptions").assertIsSelected()
+        compose.onNodeWithTag("subscriptions_screen").assertExists()
+    }
+
+    private fun showLegacyArchive() {
         lateinit var owner: SubscriptionsViewModel
         lateinit var settings: SettingsViewModel
-        lateinit var nav: NavHostController
         compose.runOnIdle {
             owner = SubscriptionsViewModel(object: SubscriptionsSource {
                 override fun observe(refreshes: Flow<Unit>) = flowOf(SubscriptionsUiState.Empty())
@@ -34,8 +60,9 @@ class LegacyNavigationUiTest {
             }); store.put("owner",owner)
             settings = SettingsViewModel(SavedStateHandle(),owner); store.put("settings",settings)
         }
-        val restoration = StateRestorationTester(compose)
-        restoration.setContent {
+        lateinit var nav: NavHostController
+        restored = StateRestorationTester(compose)
+        restored.setContent {
             val state by owner.state.collectAsStateWithLifecycle()
             nav = rememberNavController()
             TrackerTheme { TrackerApp(state,owner::retry,owner,settings,navController = nav) }
@@ -43,12 +70,6 @@ class LegacyNavigationUiTest {
         compose.onNodeWithTag("tab_subscriptions").assertExists()
         compose.runOnIdle { nav.navigate(Archive) } // Pre-R4a topology: Subscriptions -> Archive, no Settings parent.
         compose.waitUntil(5000) { compose.onAllNodesWithTag("archive_screen").fetchSemanticsNodes().isNotEmpty() }
-        compose.waitForIdle(); restoration.emulateSavedInstanceStateRestore()
-        compose.onNodeWithTag("archive_screen").assertExists()
-        compose.onNodeWithTag("bottom_navigation").assertDoesNotExist()
-        compose.onNodeWithContentDescription("Назад").performClick()
-        compose.onNodeWithTag("tab_settings").assertIsSelected()
-        compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
-        compose.onNodeWithTag("tab_subscriptions").assertIsSelected()
+        compose.waitForIdle(); restored.emulateSavedInstanceStateRestore()
     }
 }

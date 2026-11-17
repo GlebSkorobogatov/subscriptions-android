@@ -49,6 +49,15 @@ fun TrackerApp(state: SubscriptionsUiState,onRetry: () -> Unit,owner: Subscripti
     onNotificationSettings: () -> Unit = {},animationsEnabled: Boolean = true,navController: androidx.navigation.NavHostController? = null) {
     if(state is SubscriptionsUiState.StorageBlocked) { StorageBlockedScreen(state.failure,onRetry); return }
     val nav = navController ?: rememberNavController()
+    // Home is already the start entry. Restoring it replays the root this pop just saved when that
+    // id was not registered yet: a legacy Archive repaired under Settings makes system Back a no-op.
+    fun openRoot(route: Any) {
+        nav.navigate(route) {
+            popUpTo(nav.graph.findStartDestination().id) { saveState = true }
+            launchSingleTop = true
+            restoreState = route != Subscriptions
+        }
+    }
     val navEntry = nav.currentBackStackEntryAsState()
     val entry = navEntry.value
     val destination = entry?.destination
@@ -100,13 +109,7 @@ fun TrackerApp(state: SubscriptionsUiState,onRetry: () -> Unit,owner: Subscripti
                     request = request,
                     decision = onMain,
                     latestSequence = { model.state.value.navigation?.sequence },
-                    navigateHome = {
-                        nav.navigate(Subscriptions) {
-                            popUpTo(nav.graph.findStartDestination().id) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
-                    },
+                    navigateHome = { openRoot(Subscriptions) },
                     navigateDetails = { id -> nav.navigate(SubscriptionDetails(id.toString())) { launchSingleTop = true } },
                     confirmExit = { exitRequest++ },
                     consume = { model.consumed(it) },
@@ -126,7 +129,7 @@ fun TrackerApp(state: SubscriptionsUiState,onRetry: () -> Unit,owner: Subscripti
     fun select(tab: TrackerTab) {
         if(tab == root) return
         val route: Any = when(tab) { TrackerTab.Subscriptions -> Subscriptions; TrackerTab.Finance -> Finance; TrackerTab.Settings -> Settings }
-        nav.navigate(route) { popUpTo(nav.graph.findStartDestination().id) { saveState = true }; launchSingleTop = true; restoreState = true }
+        openRoot(route)
     }
     val duration = trackerMotionDuration(animationsEnabled)
     CompositionLocalProvider(LocalSubscriptionAssets provides owner) {

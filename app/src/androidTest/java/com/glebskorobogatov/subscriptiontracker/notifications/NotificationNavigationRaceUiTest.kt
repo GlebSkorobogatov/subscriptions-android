@@ -130,6 +130,16 @@ class NotificationNavigationRaceUiTest {
         }
     }
 
+    @Test fun lookupReleasedWhileStoppedStillOpensAfterRestart() = paused {
+        ActivityScenario.launch<IsolatedMainActivity>(open(first.id)).whileAlive { scenario ->
+            awaitLookup()
+            scenario.moveToState(androidx.lifecycle.Lifecycle.State.CREATED)
+            release()
+            scenario.moveToState(androidx.lifecycle.Lifecycle.State.RESUMED)
+            details(first.id)
+        }
+    }
+
     @Test fun recreationDuringLookupKeepsTheRequestUntilItCanOpen() = paused {
         ActivityScenario.launch<IsolatedMainActivity>(open(first.id)).whileAlive { scenario ->
             awaitLookup(atLeast = 1)
