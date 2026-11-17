@@ -1,5 +1,7 @@
 # R2a — единый календарный финансовый прогноз
 
+> Актуальное исправление — **R2a-fix** в конце отчёта: изоляция ошибок от библиотеки и пользовательских операций. Новый результат: 290 JVM / 361 скомпилированный Android, выполнение Android NOT RUN. Описание исходного R2a ниже — историческое.
+
 Дата: 17.11.2026. Статус: **реализовано, подготовлено к независимой приёмке в указанных границах; Android-выполнение NOT RUN**. Весь R2 не завершён, PERSONAL-READY не объявляется.
 
 ## База и источники
@@ -258,3 +260,107 @@ PASS JVM означает фактическое выполнение новог
 - H и перенос пользовательских данных не реализуются. Устройство владельца не очищалось, реальные данные не использовались. Merge и ручной запуск Actions не выполнялись.
 
 R2a передаётся на независимую статическую и последующую инструментальную приёмку с указанными ограничениями. После подготовки stacked Draft PR работа останавливается; R2b не начинается.
+
+## R2a-fix — изоляция ошибок финансового прогноза
+
+Дата: 17.11.2026. Исходный SHA исправления: `feb38762cc5220f7929c09cbac6a86f814e54ed7`. Рабочее дерево до начала чистое; существующая ветка `codex/r2a-calendar-forecast`, Draft PR #7. Новая ветка/PR не создавались.
+
+Проверенная реализация исправления: `907c065bb3df8d57729ff1b0172dc2d229ca331f`. Следующий коммит дополняет только этот отчёт. Итоговый HEAD с отчётом закреплён в описании Draft PR #7 и итоговом ответе; собственный хеш коммита невозможно включить в его же содержимое.
+
+### Первопричина и воспроизведение
+
+В исходном R2a типизированное исключение отличало расчёт от открытия базы, но **не изолировало отказ расчёта от доступности библиотеки**. `forecasts` бросал ForecastCalculationFailure, `subscriptionStates` завершал наблюдение общим Error. Список исчезал, а EditorViewModel.reload ожидал успешное состояние главного экрана. Ручная корректировка через UseCases в прежних тестах не доказывала возможность исправления самим пользователем.
+
+Synthetic MONTH=1 с ценой Long.MAX_VALUE копеек валиден для RubPrice и хранения. При суммировании нескольких продлений возникает overflow. До исправления это прерывало проекцию, а не только финансовую сводку. Дополнительные пути: штатный лимит событий и непредставимая следующая дата одной ACTIVE-записи. Такая дата могла также сорвать card/details или вычисление полей диалога удаления/архива.
+
+Для воспроизведения текущая production-логика была выделена без изменения поведения в `forecastSnapshot`; главный projector получил overload для Flow того же snapshot. **3 новых JVM-регрессии выполнены до исправления: 3 FAIL** на ForecastCalculationFailure (`overflowSnapshotRetainsRowsAndAccessibleLibraryInsteadOfFalseZero`, `actualEventBudgetFailureKeepsAllRowsManageable`, `unrepresentableDateRetainsProblemRecordAndOtherSubscriptions`). Это фактическое воспроизведение обрыва проекции. Device UI до/после не запускался; не заявляется выполненным.
+
+### Архитектура исправления
+
+- `SubscriptionForecastSnapshot` теперь содержит **проверенные rows, отдельный today и ForecastState.Success(result) либо ForecastState.Error**. Getter forecast nullable: у Error нет успешного, частичного, нулевого или предыдущего результата. Конструктор успешного fixture сохраняет прежнюю краткую форму, привязывая today к результату; primary constructor проверяет эту согласованность.
+- `forecastSnapshot` выполняет mapping **до** ограниченного обработчика вычислений. Только arithmetic/date/calendar исключения **внутри расчёта** становятся значением Error. Не сохраняются сырые исключения, SQL, приватные пути или причины в UI. Ошибка не завершает Flow; последующие rows/today могут автоматически дать Success в том же наблюдении.
+- `calculationOrNull` используется только на границах вычисления. Настоящие ошибки чтения, mapping, открытия и CancellationException не преобразуются в финансовую ошибку. Безопасная сессия по-прежнему публикуется только после защищённого открытия Room.
+- Главный экран получает список/метаданные/today из того же snapshot независимо от финансового результата. `Content.forecast: Long?` хранит короткий итог только при Success. При null заменяется **только сводка**: сообщение и Retry, без чисел. Карточки/добавление/детали остаются доступны. Retry сводки вызывает существующий `refreshToday`, а не переоткрывает базу и не переводит библиотеку в Loading.
+- FinanceViewModel при вычислительном Error сохраняет только актуальный snapshot с валидными rows/today и отсутствующим forecast; его phase=Error, суммы/график не показываются. Продолжает собирать Flow и автоматически восстанавливается. Выбранный месяц проверяется относительно today даже у ошибочного snapshot, сохраняется через Retry/recreation либо сбрасывается к текущему, если выпал из 12 месяцев. При настоящем исключении источника snapshot очищается, как раньше.
+- Если вычисление периода **отдельной** записи невозможно, `detailsSnapshot` возвращает её неизменённые данные с неизвестной датой/прогрессом и presentation-флагом calendarError. Карточка и детали показывают сообщение «Не удалось рассчитать дату продления…» и сохраняют ID, имя, цену, оформление и действия. Это **не новое состояние жизненного цикла**. Ошибки mapping остаются ошибками данных; они не маскируются такой карточкой.
+- EditorViewModel читает данные через существующий guarded details Flow. При непредставимой ближайшей дате отображается пустое поле даты, не выдуманная дата. Общий schedule decision validate/save допускает сохранение **неизменённой** исходной серии без reanchor. Явная новая дата/частота по-прежнему требует полной строгой проверки RecurringSchedule.starting. Сохранены scheduleDraft, displayedDue, expected snapshot, generation и double-save guards всех исправлений R1.
+- DetailsViewModel формирует default end тем же доменом, но ошибка даты не мешает открыть Delete/Archive; неизвестный end не подставляется произвольно. Явная отмена серии, для которой домен не может зафиксировать текущий период, по-прежнему требует сначала исправить календарные параметры. Доменное ограничение не ослаблено; исправление, ручной архив и подтверждённое удаление доступны. При обычном overflow/budget с корректными датами все lifecycle-действия работают.
+- Архив читает архивные строки из одного Room snapshot, без расчёта дат посторонних ACTIVE-записей. Editor/Details/Archive/SessionFinanceSource проверяют допустимость состояния данных, включая StorageBlocked, а не успех финансового результата.
+
+`SubscriptionsComposition` проаудирован: его код не менялся. Вычислительная ошибка теперь не выходит из проекции и не закрывает валидные Room/lease/readers. Реальное исключение данных проходит прежний путь закрытия ресурсов/блокировки. Generation/mutation gates и проверки непосредственно перед записью не обходятся. SessionFinanceSource уже отвергал Error/StorageBlocked; Content с отдельной ошибкой прогноза не блокирует безопасную сессию.
+
+### Регрессии и сценарии приёмки
+
+Все прежние 277 JVM и 354 Android @Test-метода сохранены. **Удалённых тестов нет.** Добавлены **13 JVM** и **7 Android**; итог **290/361**. Успешные forecast assertions адаптированы к nullable getter с явным `!!`/requireNotNull, поэтому неожиданное отсутствие результата по-прежнему проваливает проверку. Два прежних Android error-кейса изменены с ожидания глобального Error/исключения на Content + error-value + сохранённые строки; старый тест ручного Retry оставлен дополнительно к новым пользовательским цепочкам.
+
+Новые JVM (PASS):
+
+- `ForecastIsolationTest` (8): overflow сохраняет библиотеку; штатный event budget сохраняет 300 записей; одна непредставимая дата не скрывает остальные; исправление цены восстанавливает тот же collector; успешный итог снимается при ошибке и заменяется при восстановлении; today восстанавливает результат после бюджетной ошибки; cancellation распространяется; настоящая ошибка чтения не публикует строки/нулевой успех.
+- `ForecastModelsAvailabilityTest` (3): настоящий EditorViewModel.reload и DetailsViewModel доступны при overflow; непредставимая дата не выдумывается, можно ввести новые параметры/открыть и отменить Delete; StorageBlocked предотвращает доступ Editor/Details/Archive/Finance и вызов mutation API (счётчики чтений/записей 0).
+- `FinanceViewModelTest` (+2): month/Retry/recreation/автоматическое восстановление после error-value; today ошибочного snapshot сохраняет или корректно сбрасывает месяц без выдуманных сумм.
+
+Новые Android (**скомпилированы, NOT RUN**):
+
+- `SubscriptionsUiTest.financialOverflowLeavesLibraryDetailsAndEditorAvailableUntilUserRepairsPrice`: полный Compose путь список → детали → «Изменить» → ввод 1,23 через поле редактора → Save → автоматический успешный прогноз 2,46 RUB и проверка записи Room. После ошибки цена **не исправляется прямым UseCases-вызовом**. Перед исправлением отсутствует success-total, список остаётся доступен.
+- `ForecastRecoveryIntegrationTest.overflowIsRepairedThroughActualEditorAndBothExistingObserversRecoverAutomatically`: реальные Main/Finance/Details/Editor VM + UseCases + Room; изменение цены только редактором, оба существующих наблюдателя восстанавливаются без Retry/recreation, ID/anchor/catalog сохранены.
+- `cancellationAndConfirmedDeletionThroughDetailsRestoreForecastWithoutOtherRowChanges`: действия через DetailsViewModel; отмена формы удаления ничего не меняет, подтверждение/отмена подписки восстанавливают прогноз и сохраняют другую запись.
+- `actualEventBudgetDoesNotBlockCreateManualArchiveOrArchiveReader`: **штатный лимит 100 000 не меняется**; 300 DAY=1 от 31.01.2027 дают 100 500 событий. Можно создать YEAR-подписку через Editor и архивировать две DAY-подписки через Details. После этого 99 831 событие, точный totalMinor=9 983 100, архивный reader доступен при ошибке.
+- `unrepresentableRecordCanOpenDetailsDismissDeletionAndRepairScheduleInEditor`: запись YEAR/Int.MAX_VALUE после первого due сохраняет доступ к деталям, editor и явному delete. Отмена delete сохраняет ряд; изменение MONTH/count/date редактором восстанавливает календарь и прогноз.
+- `todayChangeRecoversBudgetErrorWithoutRecreatingTheLibraryObserver`: 275 daily от 01.01.2027 превышают лимит; today=31.01 даёт 92 125 событий в том же наблюдателе, строки Room не меняются.
+- `failedForecastDoesNotWeakenOptimisticSnapshotChecks`: конкурентная запись при ошибке прогноза отклоняет stale Editor save, цена/имя победившего ряда не перезаписываются.
+
+JVM-проверки models используют настоящий код проекции/ViewModels с синтетическим источником прочитанных строк, а не Android SQLite. Они не заменяют Room/Compose-запуск. Новые native fixtures изолированы UUID, проходят защищённую фабрику/READY; teardown удаляет только эти synthetic fixtures.
+
+| Обязательный сценарий | Проверка | Результат |
+|---|---|---|
+| 1. Overflow не скрывает список | ForecastIsolationTest + ModelsAvailabilityTest | PASS JVM; UI NOT RUN |
+| 2–3. Нет ложного нуля/частичного/устаревшего успеха | ForecastState/Error и successfulTotalIsWithdrawn… | PASS JVM; UI NOT RUN |
+| 4–5. Детали и Editor открываются при overflow | ModelsAvailabilityTest, новый Compose/native путь | PASS JVM loading; Room/UI NOT RUN |
+| 6. Цена меняется пользователем через редактор | SubscriptionsUiTest + ForecastRecoveryIntegrationTest | NOT RUN, скомпилировано |
+| 7. Автоматическое восстановление без нового Flow | oneCollectionRecovers… и native live VM test | PASS JVM; Room/UI NOT RUN |
+| 8. Cancel/Delete восстанавливают прогноз | cancellationAndConfirmedDeletionThroughDetails… | NOT RUN, скомпилировано; применимые Domain/Details JVM PASS |
+| 9. Budget не блокирует управление | actualEventBudgetFailure… / native create/archive | PASS JVM projection; управление Room NOT RUN |
+| 10. StorageBlocked блокирует небезопасные операции | ModelsAvailabilityTest + прежние StorageOpening/StorageBlockedUi tests | PASS JVM counters; native NOT RUN |
+| 11. today восстанавливает результат | todayChangeCanRecover… / native counterpart | PASS JVM; Room NOT RUN |
+| 12. Month/Retry/recreation корректны | 2 новых FinanceViewModelTest и прежние regression tests | PASS JVM; UI/system NOT RUN |
+
+### Изменённые файлы
+
+Production:
+
+- `data/integration/SubscriptionUseCases.kt`: состояние snapshot, единая вычислительная проекция/граница ошибок, безопасная period-проекция details.
+- `ui/subscriptions/SubscriptionsUiState.kt`, `SubscriptionsScreen.kt`, `ForecastSummary.kt`, `SubscriptionRow.kt`: независимость библиотеки от финансового результата, локальное сообщение/Retry и calendarError записи.
+- `ui/finance/FinanceViewModel.kt`: error-value не завершает наблюдение; выбор месяца по today.
+- `ui/editor/EditorViewModel.kt`, `EditorScreen.kt`: доступный guarded read, корректный пустой displayedDue, сохранение неизменённой серии и сообщение.
+- `ui/details/DetailsViewModel.kt`, `DetailsScreen.kt`: доступ к действиям/неизвестной дате, отсутствие вымышленного default end.
+- `ui/archive/ArchiveViewModel.kt`: чтение только архивных метаданных без календаря активных.
+- `ui/navigation/TrackerApp.kt`: Retry сводки через существующий refreshToday.
+- `res/values/strings.xml`: одна строка ошибки календарной даты.
+
+Tests: два новых JVM-файла `data/integration/ForecastIsolationTest.kt`, `ForecastModelsAvailabilityTest.kt`; дополнен JVM `ui/finance/FinanceViewModelTest.kt`; новый Android `ui/finance/ForecastRecoveryIntegrationTest.kt`; дополнен `ui/SubscriptionsUiTest.kt`; nullable/error-value адаптации в `ui/finance/FinanceIntegrationTest.kt`, `MonthlyChartUiTest.kt`, `ui/settings/ArchiveSettingsIntegrationTest.kt`, `data/integration/SubscriptionUseCasesTest.kt`, `data/assets/OfflineIconCatalogIntegrationTest.kt`. Этот `docs/reports/R2a.md` дополнен без переписывания требований.
+
+### Фактические проверки
+
+JDK 21 / Android SDK 36 / Build Tools 35.0.0:
+
+```bash
+git diff --check
+./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug :app:compileDebugAndroidTestKotlin --no-daemon --max-workers=2 --console=plain
+```
+
+- **PASS**: git diff --check, в том числе полный diff к исходному SHA.
+- **PASS**: обязательный полный Gradle прогон — BUILD SUCCESSFUL.
+- **290 JVM-тестов выполнено**, 0 failures/errors/skipped. Это новый результат исправленного кода, не прежние 277.
+- **PASS**: assembleDebug, APK собран.
+- **PASS**: lintDebug — **0 ошибок, 8 прежних предупреждений**, новых нет.
+- **PASS**: compileDebugAndroidTestKotlin; **361 @Test-метод скомпилирован**, проверено по class-аннотациям. Компиляция не означает выполнение.
+- **NOT RUN**: все Android/Compose/Room/system сценарии, 0 выполнено; доступного устройства/эмулятора нет, adb devices завершился -6. Ограничения ADB/KVM не обходились.
+- **PASS (статический аудит)**: domain/ForecastEngine/DefaultRenewalCalendar (включая окна, Math.addExact и лимит 100 000), Room v5/entities/DAO/schema exports 1–5, защита открытия/InitializationJournal/gates, SubscriptionsComposition, AssetStore, WorkManager/ledger, settings/leases, manifest/backup/applicationId, зависимости/CI, требования и консолидированный R1 device-backlog не изменены. APK не содержит удалённых финансовых моделей/состояний; packaged schemas соответствуют исходным.
+
+### Ограничения и повторная приёмка
+
+Полная пользовательская цепочка восстановления теперь подготовлена как реальный Compose/VM→UseCases→Room тест, но **её выполнение NOT RUN**. Не объявляется доказанной работоспособность установленного APK, SQLite concurrency/WAL, Photo Picker, реальные system triggers, физическая доступность/TalkBack. Сохранён консолидированный [отложенный перечень R1](R1b.5.md) и очередь R2a выше; новые 7 device-проверок добавляются к ней.
+
+При невалидной/непредставимой календарной серии домен по-прежнему может отвергнуть отмену, если невозможно достоверно зафиксировать период. Дата/начало не выдумываются: доступны исправление параметров, ручной архив и удаление с подтверждением. При валидной серии и ошибке только суммы/бюджета финансовый результат не блокирует команды. Это разделение не ослабляет ограничения календаря.
+
+Исправление готово к повторной независимой статической приёмке с указанным NOT RUN. Весь R2/PERSONAL-READY не объявляется завершённым. R2b/R3/R6a/R6b/H не начинались, merge/ручной запуск Actions/очистка устройства не выполнялись. После обновления существующего Draft PR #7 работа останавливается до решения владельца.
