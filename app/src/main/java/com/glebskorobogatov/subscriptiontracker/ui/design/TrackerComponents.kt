@@ -7,28 +7,45 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.stateDescription
+import com.glebskorobogatov.subscriptiontracker.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.error
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun TrackerPrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
-    Button(onClick, modifier.heightIn(min = TrackerDimensions.buttonHeight), enabled = enabled,
-        shape = TrackerShapes.capsule) { Text(text) }
+fun TrackerPrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true,
+    loading: Boolean = false) {
+    val pending = stringResource(R.string.tracker_loading)
+    Button(onClick, modifier.heightIn(min = TrackerDimensions.buttonHeight).semantics {
+        if(loading) stateDescription = pending
+    }, enabled = enabled && !loading, colors = trackerButtonColors(),shape = TrackerShapes.capsule) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp),verticalAlignment = Alignment.CenterVertically) {
+            if(loading) CircularProgressIndicator(Modifier.size(20.dp),color = TrackerDesign.colors.textSecondary,strokeWidth = 2.dp)
+            Text(text)
+        }
+    }
 }
 
 @Composable
 fun TrackerSecondaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
-    TextButton(onClick, modifier.heightIn(min = TrackerDimensions.minimumTouchTarget), enabled = enabled) { Text(text) }
+    FilledTonalButton(onClick, modifier.heightIn(min = TrackerDimensions.minimumTouchTarget), enabled = enabled,
+        shape = TrackerShapes.capsule,colors = ButtonDefaults.filledTonalButtonColors(
+            containerColor = TrackerDesign.colors.surfaceSubtle,contentColor = TrackerDesign.colors.textPrimary,
+            disabledContainerColor = TrackerDesign.colors.surfaceSubtle,disabledContentColor = TrackerDesign.colors.textSecondary)) { Text(text) }
 }
 
 @Composable
 fun TrackerSummaryCard(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
-    Surface(modifier, shape = TrackerShapes.card, color = TrackerDesign.colors.surface, tonalElevation = 0.dp) {
+    Surface(modifier, shape = TrackerShapes.card, color = TrackerDesign.colors.surfaceSubtle, tonalElevation = 0.dp) {
         Column(Modifier.padding(TrackerDimensions.screenPadding),
             verticalArrangement = Arrangement.spacedBy(TrackerDimensions.itemSpacing), content = content)
     }
@@ -50,15 +67,25 @@ fun TrackerListRow(title: String, modifier: Modifier = Modifier, supportingText:
 fun TrackerTextField(value: String, onValueChange: (String) -> Unit, label: String,
     modifier: Modifier = Modifier, errorMessage: String? = null, enabled: Boolean = true,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default, inputModifier: Modifier = Modifier,
-    readOnly: Boolean = false, supportingModifier: Modifier = Modifier) {
+    readOnly: Boolean = false, supportingModifier: Modifier = Modifier,
+    supportingText: String? = null, keyboardActions: KeyboardActions = KeyboardActions.Default) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(label, style = MaterialTheme.typography.labelLarge, modifier = Modifier.clearAndSetSemantics {})
         OutlinedTextField(value, onValueChange, modifier = Modifier.fillMaxWidth().then(inputModifier).semantics {
             contentDescription = label
             if (errorMessage != null) error(errorMessage)
         }, enabled = enabled, isError = errorMessage != null, shape = TrackerShapes.field,
-            keyboardOptions = keyboardOptions, readOnly = readOnly,
-            supportingText = errorMessage?.let { { Text(it, supportingModifier) } })
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedContainerColor = TrackerDesign.colors.surfaceSubtle,unfocusedContainerColor = TrackerDesign.colors.surfaceSubtle,
+                disabledContainerColor = TrackerDesign.colors.surfaceSubtle,errorContainerColor = TrackerDesign.colors.surfaceSubtle,
+                focusedTextColor = TrackerDesign.colors.textPrimary,unfocusedTextColor = TrackerDesign.colors.textPrimary,
+                disabledTextColor = TrackerDesign.colors.textSecondary,errorTextColor = TrackerDesign.colors.textPrimary,
+                focusedBorderColor = TrackerDesign.colors.textSecondary,unfocusedBorderColor = androidx.compose.ui.graphics.Color.Transparent,
+                disabledBorderColor = androidx.compose.ui.graphics.Color.Transparent,errorBorderColor = TrackerDesign.colors.error,
+                errorSupportingTextColor = TrackerDesign.colors.error,unfocusedSupportingTextColor = TrackerDesign.colors.textSecondary,
+                disabledSupportingTextColor = TrackerDesign.colors.textSecondary),
+            keyboardOptions = keyboardOptions, keyboardActions = keyboardActions, readOnly = readOnly,
+            supportingText = (errorMessage ?: supportingText)?.let { { Text(it, supportingModifier) } })
     }
 }
 
@@ -68,16 +95,14 @@ fun TrackerConfirmationDialog(title: String, message: String, confirmText: Strin
     onConfirm: () -> Unit, onDismiss: () -> Unit, destructive: Boolean = false, busy: Boolean = false) {
     val scrollTitle = scrollDialogHeading()
     AlertDialog(onDismissRequest = { if (!busy) onDismiss() },modifier = Modifier.semantics { paneTitle = title },
-        title = if(scrollTitle) null else ({ Text(title) }),
+        title = if(scrollTitle) null else ({ Text(title,style = MaterialTheme.typography.titleLarge,
+            modifier = Modifier.semantics { heading() }) }),
         text = { Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if(scrollTitle) TrackerDialogHeading(title)
             Text(message)
         } },
         confirmButton = {
-            TextButton(onClick = onConfirm, enabled = !busy,
-                colors = ButtonDefaults.textButtonColors(contentColor = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)) {
-                Text(confirmText)
-            }
-        }, dismissButton = { TrackerSecondaryButton(dismissText, onDismiss, enabled = !busy) },
+            TrackerTextButton(confirmText,onConfirm,enabled = !busy,destructive = destructive)
+        }, dismissButton = { TrackerTextButton(dismissText, onDismiss, enabled = !busy) },
         shape = TrackerShapes.card, containerColor = TrackerDesign.colors.surfaceRaised, tonalElevation = 0.dp)
 }

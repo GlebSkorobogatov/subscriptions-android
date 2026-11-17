@@ -3,8 +3,8 @@ package com.glebskorobogatov.subscriptiontracker.ui.design
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -22,13 +22,13 @@ fun TrackerPageHeader(title: String,onBack: (() -> Unit)? = null,onSettings: (()
     Row(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
         .padding(horizontal = TrackerDimensions.screenPadding,vertical = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),verticalAlignment = Alignment.CenterVertically) {
-        onBack?.let { IconButton(it) { Icon(Icons.AutoMirrored.Filled.ArrowBack,stringResource(R.string.navigate_back)) } }
+        onBack?.let { TrackerIconButton(Icons.AutoMirrored.Outlined.ArrowBack,stringResource(R.string.navigate_back),it) }
         Text(title,Modifier.weight(1f).semantics { heading() },
             style = (if(onBack == null) MaterialTheme.typography.headlineLarge else MaterialTheme.typography.titleLarge).copy(
                 lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center,LineHeightStyle.Trim.None)))
         onSettings?.let {
             Surface(shape = CircleShape,color = TrackerDesign.colors.surfaceSubtle) {
-                IconButton(it) { Icon(Icons.Default.Settings,stringResource(R.string.open_settings),tint = TrackerDesign.colors.textSecondary) }
+                TrackerIconButton(Icons.Outlined.Settings,stringResource(R.string.open_settings),it)
             }
         }
     }

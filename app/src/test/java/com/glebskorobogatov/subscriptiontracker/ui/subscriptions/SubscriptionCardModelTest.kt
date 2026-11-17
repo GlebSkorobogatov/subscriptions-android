@@ -22,7 +22,7 @@ class SubscriptionCardModelTest {
         val card = card(row().copy(state = SubscriptionState.CANCELLED,
             cancelledAccessEndExclusive = day.plusDays(4), frozenCancelledPeriodStart = day.minusDays(4)), day)
         assertEquals(day.plusDays(4), card.eventDate); assertEquals(4L, card.remainingDays)
-        assertEquals(0.5f, card.remainingFraction!!, 0.0001f)
+        assertEquals(0.5, card.remainingFraction!!, 0.0001)
     }
     @Test fun automaticSortUsesDatesThenUuidAndUnknownLast() {
         val unknown = row(1).copy(state = SubscriptionState.CANCELLED)
@@ -40,5 +40,15 @@ class SubscriptionCardModelTest {
         assertEquals(listOf("Личный", "Семейный"), cards.map { it.accountLabel })
         assertEquals(listOf("123,45", "123,45"), cards.map { it.price.format() })
         assertEquals(2, cards.map { it.id }.distinct().size)
+    }
+
+    @Test fun fiveDayPeriodKeepsExactTwentyPercentThroughUiProjection() {
+        val source = row().copy(intervalUnit = FrequencyUnit.DAY,intervalCount = 5)
+        val projected = card(source,day.plusDays(4))
+        assertEquals(1L,projected.remainingDays)
+        assertEquals(0.2,projected.remainingFraction!!,0.0)
+        assertTrue(0.2f.toDouble() > projected.remainingFraction!!)
+        assertEquals(com.glebskorobogatov.subscriptiontracker.ui.design.PeriodTone.SOON,
+            com.glebskorobogatov.subscriptiontracker.ui.design.periodTone(projected.remainingFraction,projected.remainingDays,projected.status))
     }
 }

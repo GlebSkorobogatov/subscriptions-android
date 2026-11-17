@@ -20,6 +20,6 @@ import androidx.compose.ui.unit.dp
 
 /** Keep the same scaled typography; scrolling, not reducing fontScale, makes room for fields. */
 @Composable internal fun TrackerDialogHeading(title: String) {
-    Text(title,Modifier.semantics { heading() },style = MaterialTheme.typography.headlineSmall.copy(
+    Text(title,Modifier.semantics { heading() },style = MaterialTheme.typography.titleLarge.copy(
         lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center,LineHeightStyle.Trim.None)))
 }

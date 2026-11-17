@@ -29,6 +29,7 @@ import kotlin.math.min
 
 /** Debug-only deterministic states; no database, commands, network or production data access. */
 internal enum class ReviewScene {
+    DesignSystem,
     Subscriptions, SubscriptionsEmpty, SubscriptionsError, SubscriptionsLong, FinancePlaceholder,
     Details, DetailsCancelled, DetailsLong, EditorCreate, EditorEdit, EditorError,
     Archive, ArchiveEmpty, Settings, DeleteDialog, UnsavedDialog,
@@ -74,6 +75,7 @@ internal fun ReviewViewport(scene: ReviewScene,theme: Theme = Theme.SYSTEM,fontS
 
 @Composable private fun ReviewContent(scene: ReviewScene,theme: Theme) {
     when(scene) {
+        ReviewScene.DesignSystem -> DesignSystemGallery(theme)
         ReviewScene.Subscriptions -> SubscriptionsShowcase(SubscriptionsPreviewData.content(),theme)
         ReviewScene.SubscriptionsEmpty -> SubscriptionsShowcase(SubscriptionsUiState.Empty(),theme)
         ReviewScene.SubscriptionsError -> SubscriptionsShowcase(SubscriptionsUiState.Error,theme)

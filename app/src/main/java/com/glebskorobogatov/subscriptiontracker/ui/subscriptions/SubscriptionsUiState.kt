@@ -22,7 +22,7 @@ sealed interface SubscriptionsUiState {
 
 data class SubscriptionCardModel(val id: UUID, val name: String, val accountLabel: String?,
     val price: Money, val frequency: Frequency, val status: SubscriptionState,
-    val eventDate: LocalDate?, val remainingDays: Long?, val remainingFraction: Float?,
+    val eventDate: LocalDate?, val remainingDays: Long?, val remainingFraction: Double?,
     val logoAssetId: UUID? = null, val catalogLogoId: String? = null, val calendarError: Boolean = false)
 
 internal fun card(row: SubscriptionEntity, today: LocalDate): SubscriptionCardModel {
@@ -30,7 +30,7 @@ internal fun card(row: SubscriptionEntity, today: LocalDate): SubscriptionCardMo
     val subscription = row.toDomain()
     val period = detail.period
     return SubscriptionCardModel(row.id, row.name, row.accountLabel, Money(subscription.price.amountMinor, CurrencyCode.of("RUB")),
-        subscription.schedule.frequency, subscription.state, period.due, period.remainingDays, period.remainingFraction?.toFloat(), row.logoAssetId, row.catalogLogoId, detail.calendarError)
+        subscription.schedule.frequency, subscription.state, period.due, period.remainingDays, period.remainingFraction, row.logoAssetId, row.catalogLogoId, detail.calendarError)
 }
 
 internal fun sortedCards(rows: List<SubscriptionEntity>, today: LocalDate) = rows.map { card(it, today) }
