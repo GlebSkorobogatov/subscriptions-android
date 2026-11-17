@@ -14,12 +14,38 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.*
 
-/** The exact source rows provide all labels/appearance for both financial windows. */
-data class SubscriptionForecastSnapshot(val forecast: ForecastResult, val rows: List<SubscriptionEntity>)
-/** Distinguish calculation failures from exceptions raised while reading/mapping storage. */
-internal class ForecastCalculationFailure : IllegalStateException("Forecast calculation failed")
+/** A computation error belongs to these successfully read rows/today, never to storage readiness. */
+sealed interface ForecastState {
+    data class Success(val result: ForecastResult) : ForecastState
+    data object Error : ForecastState
+}
+data class SubscriptionForecastSnapshot(val state: ForecastState, val rows: List<SubscriptionEntity>, val today: LocalDate) {
+    constructor(forecast: ForecastResult, rows: List<SubscriptionEntity>) : this(ForecastState.Success(forecast),rows,forecast.fromInclusive)
+    val forecast: ForecastResult? get() = (state as? ForecastState.Success)?.result
+    init { require(state !is ForecastState.Success || state.result.fromInclusive == today) }
+}
 
-data class SubscriptionDetails(val subscription: SubscriptionEntity, val period: com.glebskorobogatov.subscriptiontracker.domain.subscription.SubscriptionPeriod)
+/** Only called around calculations; reading and mapping are deliberately outside this boundary. */
+internal inline fun <T : Any> calculationOrNull(block: () -> T): T? = try { block() }
+    catch (_: ArithmeticException) { null }
+    catch (_: DateTimeException) { null }
+    catch (_: com.glebskorobogatov.subscriptiontracker.domain.calendar.CalendarCalculationException) { null }
+
+internal fun forecastSnapshot(rows: List<SubscriptionEntity>, today: LocalDate,
+    forecast: ForecastEngine = ForecastEngine()): SubscriptionForecastSnapshot {
+    val records = rows.map { it.toDomain() }
+    val result = calculationOrNull { forecast.calculate(records,today) }
+    return SubscriptionForecastSnapshot(result?.let(ForecastState::Success) ?: ForecastState.Error,rows,today)
+}
+
+data class SubscriptionDetails(val subscription: SubscriptionEntity,
+    val period: com.glebskorobogatov.subscriptiontracker.domain.subscription.SubscriptionPeriod, val calendarError: Boolean = false)
+
+internal fun detailsSnapshot(row: SubscriptionEntity, today: LocalDate): SubscriptionDetails {
+    val record = row.toDomain()
+    val period = calculationOrNull { com.glebskorobogatov.subscriptiontracker.domain.subscription.SubscriptionDomain().period(record,today) }
+    return SubscriptionDetails(row,period ?: com.glebskorobogatov.subscriptiontracker.domain.subscription.SubscriptionPeriod(null,null,null),period == null)
+}
 
 /** No owned scope/cache. Caller owns DB and Settings lease; UI may stateIn its own lifecycle scope. */
 class SubscriptionUseCases(
@@ -41,16 +67,11 @@ class SubscriptionUseCases(
     val cancelled = groups.map { it.cancelled }.distinctUntilChanged()
     val archive = groups.map { it.archived }.distinctUntilChanged()
     val forecasts: Flow<SubscriptionForecastSnapshot> = combine(subscriptions, date.today) { rows, today ->
-        val records = rows.map { it.toDomain() }
-        val result = try { forecast.calculate(records, today) }
-            catch (_: ArithmeticException) { throw ForecastCalculationFailure() }
-            catch (_: DateTimeException) { throw ForecastCalculationFailure() }
-            catch (_: com.glebskorobogatov.subscriptiontracker.domain.calendar.CalendarCalculationException) { throw ForecastCalculationFailure() }
-        SubscriptionForecastSnapshot(result, rows)
+        forecastSnapshot(rows, today, forecast)
     }.distinctUntilChanged().flowOn(Dispatchers.Default)
 
     fun details(id: UUID): Flow<SubscriptionDetails?> = combine(database.subscriptions().observeDetails(id), date.today) { row, today ->
-        row?.let { SubscriptionDetails(it, com.glebskorobogatov.subscriptiontracker.domain.subscription.SubscriptionDomain().period(it.toDomain(), today)) }
+        row?.let { detailsSnapshot(it,today) }
     }.distinctUntilChanged().flowOn(Dispatchers.Default)
 
     suspend fun stageImage(uri: android.net.Uri): UUID = requireNotNull(assetStore).stage(uri)

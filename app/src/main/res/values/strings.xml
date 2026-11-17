@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="projection_calendar_error">Не удалось рассчитать дату продления. Проверьте дату и периодичность подписки.</string>
     <string name="app_name">Менеджер подписок</string>
     <string name="welcome_message">Добро пожаловать в Менеджер подписок!</string>
     <string name="subscriptions">Подписки</string>

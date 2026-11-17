@@ -67,7 +67,7 @@ class ArchiveSettingsIntegrationTest {
         withTimeout(5000) { vm.state.first { it.rows.map { row -> row.id } == listOf(b.id) } }
         // Classification and both forecast windows come from the same source snapshot.
         val active = withTimeout(5000) { owner.state.first {
-            it is SubscriptionsUiState.Content && it.active.singleOrNull()?.id == a.id && it.forecast > 0L
+            it is SubscriptionsUiState.Content && it.active.singleOrNull()?.id == a.id && it.forecast != null && it.forecast!! > 0L
         } } as SubscriptionsUiState.Content
         assertEquals("Reactivated subscription contributes its current price",59900L,active.forecast)
         assertEquals(a.id,restored.id); assertEquals(59900L,active.active.single().price.amountMinor)

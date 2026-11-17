@@ -132,7 +132,7 @@ class OfflineIconCatalogIntegrationTest {
         assertTrue(file.exists())
         use.deleteSubscription(edited,true)
         assertTrue(file.exists()); assertNotNull(use.assetFile(image))
-        assertFalse(use.forecasts.first().forecast.next30Days.charges.any { it.subscriptionId.value == first.id })
+        assertFalse(use.forecasts.first().forecast!!.next30Days.charges.any { it.subscriptionId.value == first.id })
         use.deleteSubscription(other,true)
         assertFalse(file.exists()); assertNull(use.assetFile(image))
     }

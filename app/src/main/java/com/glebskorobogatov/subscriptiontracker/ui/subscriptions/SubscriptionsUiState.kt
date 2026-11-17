@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.*
 sealed interface SubscriptionsUiState {
     data object Loading : SubscriptionsUiState
     data class Empty(val names: Map<UUID, String> = emptyMap()) : SubscriptionsUiState
-    data class Content(val forecast: Long, val cancelled: List<SubscriptionCardModel>,
+    data class Content(val forecast: Long?, val cancelled: List<SubscriptionCardModel>,
         val active: List<SubscriptionCardModel>, val names: Map<UUID, String>, val archivedNames: Map<UUID,String> = emptyMap()) : SubscriptionsUiState
     data class StorageBlocked(val failure: com.glebskorobogatov.subscriptiontracker.data.room.StorageFailure) : SubscriptionsUiState
     data object Error : SubscriptionsUiState
@@ -23,34 +23,31 @@ sealed interface SubscriptionsUiState {
 data class SubscriptionCardModel(val id: UUID, val name: String, val accountLabel: String?,
     val price: Money, val frequency: Frequency, val status: SubscriptionState,
     val eventDate: LocalDate?, val remainingDays: Long?, val remainingFraction: Float?,
-    val logoAssetId: UUID? = null, val catalogLogoId: String? = null)
+    val logoAssetId: UUID? = null, val catalogLogoId: String? = null, val calendarError: Boolean = false)
 
 internal fun card(row: SubscriptionEntity, today: LocalDate): SubscriptionCardModel {
+    val detail = com.glebskorobogatov.subscriptiontracker.data.integration.detailsSnapshot(row,today)
     val subscription = row.toDomain()
-    val period = SubscriptionDomain().period(subscription, today)
+    val period = detail.period
     return SubscriptionCardModel(row.id, row.name, row.accountLabel, Money(subscription.price.amountMinor, CurrencyCode.of("RUB")),
-        subscription.schedule.frequency, subscription.state, period.due, period.remainingDays, period.remainingFraction?.toFloat(), row.logoAssetId, row.catalogLogoId)
+        subscription.schedule.frequency, subscription.state, period.due, period.remainingDays, period.remainingFraction?.toFloat(), row.logoAssetId, row.catalogLogoId, detail.calendarError)
 }
 
 internal fun sortedCards(rows: List<SubscriptionEntity>, today: LocalDate) = rows.map { card(it, today) }
     .sortedWith(compareBy<SubscriptionCardModel> { it.status.ordinal }.thenBy(nullsLast()) { it.eventDate }.thenBy { it.id.toString() })
 
 internal fun subscriptionStates(use: SubscriptionUseCases): Flow<SubscriptionsUiState> =
-    use.forecasts.map { snapshot ->
+    subscriptionStates(use.forecasts)
+
+internal fun subscriptionStates(snapshots: Flow<com.glebskorobogatov.subscriptiontracker.data.integration.SubscriptionForecastSnapshot>): Flow<SubscriptionsUiState> =
+    snapshots.map { snapshot ->
         val rows = snapshot.rows
-        val today = snapshot.forecast.fromInclusive
+        val today = snapshot.today
         val cards = sortedCards(rows.filter { it.state != SubscriptionState.ARCHIVED }, today)
         val names = rows.associate { it.id to it.name }
         if (cards.isEmpty()) SubscriptionsUiState.Empty(names)
         else SubscriptionsUiState.Content(
-            snapshot.forecast.next30Days.totalMinor,
+            snapshot.forecast?.next30Days?.totalMinor,
             cards.filter { it.status == SubscriptionState.CANCELLED }, cards.filter { it.status == SubscriptionState.ACTIVE }, names,
             rows.filter { it.state == SubscriptionState.ARCHIVED }.associate { it.id to it.name })
-    }.distinctUntilChanged().catch { error ->
-        // Calculation failure is a retryable screen error, not a storage-open failure.
-        // Keep actual read/open failures and coroutine cancellation on their existing paths.
-        when (error) {
-            is com.glebskorobogatov.subscriptiontracker.data.integration.ForecastCalculationFailure -> emit(SubscriptionsUiState.Error)
-            else -> throw error
-        }
-    }.flowOn(Dispatchers.Default)
+    }.distinctUntilChanged().flowOn(Dispatchers.Default)

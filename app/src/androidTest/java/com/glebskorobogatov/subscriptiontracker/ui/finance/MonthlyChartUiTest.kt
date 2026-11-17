@@ -29,7 +29,7 @@ class MonthlyChartUiTest {
         run {
             compose.runOnIdle { ui = FinancePreviewData.state() }
             chart()
-            val forecast = ui.snapshot!!.forecast
+            val forecast = requireNotNull(ui.snapshot!!.forecast)
             val maximum = forecast.months.values.maxOf { it.totalMinor }
             for((month,data) in forecast.months) {
                 column(month).performScrollTo().assertHasClickAction().assertContentDescriptionEquals(description(month,Money(data.totalMinor,CurrencyCode.of("RUB"))))
@@ -55,7 +55,7 @@ class MonthlyChartUiTest {
     @Test fun allTwelveMonthsIncludingZerosAndYearBoundaryAreSelectable() {
         var ui by mutableStateOf(FinancePreviewData.chartState())
         compose.setContent { TrackerTheme { FinancePane(ui,onMonth = { ui = ui.copy(month = it) }) } }
-        for((month,data) in ui.snapshot!!.forecast.months) {
+        for((month,data) in ui.snapshot!!.forecast!!.months) {
             select(month)
             val money = Money(data.totalMinor,CurrencyCode.of("RUB"))
             column(month).assertContentDescriptionEquals(description(month,money))

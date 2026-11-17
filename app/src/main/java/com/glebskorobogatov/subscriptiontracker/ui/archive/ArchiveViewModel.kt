@@ -9,12 +9,10 @@ import java.util.Locale
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 
-/** Join existing classification with storage metadata; suppress mismatched Room emissions. */
+/** Archival metadata never depends on calculating dates of unrelated active subscriptions. */
 internal fun archiveRows(use: SubscriptionUseCases): Flow<List<SubscriptionEntity>> =
-    combine(use.archive,use.subscriptions) { archived,rows ->
-        val stored = rows.filter { it.id in archived.map { s -> s.id.value }.toSet() }
-        if(stored.map { it.toDomain() }.associateBy { it.id } == archived.associateBy { it.id }) stored else null
-    }.filterNotNull().distinctUntilChanged()
+    use.subscriptions.map { rows -> rows.filter { it.state == com.glebskorobogatov.subscriptiontracker.domain.subscription.SubscriptionState.ARCHIVED } }
+        .distinctUntilChanged()
 internal fun sortedArchive(rows: List<SubscriptionEntity>) = rows.sortedWith(
     compareBy<SubscriptionEntity, java.time.LocalDate?>(nullsLast(reverseOrder())) { it.archivedAt }.thenBy { it.id.toString() })
 enum class ArchivePhase { Loading, Empty, Content, Error }
@@ -28,7 +26,7 @@ class ArchiveViewModel(private val owner: SubscriptionsViewModel): ViewModel() {
         combine(owner.generation,attempts) { generation,attempt -> generation to attempt }.collectLatest {
             mutable.value = state.value.copy(phase = ArchivePhase.Loading)
             try {
-                check(owner.state.first { it !is SubscriptionsUiState.Loading } !is SubscriptionsUiState.Error)
+                check(owner.state.first { it !is SubscriptionsUiState.Loading }.let { it !is SubscriptionsUiState.Error && it !is SubscriptionsUiState.StorageBlocked })
                 owner.archive().collect { rows -> mutable.value = ArchiveUiState(
                     if(rows.isEmpty()) ArchivePhase.Empty else ArchivePhase.Content,sortedArchive(rows)) }
             } catch(e: CancellationException) { throw e }

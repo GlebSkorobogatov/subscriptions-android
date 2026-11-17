@@ -44,11 +44,16 @@ class FinanceViewModel(private val saved: SavedStateHandle,private val source: F
                 mutable.value = FinanceUiState()
                 try {
                     source.observe().collect { snapshot ->
+                        val first = YearMonth.from(snapshot.today)
                         val selected = saved.get<String>("month")?.let { runCatching { YearMonth.parse(it) }.getOrNull() }
-                            ?.takeIf { it in snapshot.forecast.months } ?: snapshot.forecast.months.keys.firstOrNull()
-                        saved["month"] = selected?.toString()
-                        mutable.value = FinanceUiState(if(snapshot.forecast.charges.isEmpty()) FinancePhase.Empty else FinancePhase.Content,
-                            snapshot,selected)
+                            ?.takeIf { java.time.temporal.ChronoUnit.MONTHS.between(first,it) in 0L..11L } ?: first
+                        saved["month"] = selected.toString()
+                        val forecast = snapshot.forecast
+                        mutable.value = FinanceUiState(when {
+                            forecast == null -> FinancePhase.Error
+                            forecast.charges.isEmpty() -> FinancePhase.Empty
+                            else -> FinancePhase.Content
+                        },snapshot,selected)
                     }
                 } catch(e: CancellationException) { throw e }
                 catch(_: Exception) { mutable.value = FinanceUiState(phase = FinancePhase.Error) }
@@ -57,7 +62,8 @@ class FinanceViewModel(private val saved: SavedStateHandle,private val source: F
     }
     fun retry() { source.retry(); attempts.value++ }
     fun selectMonth(month: YearMonth) {
-        if(month !in state.value.snapshot?.forecast?.months.orEmpty()) return
+        val snapshot = state.value.snapshot ?: return
+        if (java.time.temporal.ChronoUnit.MONTHS.between(YearMonth.from(snapshot.today),month) !in 0L..11L) return
         saved["month"] = month.toString(); mutable.value = state.value.copy(month = month)
     }
 }

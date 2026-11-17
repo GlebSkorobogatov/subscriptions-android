@@ -126,7 +126,8 @@ fun TrackerApp(state: SubscriptionsUiState, onRetry: () -> Unit, owner: Subscrip
             exitTransition = { fadeOut(tween(TrackerDimensions.navigationAnimationMillis)) }) {
             composable<Subscriptions> {
                 SubscriptionsScreen(state, onAdd = { nav.navigate(SubscriptionEditor()) { launchSingleTop = true } },
-                    onOpen = { nav.navigate(SubscriptionDetails(it.toString())) { launchSingleTop = true } }, onRetry = onRetry)
+                    onOpen = { nav.navigate(SubscriptionDetails(it.toString())) { launchSingleTop = true } }, onRetry = onRetry,
+                    onForecastRetry = owner::refreshToday)
             }
             composable<SubscriptionEditor> { backEntry ->
                 val editorId = backEntry.toRoute<SubscriptionEditor>().subscriptionId?.let(UUID::fromString)

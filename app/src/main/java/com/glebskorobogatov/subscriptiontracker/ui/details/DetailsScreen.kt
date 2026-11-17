@@ -90,6 +90,8 @@ internal fun DetailsPane(state: DetailsUiState, id: UUID, onBack: () -> Unit, on
                             SubscriptionState.ARCHIVED -> R.string.status_archived
                         }
                         val event = detail.period.due
+                        if (detail.calendarError) Text(stringResource(R.string.projection_calendar_error),
+                            modifier = Modifier.testTag("details_calendar_error"),color = TrackerDesign.colors.error)
                         val days = event?.let { ChronoUnit.DAYS.between(state.today,it) }
                         TrackerSummaryCard(Modifier.fillMaxWidth()) {
                             Text(stringResource(status),style = MaterialTheme.typography.titleMedium)

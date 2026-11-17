@@ -113,8 +113,10 @@ class EditorViewModel(private val saved: SavedStateHandle, private val owner: Su
         try {
             val fields = if (id == null) defaults() else {
                 if(owner.state.value is com.glebskorobogatov.subscriptiontracker.ui.subscriptions.SubscriptionsUiState.Error) owner.retry()
-                check(owner.state.first { it !is com.glebskorobogatov.subscriptiontracker.ui.subscriptions.SubscriptionsUiState.Loading } !is com.glebskorobogatov.subscriptiontracker.ui.subscriptions.SubscriptionsUiState.Error)
-                val detail = owner.perform { it.details(id).first() }
+                check(owner.state.first { it !is com.glebskorobogatov.subscriptiontracker.ui.subscriptions.SubscriptionsUiState.Loading }.let {
+                    it !is com.glebskorobogatov.subscriptiontracker.ui.subscriptions.SubscriptionsUiState.Error && it !is com.glebskorobogatov.subscriptiontracker.ui.subscriptions.SubscriptionsUiState.StorageBlocked
+                })
+                val detail = owner.details(id).first()
                 if(detail == null) {
                     mutable.value = state.value.copy(loading = false,notFound = true,loadFailure = false,error = null)
                     return@launch
@@ -186,10 +188,10 @@ class EditorViewModel(private val saved: SavedStateHandle, private val owner: Su
         "date" to owner.today().toString())
     private fun fromRow(row: SubscriptionEntity): Map<String,String> {
         val record = row.toDomain()
-        val due = SubscriptionDomain().nextDue(record.schedule, owner.today())
+        val due = calculationOrNull { SubscriptionDomain().nextDue(record.schedule, owner.today()) }?.toString().orEmpty()
         return defaults() + mapOf("name" to row.name, "amount" to record.price.format(),
             "label" to (row.accountLabel ?: ""), "unit" to row.intervalUnit.name, "count" to row.intervalCount.toString(),
-            "date" to due.toString(), "displayedDue" to due.toString(), "anchorDay" to row.anchorDay.toString(),
+            "date" to due, "displayedDue" to due, "anchorDay" to row.anchorDay.toString(),
             "start" to (row.currentPeriodStartOverride?.toString() ?: ""), "periodDue" to (row.currentPeriodEnd?.toString() ?: ""))
     }
     fun validate(f: Map<String,String>): Map<String,Int> {
@@ -221,20 +223,23 @@ class EditorViewModel(private val saved: SavedStateHandle, private val owner: Su
             val frequency = scheduleField("count") {
                 Frequency(FrequencyUnit.valueOf(f.getValue("unit")), f.getValue("count").toInt())
             }
-            val date = scheduleField("date") { LocalDate.parse(f.getValue("date")) }
+            val date = scheduleField("date") {
+                if (original != null && f["date"].isNullOrBlank() && f["displayedDue"] == "") null
+                else LocalDate.parse(f.getValue("date"))
+            }
             val day = scheduleField("anchorDay") { f["anchorDay"]?.takeIf(String::isNotBlank)?.toInt() }
             // displayedDue is the date originally loaded into this draft, not a new series anchor.
             // It remains stable on recreation and when today advances. An absent refinement inherits
             // the stored anchor if the user reverted the other schedule fields to their loaded values.
-            val keep = original != null && date.toString() == f["displayedDue"] && frequency == original.schedule.frequency &&
-                (!f.containsKey("anchorDay") || (day ?: date.dayOfMonth) == original.schedule.anchor.day)
+            val keep = original != null && (date?.toString() ?: "") == f["displayedDue"] && frequency == original.schedule.frequency &&
+                (!f.containsKey("anchorDay") || (day ?: date?.dayOfMonth) == original.schedule.anchor.day)
             if (keep) return null
-            scheduleField("date") {
+            val firstDue = scheduleField("date") {
                 require(original == null || original.state == SubscriptionState.ACTIVE)
-                require(date >= today)
+                requireNotNull(date).also { require(it >= today) }
             }
-            scheduleField("anchorDay") { RecurringSchedule.starting(date, frequency, day) }
-            return ScheduleEdit(date, frequency, day)
+            scheduleField("anchorDay") { RecurringSchedule.starting(firstDue, frequency, day) }
+            return ScheduleEdit(firstDue, frequency, day)
         }
 
         /** Explicit new-series input; unchanged edits must use the nullable decision above. */
