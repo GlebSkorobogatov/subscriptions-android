@@ -13,6 +13,7 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.test.platform.app.InstrumentationRegistry
 import com.glebskorobogatov.subscriptiontracker.R
 import com.glebskorobogatov.subscriptiontracker.data.settings.Theme
+import com.glebskorobogatov.subscriptiontracker.domain.subscription.*
 import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.*
 import com.glebskorobogatov.subscriptiontracker.ui.details.*
 import com.glebskorobogatov.subscriptiontracker.ui.editor.*
@@ -27,16 +28,16 @@ class DetailsEditorRedesignUiTest {
     private val data = DetailsEditorPreviewData
     @Before fun prepare() { compose.activityRule.scenario.onActivity { it.enableEdgeToEdge() } }
     @Test fun cancelledAccessIsRenderedExactlyOnce() {
-        val row = data.row.copy(lifecycleState = LifecycleState.CANCELLATION_SCHEDULED,paidAccessEndDate = java.time.LocalDate.of(2027,3,31))
-        val detail = data.details.data!!.copy(subscription = row,lifecycle = LifecycleView(VisibleStatus.CANCELLATION_SCHEDULED,null,0.5))
+        val row = data.row.copy(state = SubscriptionState.CANCELLED,cancelledAccessEndExclusive = java.time.LocalDate.of(2027,3,31))
+        val detail = data.details.data!!.copy(subscription = row,period = SubscriptionPeriod(java.time.LocalDate.of(2027,3,31),15,0.5))
         compose.setContent { DetailsDemo(data.details.copy(data = detail)) }
-        compose.onAllNodesWithText("Доступ до 2027-03-31 включительно",useUnmergedTree = true).assertCountEquals(1)
-        compose.onNodeWithText("Доступ до 2027-03-31 включительно").performScrollTo().assertIsDisplayed()
+        compose.onAllNodesWithText("Доступ до 2027-03-31 (не включая этот день)",useUnmergedTree = true).assertCountEquals(1)
+        compose.onNodeWithText("Доступ до 2027-03-31 (не включая этот день)").performScrollTo().assertIsDisplayed()
         compose.onNodeWithTag("bottom_navigation").assertDoesNotExist()
     }
     @Test fun unknownAccessDoesNotInventDateOrProgress() {
-        val detail = data.details.data!!.copy(subscription = data.row.copy(lifecycleState = LifecycleState.CANCELLATION_SCHEDULED),
-            lifecycle = LifecycleView(VisibleStatus.CANCELLATION_SCHEDULED,null,null))
+        val detail = data.details.data!!.copy(subscription = data.row.copy(state = SubscriptionState.CANCELLED),
+            period = SubscriptionPeriod(null,null,null))
         compose.setContent { DetailsDemo(data.details.copy(data = detail),Theme.DARK) }
         compose.onNodeWithText("Дата окончания доступа неизвестна").performScrollTo().assertIsDisplayed()
         compose.onNodeWithTag("details_progress",useUnmergedTree = true).assertDoesNotExist()
@@ -54,34 +55,26 @@ class DetailsEditorRedesignUiTest {
         compose.setContent { DetailsDemo(onAction = { actions += it }) }
         compose.onNodeWithText("Удалить подписку").assertDoesNotExist()
         compose.openDetailsManagement()
-        for ((label,action) in listOf("Продление отключено" to DetailsAction.Disable,
+        for ((label,action) in listOf("Отменить подписку" to DetailsAction.Disable,
             "Архивировать" to DetailsAction.Archive,"Удалить подписку" to DetailsAction.Delete)) {
             compose.onNodeWithText(label).performScrollTo().assertHasClickAction().performClick()
             compose.runOnIdle { assertEquals(action,actions.last()) }
         }
     }
-    @Test fun legacyIssueHasOnlyNonFinancialRecoveryAndLegacyModesRemainRenderable() {
-        val state = mutableStateOf(data.details.copy(data = data.details.data!!.copy(
-            subscription = data.row.copy(lifecycleState = LifecycleState.PAYMENT_ISSUE),
-            lifecycle = LifecycleView(VisibleStatus.PAYMENT_ISSUE,null,null))))
-        val actions = mutableListOf<DetailsAction>()
-        compose.setContent { DetailsDemo(state.value,onAction = { actions += it }) }
+    @Test fun cancelledDetailsOfferEndEditAndResumeWithoutLegacyRecovery() {
+        val state = data.details.copy(data=data.details.data!!.copy(subscription=data.row.copy(state=SubscriptionState.CANCELLED)))
+        val actions=mutableListOf<DetailsAction>()
+        compose.setContent { DetailsDemo(state,onAction={ actions+=it }) }
         compose.openDetailsManagement()
-        compose.onNodeWithText("Разрешить проблему изменением даты").performScrollTo().performClick()
-        compose.runOnIdle { assertEquals(listOf(DetailsAction.ResolveDate),actions) }
+        compose.onNodeWithText("Изменить дату окончания доступа").performScrollTo().performClick()
+        compose.runOnIdle { assertEquals(listOf(DetailsAction.EditEnd),actions) }
+        compose.onNodeWithText("Возобновить подписку").performScrollTo().assertHasClickAction()
+        compose.onNodeWithText("Проблема с оплатой").assertDoesNotExist()
         compose.onNodeWithText("Подтвердить оплату").assertDoesNotExist()
-        compose.onNodeWithText("История платежей и возвратов").assertDoesNotExist()
-        for (mode in RenewalMode.entries) {
-            compose.runOnIdle { state.value = state.value.copy(data = state.value.data!!.copy(
-                subscription = data.row.copy(renewalMode = mode),lifecycle = LifecycleView(VisibleStatus.ACTIVE,null,null))) }
-            compose.onNodeWithText("Разрешить проблему изменением даты").assertDoesNotExist()
-            compose.onNodeWithText("Проблема с оплатой").assertDoesNotExist()
-            compose.onNodeWithText("Изменить").assertHasClickAction()
-        }
     }
     @Test fun archiveKeepsReactivationAndHidesPayment() {
-        val detail = data.details.data!!.copy(subscription = data.row.copy(lifecycleState = LifecycleState.ARCHIVED),
-            lifecycle = LifecycleView(VisibleStatus.ARCHIVED,null,null))
+        val detail = data.details.data!!.copy(subscription = data.row.copy(state = SubscriptionState.ARCHIVED),
+            period = SubscriptionPeriod(null,null,null))
         compose.setContent { DetailsDemo(data.details.copy(data = detail)) }
         compose.openDetailsManagement()
         compose.onNodeWithText("Возобновить подписку").performScrollTo().assertHasClickAction()
@@ -115,14 +108,14 @@ class DetailsEditorRedesignUiTest {
         compose.onNodeWithTag("field_currency").assertDoesNotExist()
         compose.onNodeWithTag("field_lead").assertDoesNotExist()
     }
-    @Test fun futureSeriesChoiceAndRequiredConfirmationRemainExplicit() {
-        val state = mutableStateOf(data.editor)
-        compose.setContent { EditorDemo(state.value,onChange = { key,value -> state.value = state.value.copy(fields = state.value.fields + (key to value)) }) }
-        compose.onNodeWithText("Изменить весь будущий график").performScrollTo().assertIsToggleable().assertIsOff().performClick()
-        compose.runOnIdle { assertEquals("true",state.value.fields["series"]) }
-        compose.onNodeWithText("Изменить весь будущий график").assertIsOn()
-        compose.runOnIdle { state.value = state.value.copy(fields = state.value.fields + ("series" to "false"),errors = mapOf("series" to R.string.editor_series_required)) }
-        compose.onNodeWithText("Подтвердите изменение всего будущего графика.").performScrollTo().assertIsDisplayed()
+    @Test fun dateEditExplainsWholeSeriesAndAnchorValidationRemainsVisible() {
+        val state=mutableStateOf(data.editor)
+        compose.setContent { EditorDemo(state.value) }
+        compose.onNodeWithText("Изменение даты или периодичности обновит всю будущую серию.").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Изменить весь будущий график").assertDoesNotExist()
+        compose.onNodeWithTag("editor_extra").performScrollTo().performClick()
+        compose.runOnIdle { state.value=state.value.copy(errors=mapOf("anchorDay" to R.string.editor_invalid)) }
+        compose.onNodeWithTag("field_anchorDay").performScrollTo().assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.Error))
     }
     @Test fun fieldErrorsAndSavingPreserveValuesAndDisableSubmission() {
         val state = mutableStateOf(data.editor.copy(errors = mapOf("name" to R.string.editor_invalid)))
@@ -161,5 +154,14 @@ class DetailsEditorRedesignUiTest {
         val file = File(directory,"ui03-$name.png"); file.parentFile!!.mkdirs()
         file.outputStream().use { compose.onRoot().captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG,100,it) }
         assertTrue("Screenshot must be stored: ${file.name}",file.length() > 0)
+    }
+    @Test fun cancelledEditorKeepsNonScheduleFieldsEditableAndFrozenPeriodReadOnly() {
+        compose.setContent { EditorDemo(data.editor.copy(scheduleEditable=false)) }
+        compose.onNodeWithTag("field_name").assertIsEnabled()
+        compose.onNodeWithTag("field_amount").assertIsEnabled()
+        compose.onNodeWithTag("field_count").performScrollTo().assertIsNotEnabled()
+        compose.onNodeWithTag("field_date").performScrollTo().assertIsNotEnabled()
+        compose.onNodeWithTag("editor_extra").performScrollTo().performClick()
+        compose.onNodeWithTag("field_start").performScrollTo().assertIsNotEnabled()
     }
 }

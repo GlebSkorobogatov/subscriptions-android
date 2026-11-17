@@ -1,5 +1,6 @@
 package com.glebskorobogatov.subscriptiontracker.data.assets
 
+import com.glebskorobogatov.subscriptiontracker.domain.subscription.*
 import android.content.Context
 import android.content.ContextWrapper
 import android.graphics.Bitmap
@@ -15,7 +16,6 @@ import com.glebskorobogatov.subscriptiontracker.data.settings.Settings
 import com.glebskorobogatov.subscriptiontracker.data.settings.SettingsRepository
 import com.glebskorobogatov.subscriptiontracker.domain.calendar.*
 import com.glebskorobogatov.subscriptiontracker.domain.integration.CurrentDate
-import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.RenewalMode
 import com.glebskorobogatov.subscriptiontracker.domain.model.*
 import java.io.File
 import java.time.Instant
@@ -53,12 +53,8 @@ class OfflineIconCatalogIntegrationTest {
                 assetStore = AssetStore(context, generation)), context)
         } finally { db.close(); root.deleteRecursively() }
     }
-    private fun draft(id: UUID, logo: UUID? = null, catalog: String? = null) = SubscriptionDraft(
-        id, "Тест $id", null, Money(100, CurrencyCode.of("RUB")), RenewalMode.AUTO,
-        RenewalSchedule(RenewalAnchor.from(LocalDate.of(2027, 2, 1)), Frequency(FrequencyUnit.MONTH, 1)),
-        logoAssetId = logo, catalogLogoId = catalog)
-    private fun edit(name: String, image: ImageEdit) = SubscriptionEdit(name, null,
-        Money(100, CurrencyCode.of("RUB")), RenewalMode.AUTO, image = image)
+    private fun draft(id: UUID, logo: UUID? = null, catalog: String? = null) = SubscriptionDraft(id = id, name = "Тест $id", accountLabel = null, price = RubPrice(100), schedule = ScheduleEdit(LocalDate.of(2027, 2, 1), Frequency(FrequencyUnit.MONTH, 1)), logoAssetId = logo, catalogLogoId = catalog)
+    private fun edit(name: String, image: ImageEdit) = SubscriptionEdit(name = name, accountLabel = null, price = RubPrice(100), image = image)
     private fun source(context: Context): Uri {
         val file = File(context.filesDir, "input.png")
         file.outputStream().use { Bitmap.createBitmap(8, 8, Bitmap.Config.ARGB_8888)
@@ -128,21 +124,14 @@ class OfflineIconCatalogIntegrationTest {
         val first = use.createSubscription(draft(UUID.randomUUID(),logo = image),Instant.EPOCH)
         val other = first.copy(id = UUID.randomUUID(),name = "Другой владелец")
         db.subscriptions().insert(other)
-        val p = com.glebskorobogatov.subscriptiontracker.fixtures.legacyPayment(db,first,LocalDate.of(2027,1,1))
-        val r = com.glebskorobogatov.subscriptiontracker.fixtures.legacyRefund(db,p,LocalDate.of(2027,1,1))
-        val otherPayment = com.glebskorobogatov.subscriptiontracker.fixtures.legacyPayment(db,other,LocalDate.of(2027,1,1))
         val file = requireNotNull(use.assetFile(image))
         try { use.deleteSubscription(first,false); fail() } catch (_: IllegalArgumentException) { }
-        assertTrue(file.exists()); assertEquals(p,db.payments().find(p.id)); assertEquals(r,db.refunds().find(r.id))
-        val edited = use.editSubscription(first,SubscriptionEdit(first.name,"Обновлено",Money(200,CurrencyCode.of("RUB")),first.renewalMode),Instant.ofEpochSecond(1))
+        assertTrue(file.exists())
+        val edited = use.editSubscription(first,SubscriptionEdit(name = first.name, accountLabel = "Обновлено", price = RubPrice(200)),Instant.ofEpochSecond(1))
         try { use.deleteSubscription(first,true); fail() } catch (_: com.glebskorobogatov.subscriptiontracker.data.lifecycle.LifecycleConflict) { }
-        assertTrue(file.exists()); assertEquals(p,db.payments().find(p.id))
+        assertTrue(file.exists())
         use.deleteSubscription(edited,true)
         assertTrue(file.exists()); assertNotNull(use.assetFile(image))
-        assertNull(db.payments().find(p.id)); assertNull(db.refunds().find(r.id))
-        assertEquals(otherPayment,db.payments().find(otherPayment.id))
-        assertTrue(db.retiredPaymentOperations().contains(p.operationId))
-        assertFalse(db.retiredPaymentOperations().contains(otherPayment.operationId))
         assertFalse(use.forecast30Days.first().charges.any { it.subscriptionId.value == first.id })
         use.deleteSubscription(other,true)
         assertFalse(file.exists()); assertNull(use.assetFile(image))

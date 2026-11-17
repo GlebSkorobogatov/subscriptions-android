@@ -22,6 +22,7 @@ import com.glebskorobogatov.subscriptiontracker.data.room.*
 import com.glebskorobogatov.subscriptiontracker.data.settings.*
 import com.glebskorobogatov.subscriptiontracker.domain.calendar.*
 import com.glebskorobogatov.subscriptiontracker.domain.integration.CurrentDate
+import com.glebskorobogatov.subscriptiontracker.domain.subscription.*
 import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.*
 import com.glebskorobogatov.subscriptiontracker.domain.model.*
 import com.glebskorobogatov.subscriptiontracker.ui.archive.archiveRows
@@ -111,11 +112,9 @@ class AccessibilityUiTest {
         theme("DARK"); compose.runOnIdle { night.value = false }; compose.onNodeWithTag("theme_dark").assertExists()
     }
     @Test fun enlargedFontKeepsFormsDialogsHistoryArchiveAndReminderActionsReachable() {
-        val row = runBlocking { use.createSubscription(SubscriptionDraft(UUID.randomUUID(),"Очень длинное учебное название подписки", "Учебный семейный аккаунт",
-            Money(999999999,CurrencyCode.of("RUB")),RenewalMode.AUTO,RenewalSchedule(RenewalAnchor.from(day),Frequency(FrequencyUnit.MONTH,1))),now) }
+        val row = runBlocking { use.createSubscription(SubscriptionDraft(id = UUID.randomUUID(), name = "Очень длинное учебное название подписки", accountLabel = "Учебный семейный аккаунт", price = RubPrice(999999999), schedule = ScheduleEdit(day, Frequency(FrequencyUnit.MONTH,1))),now) }
         val archived = runBlocking {
-            val s = use.createSubscription(SubscriptionDraft(UUID.randomUUID(),"Архивная учебная запись",null,Money(999,CurrencyCode.of("RUB")),RenewalMode.AUTO,
-                RenewalSchedule(RenewalAnchor.from(day),Frequency(FrequencyUnit.MONTH,1))),now)
+            val s = use.createSubscription(SubscriptionDraft(id = UUID.randomUUID(), name = "Архивная учебная запись", accountLabel = null, price = RubPrice(999), schedule = ScheduleEdit(day, Frequency(FrequencyUnit.MONTH,1))),now)
             use.changeLifecycle(s,LifecycleCommand.Archive,now)
         }
         val restoration = StateRestorationTester(compose); start(2f,restoration)

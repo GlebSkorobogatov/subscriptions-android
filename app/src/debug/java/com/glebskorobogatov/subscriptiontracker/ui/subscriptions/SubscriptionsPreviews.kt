@@ -7,7 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import com.glebskorobogatov.subscriptiontracker.data.settings.Theme
-import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.*
+import com.glebskorobogatov.subscriptiontracker.domain.subscription.*
 import com.glebskorobogatov.subscriptiontracker.domain.model.*
 import com.glebskorobogatov.subscriptiontracker.ui.design.*
 import java.time.LocalDate
@@ -16,18 +16,18 @@ import java.util.UUID
 /** Fictional UI fixtures only. Nothing is inserted into Room or loaded by the launcher. */
 internal object SubscriptionsPreviewData {
     val video = SubscriptionCardModel(UUID.fromString("00000000-0000-0000-0000-000000000001"), "Видеосервис", "Личный",
-        Money(49900, CurrencyCode.of("RUB")), Frequency(FrequencyUnit.MONTH, 1), RenewalMode.AUTO, VisibleStatus.ACTIVE,
+        Money(49900, CurrencyCode.of("RUB")), Frequency(FrequencyUnit.MONTH, 1), SubscriptionState.ACTIVE,
         LocalDate.of(2027, 6, 17), 2, 0.75f)
     val family = video.copy(id = UUID.fromString("00000000-0000-0000-0000-000000000002"), accountLabel = "Семейный",
-        price = Money(1999, CurrencyCode.of("USD")), eventDate = LocalDate.of(2027, 6, 24), remainingDays = 9, remainingFraction = 0.5f)
-    val issue = video.copy(id = UUID.fromString("00000000-0000-0000-0000-000000000003"), name = "Облачное хранилище", accountLabel = null,
-        status = VisibleStatus.PAYMENT_ISSUE, eventDate = null, remainingDays = null, remainingFraction = null)
-    val awaiting = video.copy(id = UUID.fromString("00000000-0000-0000-0000-000000000004"), name = "Музыкальный сервис", accountLabel = null,
-        mode = RenewalMode.MANUAL, status = VisibleStatus.AWAITING_RENEWAL, eventDate = null, remainingDays = null, remainingFraction = null)
+        price = Money(1999, CurrencyCode.of("RUB")), eventDate = LocalDate.of(2027, 6, 24), remainingDays = 9, remainingFraction = 0.5f)
+    val cancelled = video.copy(id = UUID.fromString("00000000-0000-0000-0000-000000000003"), name = "Облачное хранилище", accountLabel = null,
+        status = SubscriptionState.CANCELLED, eventDate = null, remainingDays = null, remainingFraction = null)
+    val otherCancelled = video.copy(id = UUID.fromString("00000000-0000-0000-0000-000000000004"), name = "Музыкальный сервис", accountLabel = null,
+        status = SubscriptionState.CANCELLED, eventDate = null, remainingDays = null, remainingFraction = null)
     fun content(active: List<SubscriptionCardModel> = listOf(video, family),
-        decision: List<SubscriptionCardModel> = listOf(issue),
+        cancelledRows: List<SubscriptionCardModel> = listOf(cancelled),
         forecast: List<Money> = listOf(video.price, family.price)) = SubscriptionsUiState.Content(
-        forecast, decision, active, (active + decision).associate { it.id to it.name })
+        forecast, cancelledRows, active, (active + cancelledRows).associate { it.id to it.name })
 }
 
 /** Same screen, header and island as the application, with callbacks owned by the caller. */

@@ -65,8 +65,13 @@ class StorageOpeningTest {
             }
             db.execSQL("CREATE TABLE room_master_table (id INTEGER PRIMARY KEY, identity_hash TEXT)")
             db.execSQL("INSERT INTO room_master_table VALUES(42,?)", arrayOf(schema.getString("identityHash")))
-            db.execSQL("INSERT INTO subscriptions(id,name,priceMinor,currencyCode,intervalUnit,intervalCount,renewalMode,lifecycleState,anchorYear,anchorMonth,anchorDay,nextCycleIndex,createdAt,updatedAt) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                arrayOf<Any>(subscription.toString(), "Синтетическая запись", 12345, "RUB", "MONTH", 1, "AUTO", "ACTIVE", 2027, 1, 31, 0, "2027-01-01T00:00:00Z", "2027-01-01T00:00:00Z"))
+            if (version == 5) {
+                db.execSQL("INSERT INTO subscriptions(id,name,priceMinor,intervalUnit,intervalCount,state,anchorYear,anchorMonth,anchorDay,createdAt,updatedAt) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                    arrayOf<Any>(subscription.toString(), "Синтетическая запись",12345,"MONTH",1,"ACTIVE",2027,1,31,"2027-01-01T00:00:00Z","2027-01-01T00:00:00Z"))
+            } else {
+                db.execSQL("INSERT INTO subscriptions(id,name,priceMinor,currencyCode,intervalUnit,intervalCount,renewalMode,lifecycleState,anchorYear,anchorMonth,anchorDay,nextCycleIndex,createdAt,updatedAt) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    arrayOf<Any>(subscription.toString(), "Синтетическая запись",12345,"RUB","MONTH",1,"AUTO","ACTIVE",2027,1,31,0,"2027-01-01T00:00:00Z","2027-01-01T00:00:00Z"))
+            }
             db.version = version
         }
     }
@@ -82,25 +87,27 @@ class StorageOpeningTest {
     @Test fun freshInstallReturnsActuallyOpenValidatedRoom() {
         settings.delete(); File(context.filesDir, "assets/$id").deleteRecursively()
         TrackerDatabaseFactory.open(context, id).let { db ->
-            try { assertTrue(db.isOpen); assertEquals(4, db.openHelper.writableDatabase.version); assertTrue(db.subscriptions().all().isEmpty()) }
+            try { assertTrue(db.isOpen); assertEquals(5, db.openHelper.writableDatabase.version); assertTrue(db.subscriptions().all().isEmpty()) }
             finally { db.close() }
         }
         assertEquals(id.toString(), pointer.readText())
         assertFalse(settings.exists()); assertFalse(image.exists())
     }
-    @Test fun versionsOneThroughFourPreserveRowsAndMigrateToV4() {
+    @Test fun versionsOneThroughFourAreRejectedBeforeWritableOpenWithoutChangingAnyFile() {
         for (version in 1..4) {
-            // Only this test's synthetic database is replaced between fixtures.
+            // Replace only the closed synthetic fixture for the next version, never app data.
             dbFile.delete(); File(dbFile.path + "-wal").delete(); File(dbFile.path + "-shm").delete()
             fixtureDatabase(version)
-            val db = TrackerDatabaseFactory.open(context, id)
-            try { assertTrue(db.isOpen); assertEquals(12345L, db.subscriptions().find(subscription)!!.priceMinor) }
-            finally { db.close() }
-            assertRecordStillReadable(4)
+            val bytes=dbFile.readBytes(); val marker=marker().readBytes()
+            repeat(2) {
+                assertEquals(StorageFailure.INCOMPATIBLE,assertThrows(StorageUnavailable::class.java) { TrackerDatabaseFactory.open(context,id) }.failure)
+                assertArrayEquals(bytes,dbFile.readBytes()); assertArrayEquals(marker,marker().readBytes())
+                assertRecordStillReadable(version)
+            }
         }
     }
     @Test fun unsupportedVersionNeverReplacesDataOrChangesOtherStores() {
-        fixtureDatabase(4)
+        fixtureDatabase(5)
         SQLiteDatabase.openOrCreateDatabase(dbFile, null).use { it.version = 99 }
         val bytes = dbFile.readBytes()
         repeat(2) {
@@ -111,13 +118,13 @@ class StorageOpeningTest {
         }
     }
     @Test fun matchingIdentityHashDoesNotHideInvalidSchema() {
-        fixtureDatabase(4)
+        fixtureDatabase(5)
         SQLiteDatabase.openOrCreateDatabase(dbFile, null).use { it.execSQL("ALTER TABLE subscriptions ADD COLUMN fixture_extra TEXT") }
         repeat(2) {
             assertEquals(StorageFailure.INCOMPATIBLE, assertThrows(StorageUnavailable::class.java) {
                 TrackerDatabaseFactory.open(context, id)
             }.failure)
-            assertRecordStillReadable(4)
+            assertRecordStillReadable(5)
         }
     }
     @Test fun corruptFileAndPointerAreNeverRecreated() {
@@ -160,7 +167,7 @@ class StorageOpeningTest {
         assertFalse(pointer.exists()); assertTrue(image.exists()); assertTrue(settings.exists())
     }
     @Test fun failedCompositionDoesNotPublishUseCasesSweepImagesOrReconcile() = runBlocking {
-        fixtureDatabase(4)
+        fixtureDatabase(5)
         SQLiteDatabase.openOrCreateDatabase(dbFile, null).use { it.version = 99 }
         var reconciles = 0
         val source = SubscriptionsComposition(context, reconcile = { reconciles++ })
@@ -173,7 +180,7 @@ class StorageOpeningTest {
         assertFalse(invoked); assertRecordStillReadable(99) // Includes the old unreferenced image: sweep was not run.
     }
     @Test fun failedBackgroundOpenDoesNotAcquireSettingsMutateLedgerOrPublish() = runBlocking {
-        fixtureDatabase(4)
+        fixtureDatabase(5)
         SQLiteDatabase.openOrCreateDatabase(dbFile, null).use { it.version = 99 }
         val before = dbFile.readBytes()
         var scheduled = 0; var publications = 0; var acquired = false
@@ -192,7 +199,7 @@ class StorageOpeningTest {
     @Test fun staleCompositionCannotPerformAgainstNewGeneration() = runBlocking {
         // Valid default settings instead of the opaque settings bytes used by failure fixtures.
         settings.delete()
-        fixtureDatabase(4)
+        fixtureDatabase(5)
         val source = SubscriptionsComposition(context)
         val ready = CompletableDeferred<Unit>()
         val reader = launch { source.observe(emptyFlow()).collect { ready.complete(Unit) } }
@@ -211,11 +218,11 @@ class StorageOpeningTest {
     private fun marker(suffix: String = "state") = File(context.filesDir, "${InitializationJournal.DIRECTORY}/$id.$suffix")
     private fun removeOtherStores() { settings.delete(); File(context.filesDir, "assets/$id").deleteRecursively() }
 
-    @Test fun legacyV4WithoutMarkerGetsReadyOnlyAfterPreservingExistingRows() {
-        fixtureDatabase(4); marker().delete()
+    @Test fun existingV5WithoutMarkerGetsReadyOnlyAfterPreservingExistingRows() {
+        fixtureDatabase(5); marker().delete()
         val db = TrackerDatabaseFactory.open(context, id)
         try { assertEquals(12345L, db.subscriptions().find(subscription)!!.priceMinor) } finally { db.close() }
-        assertEquals(InitializationState.READY, journal().locked { read() }); assertRecordStillReadable(4)
+        assertEquals(InitializationState.READY, journal().locked { read() }); assertRecordStillReadable(5)
     }
     @Test fun lostReadyDatabaseWithoutSettingsOrImagesCannotBecomeEmptyInstall() {
         removeOtherStores()
@@ -238,13 +245,13 @@ class StorageOpeningTest {
         assertFalse(dbFile.exists()); assertFalse(marker().exists()); assertEquals(id.toString(), pointer.readText())
     }
     @Test fun damagedMarkerIsNotReplacedEvenWithCompatibleDatabase() {
-        fixtureDatabase(4); marker().writeText("broken-fixture-marker")
+        fixtureDatabase(5); marker().writeText("broken-fixture-marker")
         val before = dbFile.readBytes()
         assertEquals(StorageFailure.INITIALIZATION_UNCERTAIN, assertThrows(StorageUnavailable::class.java) {
             TrackerDatabaseFactory.open(context, id)
         }.failure)
         assertEquals("broken-fixture-marker", marker().readText()); assertArrayEquals(before, dbFile.readBytes())
-        assertRecordStillReadable(4)
+        assertRecordStillReadable(5)
     }
     @Test fun crashBeforePointerPublicationDoesNotAllocateReplacementGeneration() {
         val before = marker().readBytes(); pointer.delete()
@@ -270,10 +277,10 @@ class StorageOpeningTest {
         assertArrayEquals(byteArrayOf(), dbFile.readBytes()); assertEquals(InitializationState.CREATING, journal().locked { read() })
     }
     @Test fun crashAfterValidCreationBeforeReadyRecoversByValidationNotRecreation() {
-        journal().locked { consumeCreation() }; fixtureDatabase(4)
+        journal().locked { consumeCreation() }; fixtureDatabase(5)
         val db = TrackerDatabaseFactory.open(context, id)
         try { assertEquals(12345L, db.subscriptions().find(subscription)!!.priceMinor) } finally { db.close() }
-        assertEquals(InitializationState.READY, journal().locked { read() }); assertRecordStillReadable(4)
+        assertEquals(InitializationState.READY, journal().locked { read() }); assertRecordStillReadable(5)
     }
     @Test fun twoConcurrentOpenersConsumeOneCreationPermission() = runBlocking {
         removeOtherStores()
@@ -299,7 +306,7 @@ class StorageOpeningTest {
                         override fun onCreate(db: androidx.sqlite.db.SupportSQLiteDatabase) { created++ }
                         override fun onOpen(db: androidx.sqlite.db.SupportSQLiteDatabase) { opened++ }
                     })
-                if (version < 4) builder.addMigrations(object : androidx.room.migration.Migration(version, 4) {
+                if (version < 4) builder.addMigrations(object : androidx.room.migration.Migration(version, 5) {
                     override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) { migrated++; error("Must never migrate an invalid source") }
                 })
                 builder.build()
@@ -308,29 +315,33 @@ class StorageOpeningTest {
         assertEquals(0, created); assertEquals(0, opened); assertEquals(0, migrated)
         assertArrayEquals(before, dbFile.readBytes()); assertRecordStillReadable(version)
     }
-    @Test fun changedV4WithOriginalIdentityIsRejectedBeforeWritableCallbacksAndPreservesBytes() =
-        rejectionBeforeCallbacks(4) { it.execSQL("ALTER TABLE subscriptions ADD COLUMN unexpected TEXT") }
+    @Test fun changedV5WithOriginalIdentityIsRejectedBeforeWritableCallbacksAndPreservesBytes() =
+        rejectionBeforeCallbacks(5) { it.execSQL("ALTER TABLE subscriptions ADD COLUMN unexpected TEXT") }
     @Test fun changedV3WithOriginalIdentityIsRejectedBeforeMigrationAndPreservesBytes() =
         rejectionBeforeCallbacks(3) { it.execSQL("ALTER TABLE subscriptions ADD COLUMN unexpected TEXT") }
     @Test fun changedHistoricalIndexIsRejectedWithoutMigration() =
-        rejectionBeforeCallbacks(3) { it.execSQL("DROP INDEX index_subscriptions_lifecycleState") }
-    @Test fun changedHistoricalDefaultIsRejectedWithoutMigration() =
-        rejectionBeforeCallbacks(3) {
-            it.execSQL("PRAGMA writable_schema=ON") // Isolated fixture: alter its declared default without changing rows.
-            it.execSQL("UPDATE sqlite_master SET sql=replace(sql,?,?) WHERE name='payments'",
-                arrayOf("`requestPayload` TEXT DEFAULT NULL", "`requestPayload` TEXT DEFAULT 'fixture'"))
-            it.execSQL("PRAGMA writable_schema=OFF")
-        }
-    @Test fun partialIndexWithOriginalColumnsIsRejectedWithoutMigration() =
-        rejectionBeforeCallbacks(3) {
-            it.execSQL("DROP INDEX index_subscriptions_lifecycleState")
-            it.execSQL("CREATE INDEX index_subscriptions_lifecycleState ON subscriptions(lifecycleState) WHERE priceMinor>1")
-        }
-    @Test fun wrongIdentityHashIsRejectedWithoutRewritingMetadata() =
-        rejectionBeforeCallbacks(3) { it.execSQL("UPDATE room_master_table SET identity_hash='fixture-wrong'") }
+        rejectionBeforeCallbacks(5) { it.execSQL("DROP INDEX index_subscriptions_state") }
+    @Test fun changedCurrentDefaultIsRejectedBeforeWrite() = rejectionBeforeCallbacks(5) {
+        it.execSQL("PRAGMA writable_schema=ON")
+        it.execSQL("UPDATE sqlite_master SET sql=replace(sql,?,?) WHERE name='notification_delivery_ledger'",arrayOf("`payloadVersion` INTEGER NOT NULL DEFAULT 1","`payloadVersion` INTEGER NOT NULL DEFAULT 7"))
+        it.execSQL("PRAGMA writable_schema=OFF")
+    }
+    @Test fun partialIndexWithOriginalColumnsIsRejectedWithoutMigration() = rejectionBeforeCallbacks(5) {
+        it.execSQL("DROP INDEX index_subscriptions_state")
+        it.execSQL("CREATE INDEX index_subscriptions_state ON subscriptions(state) WHERE priceMinor>1")
+    }
+    @Test fun wrongIdentityHashIsRejectedWithoutRewritingMetadata() = rejectionBeforeCallbacks(5) {
+        it.execSQL("UPDATE room_master_table SET identity_hash='fixture-wrong'")
+    }
+    @Test fun missingForeignKeyWithMatchingHashIsRejectedBeforeWrite() = rejectionBeforeCallbacks(5) {
+        it.execSQL("PRAGMA writable_schema=ON")
+        it.execSQL("UPDATE sqlite_master SET sql=replace(sql,?,?) WHERE name='subscriptions'", arrayOf(
+            ", FOREIGN KEY(`logoAssetId`) REFERENCES `assets`(`id`) ON UPDATE NO ACTION ON DELETE RESTRICT ", ""))
+        it.execSQL("PRAGMA writable_schema=OFF")
+    }
 
     @Test fun committedWalSchemaIsInspectedAndNotIgnoredOrCheckpointedOnRejection() {
-        fixtureDatabase(4)
+        fixtureDatabase(5)
         SQLiteDatabase.openOrCreateDatabase(dbFile, null).use { writer ->
             assertTrue(writer.enableWriteAheadLogging())
             writer.execSQL("PRAGMA wal_autocheckpoint=0")
@@ -349,7 +360,7 @@ class StorageOpeningTest {
         }
     }
     @Test fun compatibleWalCommittedRowsSurvivePreflightAndRoomOpen() {
-        fixtureDatabase(4)
+        fixtureDatabase(5)
         SQLiteDatabase.openOrCreateDatabase(dbFile, null).use { writer ->
             assertTrue(writer.enableWriteAheadLogging()); writer.execSQL("PRAGMA wal_autocheckpoint=0")
             writer.execSQL("UPDATE subscriptions SET priceMinor=888")
@@ -361,7 +372,7 @@ class StorageOpeningTest {
         }
     }
     @Test fun hotRollbackJournalIsNotRecoveredByReadOnlyDiagnostics() {
-        fixtureDatabase(4)
+        fixtureDatabase(5)
         SQLiteDatabase.openOrCreateDatabase(dbFile, null).use { writer ->
             writer.execSQL("PRAGMA cache_size=1")
             writer.beginTransaction()
@@ -381,13 +392,13 @@ class StorageOpeningTest {
         }
     }
 
-    @Test fun supportedMigrationFailureRollsBackSchemaVersionAndRows() {
+    @Test fun oldSchemaCannotInvokeEvenAnExplicitlySuppliedMigration() {
         fixtureDatabase(3)
         assertThrows(StorageUnavailable::class.java) {
             TrackerDatabaseFactory.open(context, id) { fresh ->
                 androidx.room.Room.databaseBuilder(context, TrackerDatabase::class.java, dbFile.name)
                     .openHelperFactory(PreservingOpenHelperFactory(fresh))
-                    .addMigrations(object : androidx.room.migration.Migration(3, 4) {
+                    .addMigrations(object : androidx.room.migration.Migration(3, 5) {
                         override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
                             db.execSQL("ALTER TABLE subscriptions ADD COLUMN aborted_fixture TEXT")
                             db.execSQL("UPDATE subscriptions SET priceMinor=1")

@@ -83,7 +83,7 @@ class ArchiveSettingsUiTest {
         compose.onNodeWithTag("details_field_date").performScrollTo().performTextReplacement(LocalDate.now().plusDays(2).toString())
         compose.onNodeWithTag("details_field_amount").performScrollTo().performTextReplacement("599")
         compose.onNodeWithTag("details_field_count").performScrollTo().performTextReplacement("3")
-        compose.onNodeWithText("Ручное продление").performScrollTo().performClick(); confirm()
+        confirm()
         compose.waitUntil(5000) { compose.onAllNodesWithText("Возобновить подписку").fetchSemanticsNodes().isEmpty() }
         compose.onNodeWithText("599,00 RUB").assertExists()
         compose.onAllNodes(hasText("Оплата ",substring = true)).assertCountEquals(0)

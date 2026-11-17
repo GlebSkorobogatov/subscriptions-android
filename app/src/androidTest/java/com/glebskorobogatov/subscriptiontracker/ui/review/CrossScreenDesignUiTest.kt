@@ -97,7 +97,7 @@ class CrossScreenDesignUiTest {
             val list = compose.onNodeWithTag("subscriptions_screen").fetchSemanticsNode().boundsInRoot
             assertTrue("Content must end above island",list.bottom <= island.top)
             compose.runOnIdle { case.value = Case(width,font,theme,ReviewScene.DetailsLong) }
-            val price = compose.onNodeWithText("${Long.MAX_VALUE} JPY",useUnmergedTree = true)
+            val price = compose.onNodeWithText("92233720368547758,07 RUB",useUnmergedTree = true)
             price.performScrollTo();noOverflow(price,"details money $width/$font/$theme")
             val name = compose.onNodeWithText(ReviewData.longName,useUnmergedTree = true)
             name.performScrollTo();noOverflow(name,"details name $width/$font/$theme")
@@ -171,7 +171,7 @@ class CrossScreenDesignUiTest {
             when(s) {
                 ReviewScene.Settings -> compose.onNodeWithTag("settings_time").performScrollTo()
                 ReviewScene.EditorError -> compose.onNodeWithTag("field_amount").performScrollTo()
-                ReviewScene.DetailsLong -> compose.onNodeWithText("${Long.MAX_VALUE} JPY").performScrollTo()
+                ReviewScene.DetailsLong -> compose.onNodeWithText("92233720368547758,07 RUB").performScrollTo()
                 else -> Unit
             }
             artifacts.capture(compose,s,name,font,density)

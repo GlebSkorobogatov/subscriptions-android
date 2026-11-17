@@ -46,7 +46,7 @@ class NotificationViewModelTest {
         val vm = model(); runCurrent()
         environment.value = NotificationAccess(true,true,false); vm.refresh(); runCurrent()
         assertEquals(0,environment.reconciliations)
-        environment.value = environment.value.copy(paymentsEnabled=true); vm.refresh(); runCurrent()
+        environment.value = environment.value.copy(renewalsEnabled=true); vm.refresh(); runCurrent()
         assertEquals(1,environment.reconciliations)
         environment.value = environment.value.copy(appEnabled=false); vm.refresh(); runCurrent()
         assertEquals(1,environment.reconciliations)

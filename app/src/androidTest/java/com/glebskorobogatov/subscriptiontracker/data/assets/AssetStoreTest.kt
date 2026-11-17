@@ -1,5 +1,6 @@
 package com.glebskorobogatov.subscriptiontracker.data.assets
 
+import com.glebskorobogatov.subscriptiontracker.domain.subscription.*
 import android.content.Context
 import android.content.ContextWrapper
 import android.graphics.Bitmap
@@ -16,7 +17,6 @@ import com.glebskorobogatov.subscriptiontracker.data.settings.Settings
 import com.glebskorobogatov.subscriptiontracker.data.settings.SettingsRepository
 import com.glebskorobogatov.subscriptiontracker.domain.calendar.*
 import com.glebskorobogatov.subscriptiontracker.domain.integration.CurrentDate
-import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.RenewalMode
 import com.glebskorobogatov.subscriptiontracker.domain.model.*
 import java.io.File
 import java.time.Instant
@@ -86,9 +86,7 @@ class AssetStoreTest {
             val imageId = runBlocking { use.stageImage(Uri.fromFile(source(context))) }
             val subscriptionId = UUID.randomUUID()
             runBlocking {
-                use.createSubscription(SubscriptionDraft(subscriptionId, "Пример", null, Money(100, CurrencyCode.of("RUB")),
-                    RenewalMode.AUTO, RenewalSchedule(RenewalAnchor.from(today), Frequency(FrequencyUnit.MONTH, 1)),
-                    logoAssetId = imageId), Instant.now())
+                use.createSubscription(SubscriptionDraft(id = subscriptionId, name = "Пример", accountLabel = null, price = RubPrice(100), schedule = ScheduleEdit(today, Frequency(FrequencyUnit.MONTH, 1)), logoAssetId = imageId), Instant.now())
                 use.discardImage(imageId)
                 assertEquals(imageId, db.subscriptions().find(subscriptionId)?.logoAssetId)
                 assertNotNull(use.assetFile(imageId))

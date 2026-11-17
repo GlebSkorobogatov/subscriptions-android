@@ -14,7 +14,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.glebskorobogatov.subscriptiontracker.R
 import com.glebskorobogatov.subscriptiontracker.data.settings.Theme
-import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.*
+import com.glebskorobogatov.subscriptiontracker.domain.subscription.*
 import com.glebskorobogatov.subscriptiontracker.domain.model.*
 import com.glebskorobogatov.subscriptiontracker.ui.archive.*
 import com.glebskorobogatov.subscriptiontracker.ui.design.*
@@ -32,22 +32,22 @@ internal enum class ReviewScene {
     Subscriptions, SubscriptionsEmpty, SubscriptionsError, SubscriptionsLong, FinancePlaceholder,
     Details, DetailsCancelled, DetailsLong, EditorCreate, EditorEdit, EditorError,
     Archive, ArchiveEmpty, Settings, DeleteDialog, UnsavedDialog,
-     ResolveDateDialog, DisableDialog, ReactivateDialog, ArchiveDialog,
+     EditEndDialog, DisableDialog, ReactivateDialog, ArchiveDialog,
 }
 internal object ReviewData {
     const val longName = "Очень длинное учебное название семейной подписки"
-    val amounts = listOf(Money(Long.MAX_VALUE,CurrencyCode.of("JPY")),Money(12345,CurrencyCode.of("KWD")),Money(999999999,CurrencyCode.of("RUB")))
+    val amounts = listOf(Money(Long.MAX_VALUE,CurrencyCode.of("RUB")),Money(12345,CurrencyCode.of("RUB")),Money(999999999,CurrencyCode.of("RUB")))
     val longRow = SubscriptionsPreviewData.video.copy(name = longName,accountLabel = "Отдельный учебный аккаунт",price = amounts.first())
     val longContent = SubscriptionsPreviewData.content(active = listOf(longRow,
-        SubscriptionsPreviewData.family.copy(name = "Учебный сервис KWD",price = amounts[1]),
-        SubscriptionsPreviewData.video.copy(id = SubscriptionsPreviewData.issue.id,name = "Учебный сервис RUB",price = amounts[2])),
-        decision = emptyList(),forecast = amounts)
+        SubscriptionsPreviewData.family.copy(name = "Учебный сервис 2",price = amounts[1]),
+        SubscriptionsPreviewData.video.copy(id = SubscriptionsPreviewData.cancelled.id,name = "Учебный сервис RUB",price = amounts[2])),
+        cancelledRows = emptyList(),forecast = amounts)
     val longDetails = DetailsEditorPreviewData.details.copy(data = DetailsEditorPreviewData.details.data!!.copy(
-        subscription = DetailsEditorPreviewData.row.copy(name = longName,priceMinor = Long.MAX_VALUE,currencyCode = CurrencyCode.of("JPY"))))
+        subscription = DetailsEditorPreviewData.row.copy(name = longName,priceMinor = Long.MAX_VALUE)))
     val editorError = DetailsEditorPreviewData.editor.copy(fields = DetailsEditorPreviewData.editor.fields + ("name" to longName),errors = mapOf("amount" to R.string.editor_invalid))
     val cancelled = DetailsEditorPreviewData.details.copy(data = DetailsEditorPreviewData.details.data!!.copy(
-        subscription = DetailsEditorPreviewData.row.copy(lifecycleState = LifecycleState.CANCELLATION_SCHEDULED,paidAccessEndDate = LocalDate.of(2027,3,31)),
-        lifecycle = LifecycleView(VisibleStatus.CANCELLATION_SCHEDULED,null,0.5)))
+        subscription = DetailsEditorPreviewData.row.copy(state = SubscriptionState.CANCELLED,cancelledAccessEndExclusive = LocalDate.of(2027,3,31)),
+        period = SubscriptionPeriod(LocalDate.of(2027,3,31),15,0.5)))
 }
 
 /** Logical viewport simulation fits into the host window; it does not change device settings. */
@@ -90,7 +90,7 @@ internal fun ReviewViewport(scene: ReviewScene,theme: Theme = Theme.SYSTEM,fontS
         ReviewScene.ArchiveEmpty -> ArchiveDemo(ArchiveUiState(ArchivePhase.Empty),theme)
         ReviewScene.Settings -> SettingsDemo(theme = theme)
         ReviewScene.DeleteDialog -> LifecycleReviewDialog(DetailsAction.Delete,theme)
-        ReviewScene.ResolveDateDialog -> LifecycleReviewDialog(DetailsAction.ResolveDate,theme)
+        ReviewScene.EditEndDialog -> LifecycleReviewDialog(DetailsAction.EditEnd,theme)
         ReviewScene.DisableDialog -> LifecycleReviewDialog(DetailsAction.Disable,theme)
         ReviewScene.ReactivateDialog -> LifecycleReviewDialog(DetailsAction.Reactivate,theme)
         ReviewScene.ArchiveDialog -> LifecycleReviewDialog(DetailsAction.Archive,theme)
@@ -102,10 +102,10 @@ internal fun ReviewViewport(scene: ReviewScene,theme: Theme = Theme.SYSTEM,fontS
 @Composable private fun LifecycleReviewDialog(action: DetailsAction,theme: Theme) {
     val original = DetailsEditorPreviewData.details
     val archived = action == DetailsAction.Reactivate
-    val issue = action == DetailsAction.ResolveDate
+    val issue = action == DetailsAction.EditEnd
     val state = original.copy(action = action,data = original.data!!.copy(subscription = original.data.subscription.copy(
-        lifecycleState = if(archived) LifecycleState.ARCHIVED else if(issue) LifecycleState.PAYMENT_ISSUE else LifecycleState.ACTIVE),
-        lifecycle = if(archived) LifecycleView(VisibleStatus.ARCHIVED,null,null) else if(issue) LifecycleView(VisibleStatus.PAYMENT_ISSUE,null,null) else original.data.lifecycle),
+        state = if(archived) SubscriptionState.ARCHIVED else if(issue) SubscriptionState.CANCELLED else SubscriptionState.ACTIVE),
+        period = if(archived) SubscriptionPeriod(null,null,null) else original.data.period),
         fields = mapOf("date" to "2027-04-16","amount" to "799,00","currency" to "RUB","count" to "1","unit" to "MONTH","mode" to "AUTO","end" to "2027-03-31","reanchor" to "false"))
     TrackerTheme(theme) { DetailsActionDialog(state,{_,_ ->},{},{},{}) }
 }

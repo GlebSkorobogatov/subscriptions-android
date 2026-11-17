@@ -12,18 +12,7 @@ data class SubscriptionPeriod(val due: LocalDate?, val remainingDays: Long?, val
 /** Persistence must execute this request atomically with ledger/work invalidation and safe asset cleanup. */
 data class SubscriptionDeletion(val subscriptionId: SubscriptionId)
 
-/**
- * R1a pure contract. No clock, storage, payments, background transitions or notification side effects.
- *
- * Transition boundary until R1b: Room Entities and LifecycleRepository/SubscriptionEditor/
- * SubscriptionUseCases still use domain.lifecycle.Subscription, its commands, RenewalMode and
- * indexed RenewalSchedule. Their old payment/override/auto-archive behavior is deliberately not
- * routed through this contract. R1b must replace those consumers and map cancellation end semantics
- * explicitly (legacy paidAccessEnd is inclusive); an unknown legacy end must stay unknown.
- * UI, forecast and reminder infrastructure are not switched by R1a. RubPrice.fromLegacy rejects
- * foreign money. RecurringSchedule.calendarInput adapts only pure regular series to the shared
- * DefaultRenewalCalendar, always with index zero and no one-off override. No history is generated.
- */
+/** Pure target contract shared by persistence, presentation, forecasts and reminders. */
 class SubscriptionDomain(private val calendar: DefaultRenewalCalendar = DefaultRenewalCalendar()) {
     fun create(id: SubscriptionId, name: String, price: RubPrice, schedule: ScheduleEdit, today: LocalDate,
         accountLabel: String? = null, appearance: SubscriptionAppearance = SubscriptionAppearance(),
@@ -46,7 +35,7 @@ class SubscriptionDomain(private val calendar: DefaultRenewalCalendar = DefaultR
     }
 
     fun nextDue(schedule: RecurringSchedule, today: LocalDate): LocalDate =
-        calendar.firstOnOrAfter(schedule.calendarInput(), today)
+        calendar.firstOnOrAfter(schedule, today)
             ?: throw CalendarCalculationException("No representable next renewal date")
 
     private fun validatedSchedule(edit: ScheduleEdit, today: LocalDate): RecurringSchedule {
@@ -63,7 +52,7 @@ class SubscriptionDomain(private val calendar: DefaultRenewalCalendar = DefaultR
 
     private fun start(s: SubscriptionRecord, due: LocalDate): LocalDate? =
         s.periodStart?.takeIf { it.due == due }?.start
-            ?: calendar.previousRegularBoundary(s.schedule.calendarInput(), due)
+            ?: calendar.previousRegularBoundary(s.schedule, due)
 
     fun period(s: SubscriptionRecord, today: LocalDate): SubscriptionPeriod {
         if (s.state == SubscriptionState.ARCHIVED) return SubscriptionPeriod(null, null, null)

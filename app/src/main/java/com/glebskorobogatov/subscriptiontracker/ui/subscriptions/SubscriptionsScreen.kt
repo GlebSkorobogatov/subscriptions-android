@@ -52,16 +52,6 @@ fun SubscriptionsScreen(state: SubscriptionsUiState, onAdd: () -> Unit, onOpen: 
                 }
                 is SubscriptionsUiState.Content -> {
                     item(key = "forecast") { ForecastSummary(state.forecast) }
-                    if (state.needsDecision.isNotEmpty()) {
-                        item(key = "decisions") {
-                            SectionTitle(stringResource(R.string.needs_decision),
-                                Modifier.padding(top = TrackerDimensions.sectionSpacing).testTag("needs_decision_heading"))
-                        }
-                        itemsIndexed(state.needsDecision, key = { _, row -> row.id.toString() }) { index, row ->
-                            SubscriptionRow(row, onOpen)
-                            if (index < state.needsDecision.lastIndex) SubscriptionDivider(row.id)
-                        }
-                    }
                     if (state.active.isNotEmpty()) {
                         item(key = "active") {
                             SectionTitle(stringResource(R.string.active_subscriptions),
@@ -72,6 +62,17 @@ fun SubscriptionsScreen(state: SubscriptionsUiState, onAdd: () -> Unit, onOpen: 
                             if (index < state.active.lastIndex) SubscriptionDivider(row.id)
                         }
                     }
+                    if (state.cancelled.isNotEmpty()) {
+                        item(key = "decisions") {
+                            SectionTitle(stringResource(R.string.cancelled_subscriptions),
+                                Modifier.padding(top = TrackerDimensions.sectionSpacing).testTag("cancelled_subscriptions_heading"))
+                        }
+                        itemsIndexed(state.cancelled, key = { _, row -> row.id.toString() }) { index, row ->
+                            SubscriptionRow(row, onOpen)
+                            if (index < state.cancelled.lastIndex) SubscriptionDivider(row.id)
+                        }
+                    }
+
                 }
             }
         }

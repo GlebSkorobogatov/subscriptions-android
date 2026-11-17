@@ -1,28 +1,29 @@
 package com.glebskorobogatov.subscriptiontracker.data.mapping
 
 import com.glebskorobogatov.subscriptiontracker.data.room.SubscriptionEntity
-import com.glebskorobogatov.subscriptiontracker.domain.model.*
-import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.*
+import com.glebskorobogatov.subscriptiontracker.domain.model.FrequencyUnit
+import com.glebskorobogatov.subscriptiontracker.domain.subscription.SubscriptionState
 import java.time.*
 import java.util.UUID
 
-/** Full expected row, saved as scalars for optimistic non-payment commands and restored drafts. */
+/** Versioned full optimistic row; legacy snapshots are rejected, never executed. */
 object SubscriptionSnapshot {
-    fun snapshot(s: SubscriptionEntity): ArrayList<String> = arrayListOf<String?> (
-        s.id.toString(),s.name,s.accountLabel,s.priceMinor.toString(),s.currencyCode.value,s.intervalUnit.name,
-        s.intervalCount.toString(),s.renewalMode.name,s.lifecycleState.name,s.anchorYear.toString(),s.anchorMonth.toString(),
-        s.anchorDay.toString(),s.nextCycleIndex.toString(),s.oneOffDueDate?.toString(),s.overrideCycleIndex?.toString(),
-        s.currentPeriodStartOverride?.toString(),s.paidAccessEndDate?.toString(),s.cancellationLeadDays?.toString(),
-        s.logoAssetId?.toString(),s.catalogLogoId,s.createdAt.toString(),s.updatedAt.toString()
+    fun snapshot(s: SubscriptionEntity): ArrayList<String> = arrayListOf<String?>(
+        "subscription-v5", s.id.toString(), s.name, s.accountLabel, s.priceMinor.toString(), s.intervalUnit.name,
+        s.intervalCount.toString(), s.state.name, s.anchorYear.toString(), s.anchorMonth.toString(), s.anchorDay.toString(),
+        s.currentPeriodStartOverride?.toString(), s.currentPeriodEnd?.toString(), s.cancelledAccessEndExclusive?.toString(),
+        s.frozenCancelledPeriodStart?.toString(), s.logoAssetId?.toString(), s.catalogLogoId,
+        s.createdAt.toString(), s.updatedAt.toString(), s.archivedAt?.toString()
     ).mapTo(arrayListOf()) { if (it == null) "0" else "1$it" }
     fun row(values: List<String>): SubscriptionEntity {
-        require(values.size == 22 && values.all { it == "0" || it.startsWith("1") }) { "Invalid subscription snapshot" }
+        require(values.size == 20 && values.all { it == "0" || it.startsWith("1") })
         val a = values.map { if (it == "0") null else it.substring(1) }
         fun v(i: Int) = requireNotNull(a[i])
-        return SubscriptionEntity(UUID.fromString(v(0)),v(1),a[2],v(3).toLong(),CurrencyCode.of(v(4)),
-            FrequencyUnit.valueOf(v(5)),v(6).toInt(),RenewalMode.valueOf(v(7)),LifecycleState.valueOf(v(8)),
-            v(9).toInt(),v(10).toInt(),v(11).toInt(),v(12).toLong(),a[13]?.let(LocalDate::parse),a[14]?.toLong(),
-            a[15]?.let(LocalDate::parse),a[16]?.let(LocalDate::parse),a[17]?.toInt(),a[18]?.let(UUID::fromString),a[19],
-            Instant.parse(v(20)),Instant.parse(v(21)))
+        require(v(0) == "subscription-v5")
+        fun date(i: Int) = a[i]?.let(LocalDate::parse)
+        return SubscriptionEntity(UUID.fromString(v(1)), v(2), a[3], v(4).toLong(), FrequencyUnit.valueOf(v(5)),
+            v(6).toInt(), SubscriptionState.valueOf(v(7)), v(8).toInt(), v(9).toInt(), v(10).toInt(),
+            date(11), date(12), date(13), date(14), a[15]?.let(UUID::fromString), a[16],
+            Instant.parse(v(17)), Instant.parse(v(18)), date(19))
     }
 }

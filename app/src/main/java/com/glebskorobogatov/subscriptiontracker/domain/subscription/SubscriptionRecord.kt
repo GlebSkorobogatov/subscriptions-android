@@ -5,7 +5,7 @@ import com.glebskorobogatov.subscriptiontracker.domain.model.*
 import java.time.LocalDate
 import java.time.YearMonth
 
-/** Positive RUB price. The legacy Money type remains available to pre-R1b consumers. */
+/** Positive RUB price in integer kopecks. Money is a RUB formatting adapter. */
 data class RubPrice(val amountMinor: Long) {
     init { require(amountMinor > 0) { "Price must be positive" } }
     fun format(): String = Money(amountMinor, RUB).format()
@@ -13,9 +13,9 @@ data class RubPrice(val amountMinor: Long) {
     operator fun plus(other: RubPrice): RubPrice = RubPrice(Math.addExact(amountMinor, other.amountMinor))
     companion object {
         private val RUB = CurrencyCode.of("RUB")
-        fun parse(input: String): RubPrice = fromLegacy(Money.parse(input, RUB))
-        /** Reject foreign amounts; never relabel or convert them. */
-        fun fromLegacy(money: Money): RubPrice {
+        fun parse(input: String): RubPrice = fromMoney(Money.parse(input, RUB))
+        /** Formatting boundary, never a conversion. */
+        fun fromMoney(money: Money): RubPrice {
             require(money.currency == RUB) { "Only RUB is supported" }
             return RubPrice(money.amountMinor)
         }
@@ -24,14 +24,19 @@ data class RubPrice(val amountMinor: Long) {
 
 /** A series without payment confirmation, mutable cycle position or one-off dates. */
 data class RecurringSchedule(val anchor: RenewalAnchor, val frequency: Frequency) {
-    init { DefaultRenewalCalendar().plannedCycleDate(calendarInput(), 0) }
-    // Compatibility boundary to the existing calendar engine, not a second date algorithm.
-    internal fun calendarInput(): RenewalSchedule = RenewalSchedule(anchor, frequency)
+    init {
+        when (frequency.unit) {
+            FrequencyUnit.DAY, FrequencyUnit.WEEK -> anchor.yearMonth.atDay(anchor.day)
+            FrequencyUnit.YEAR -> require(anchor.day <= anchor.yearMonth.month.maxLength())
+            FrequencyUnit.MONTH -> Unit
+        }
+        DefaultRenewalCalendar().plannedCycleDate(this, 0)
+    }
     companion object {
         fun starting(firstDue: LocalDate, frequency: Frequency, anchorDay: Int? = null): RecurringSchedule {
             val schedule = RecurringSchedule(
                 RenewalAnchor(YearMonth.from(firstDue), anchorDay ?: firstDue.dayOfMonth), frequency)
-            require(DefaultRenewalCalendar().plannedCycleDate(schedule.calendarInput(), 0) == firstDue) {
+            require(DefaultRenewalCalendar().plannedCycleDate(schedule, 0) == firstDue) {
                 "Anchor must agree with the first expected date"
             }
             return schedule

@@ -12,19 +12,25 @@ import kotlinx.coroutines.withContext
 class LifecycleConflict : IllegalStateException("Подписка изменена или удалена; обновите данные")
 
 class LifecycleRepository(private val database: TrackerDatabase,
-    private val commands: LifecycleCommands = LifecycleCommands()) {
+    private val domain: com.glebskorobogatov.subscriptiontracker.domain.subscription.SubscriptionDomain = com.glebskorobogatov.subscriptiontracker.domain.subscription.SubscriptionDomain()) {
     private fun current(expected: SubscriptionEntity): SubscriptionEntity {
         val actual = database.subscriptions().find(expected.id)
         if (actual != expected) throw LifecycleConflict()
         return actual
     }
 
-    suspend fun execute(expected: SubscriptionEntity, command: LifecycleCommand, changedAt: Instant): SubscriptionEntity =
+    suspend fun execute(expected: SubscriptionEntity, command: LifecycleCommand, changedAt: Instant, today: LocalDate): SubscriptionEntity =
         withContext(Dispatchers.IO) {
             database.runInTransaction(Callable {
                 val stored = current(expected)
-                if (command is LifecycleCommand.Reactivate) require(command.price.currency == stored.currencyCode)
-                val updated = stored.withDomain(commands.apply(stored.toDomain(), command), changedAt)
+                val record = stored.toDomain()
+                val result = when (command) {
+                    is LifecycleCommand.Cancel -> command.endExclusive?.let { domain.cancel(record, today, it) } ?: domain.cancel(record, today)
+                    is LifecycleCommand.EditEnd -> domain.editEnd(record, command.endExclusive)
+                    LifecycleCommand.Archive -> domain.archive(record, today, confirmed = true)
+                    is LifecycleCommand.Reactivate -> domain.reactivate(record, command.price, command.schedule, today)
+                }
+                val updated = stored.withDomain(result, changedAt)
                 check(database.subscriptions().update(updated) == 1)
                 updated
             })
@@ -34,13 +40,8 @@ class LifecycleRepository(private val database: TrackerDatabase,
     suspend fun delete(expected: SubscriptionEntity, confirmed: Boolean) = withContext(Dispatchers.IO) {
         require(confirmed) { "Окончательное удаление требует явного подтверждения" }
         database.runInTransaction(Callable {
-            current(expected)
-            // v4 compatibility tombstones only for the explicitly deleted subscription's old rows.
-            // No receipt replay consumer remains; remove these with retired tables in R1b.4.
-            database.payments().forSubscription(expected.id).forEach {
-                database.retiredPaymentOperations().insert(RetiredPaymentOperation(it.operationId))
-            }
-            check(database.subscriptions().delete(expected.id) == 1)
+            val request = requireNotNull(domain.delete(current(expected).toDomain(), confirmed))
+            check(database.subscriptions().delete(request.subscriptionId.value) == 1)
         })
     }
 }

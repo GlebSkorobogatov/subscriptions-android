@@ -7,6 +7,7 @@ import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.test.core.app.*
 import com.glebskorobogatov.subscriptiontracker.app.IsolatedMainActivity
 import com.glebskorobogatov.subscriptiontracker.data.room.*
+import com.glebskorobogatov.subscriptiontracker.domain.subscription.*
 import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.*
 import com.glebskorobogatov.subscriptiontracker.domain.model.*
 import java.time.*
@@ -23,9 +24,7 @@ class NotificationNavigationUiTest {
     @Before fun seed(): Unit = runBlocking(Dispatchers.IO) {
         dataset = UUID.randomUUID()
         val date = LocalDate.now().plusDays(3)
-        sub = SubscriptionEntity(UUID.randomUUID(),"Целевая подписка","Проверка UUID",39900,CurrencyCode.of("RUB"),
-            FrequencyUnit.MONTH,1,RenewalMode.AUTO,LifecycleState.ACTIVE,date.year,date.monthValue,date.dayOfMonth,0,
-            null,null,null,null,null,null,null,Instant.now(),Instant.now())
+        sub = SubscriptionEntity(id = UUID.randomUUID(), name = "Целевая подписка", accountLabel = "Проверка UUID", priceMinor = 39900, intervalUnit = FrequencyUnit.MONTH, intervalCount = 1, state = SubscriptionState.ACTIVE, anchorYear = date.year, anchorMonth = date.monthValue, anchorDay = date.dayOfMonth, currentPeriodStartOverride = null, currentPeriodEnd = null, cancelledAccessEndExclusive = null, frozenCancelledPeriodStart = null, logoAssetId = null, catalogLogoId = null, createdAt = Instant.now(), updatedAt = Instant.now(), archivedAt = null)
         com.glebskorobogatov.subscriptiontracker.fixtures.authorizeFreshFixture(context, dataset); val db = TrackerDatabaseFactory.open(context,dataset)
         try { db.subscriptions().insert(sub) } finally { db.close() }
     }
@@ -89,7 +88,7 @@ class NotificationNavigationUiTest {
         }
     }
     @Test fun archivedSubscriptionStillOpensItsExistingDetails() {
-        runBlocking(Dispatchers.IO) { val db = TrackerDatabaseFactory.open(context,dataset); try { db.subscriptions().update(sub.copy(lifecycleState=LifecycleState.ARCHIVED)) } finally { db.close() } }
+        runBlocking(Dispatchers.IO) { val db = TrackerDatabaseFactory.open(context,dataset); try { db.subscriptions().update(sub.copy(state=SubscriptionState.ARCHIVED)) } finally { db.close() } }
         ActivityScenario.launch<IsolatedMainActivity>(intent()).use {
             details()
             compose.onNodeWithTag("details_management").performScrollTo().performClick()
@@ -103,7 +102,7 @@ class NotificationNavigationUiTest {
                 val db = TrackerDatabaseFactory.open(context,dataset)
                 try {
                     assertEquals(sub,db.subscriptions().find(sub.id))
-                    assertTrue(db.payments().all().isEmpty()); assertTrue(db.deliveries().all().isEmpty())
+                    assertTrue(db.deliveries().all().isEmpty())
                 } finally { db.close() }
             }
             compose.onNodeWithTag("settings_time_dialog").assertDoesNotExist()

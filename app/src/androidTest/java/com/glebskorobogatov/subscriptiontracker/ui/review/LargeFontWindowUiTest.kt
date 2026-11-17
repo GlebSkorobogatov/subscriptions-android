@@ -42,7 +42,7 @@ class LargeFontWindowUiTest {
             for((s,action,cancel) in listOf(
 
                 Triple(ReviewScene.DeleteDialog,"Подтвердить","Отмена"),
-                Triple(ReviewScene.ResolveDateDialog,"Подтвердить","Отмена"),
+                Triple(ReviewScene.EditEndDialog,"Подтвердить","Отмена"),
                 Triple(ReviewScene.DisableDialog,"Подтвердить","Отмена"),Triple(ReviewScene.ReactivateDialog,"Подтвердить","Отмена"),
                 Triple(ReviewScene.ArchiveDialog,"Подтвердить","Отмена"),
 
@@ -52,7 +52,7 @@ class LargeFontWindowUiTest {
                 compose.onNodeWithText(cancel).assertIsDisplayed().assertHasClickAction()
                 val field = when(s) {
                     ReviewScene.ReactivateDialog -> "details_field_amount"
-                    ReviewScene.ResolveDateDialog -> "details_field_date"
+                    ReviewScene.EditEndDialog -> "details_field_date"
                     ReviewScene.DisableDialog -> "details_field_end"
                     else -> null
                 }
@@ -104,7 +104,7 @@ class LargeFontWindowUiTest {
             when(s) {
                 ReviewScene.Settings -> compose.onNodeWithTag("settings_time").performScrollTo()
                 ReviewScene.EditorError -> compose.onNodeWithTag("field_amount").performScrollTo()
-                ReviewScene.DetailsLong -> compose.onNodeWithText("${Long.MAX_VALUE} JPY").performScrollTo()
+                ReviewScene.DetailsLong -> compose.onNodeWithText("92233720368547758,07 RUB").performScrollTo()
                 else -> Unit
             }
             artifacts.capture(compose,s,name,font,density)

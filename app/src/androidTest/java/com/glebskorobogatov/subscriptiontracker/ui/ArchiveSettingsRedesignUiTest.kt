@@ -38,7 +38,7 @@ class ArchiveSettingsRedesignUiTest {
         compose.setContent { ArchiveDemo(onOpen = { opened += it }) }
         compose.onAllNodesWithText("Видеосервис").assertCountEquals(2)
         compose.onNodeWithTag("archive_${data.personal.id}").assert(hasText("Личный")).assert(hasText("799,00 RUB")).performClick()
-        compose.onNodeWithTag("archive_${data.family.id}").assert(hasText("Семейный")).assert(hasText("12,99 USD")).performClick()
+        compose.onNodeWithTag("archive_${data.family.id}").assert(hasText("Семейный")).assert(hasText("12,99 RUB")).performClick()
         compose.runOnIdle { assertEquals(listOf(data.personal.id,data.family.id),opened) }
     }
     @Test fun emptyArchiveIsMinimalAndIslandKeepsArchiveSelected() {
@@ -62,8 +62,8 @@ class ArchiveSettingsRedesignUiTest {
     }
     @Test fun archiveShowsOnlyKnownAccessAndNoForecastOrRowReactivation() {
         compose.setContent { ArchiveDemo() }
-        compose.onNodeWithText("Доступ до 2027-02-28 включительно").assertExists()
-        compose.onNodeWithText("Дата окончания доступа неизвестна").assertExists()
+        compose.onNodeWithText("В архиве с 2027-02-28").assertExists()
+        compose.onNodeWithText("Дата архивирования неизвестна").assertExists()
         compose.onNodeWithText("Возобновить подписку").assertDoesNotExist()
         compose.onNodeWithText("Прогноз на 30 дней").assertDoesNotExist()
         compose.onNodeWithTag("subscription_progress").assertDoesNotExist()
@@ -123,8 +123,8 @@ class ArchiveSettingsRedesignUiTest {
         val state = mutableStateOf(data.settings); val calls = mutableListOf<Pair<Int,Boolean>>()
         compose.setContent { SettingsDemo(state.value,onOffset = { day,on ->
             calls += day to on; val settings = state.value.data!!
-            state.value = state.value.copy(data = settings.copy(paymentOffsetsDefault =
-                if(on) settings.paymentOffsetsDefault + day else settings.paymentOffsetsDefault - day))
+            state.value = state.value.copy(data = settings.copy(renewalOffsets =
+                if(on) settings.renewalOffsets + day else settings.renewalOffsets - day))
         }) }
         compose.openSettingsOffsets()
         compose.onNodeWithTag("settings_payment_7").assertIsOff().performClick().assertIsOn()
@@ -133,7 +133,7 @@ class ArchiveSettingsRedesignUiTest {
         compose.onNodeWithText("Готово").performClick()
         compose.onNodeWithTag("settings_payment_offsets").assert(hasText("Напоминания отключены."))
         compose.onNodeWithTag("settings_cancellation_offsets").assertDoesNotExist()
-        compose.runOnIdle { assertEquals(7 to true,calls.first()); assertTrue(state.value.data!!.paymentOffsetsDefault.isEmpty()) }
+        compose.runOnIdle { assertEquals(7 to true,calls.first()); assertTrue(state.value.data!!.renewalOffsets.isEmpty()) }
     }
 
     @Test fun offsetDialogRestoresWithoutAutomaticallySendingAnotherChange() {

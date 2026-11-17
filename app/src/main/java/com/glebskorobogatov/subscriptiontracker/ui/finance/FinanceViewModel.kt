@@ -3,6 +3,8 @@ package com.glebskorobogatov.subscriptiontracker.ui.finance
 import androidx.lifecycle.*
 import com.glebskorobogatov.subscriptiontracker.data.integration.SubscriptionUseCases
 import com.glebskorobogatov.subscriptiontracker.data.room.SubscriptionEntity
+import com.glebskorobogatov.subscriptiontracker.data.mapping.toDomain
+import com.glebskorobogatov.subscriptiontracker.domain.forecast.ForecastEngine
 import com.glebskorobogatov.subscriptiontracker.domain.forecast.ForecastResult
 import com.glebskorobogatov.subscriptiontracker.domain.model.CurrencyCode
 import com.glebskorobogatov.subscriptiontracker.ui.subscriptions.*
@@ -16,7 +18,10 @@ data class FinanceSnapshot(val forecast: ForecastResult, val rows: List<Subscrip
     val currency: CurrencyCode get() = CurrencyCode.of("RUB")
 }
 internal fun financeSnapshots(use: SubscriptionUseCases): Flow<FinanceSnapshot> =
-    combine(use.selectedChart,use.subscriptions) { forecast,rows -> FinanceSnapshot(forecast,rows) }
+    combine(use.subscriptions,use.date.today) { rows,today ->
+        // Row labels, prices and eligibility must belong to the same authoritative snapshot.
+        FinanceSnapshot(ForecastEngine().calendarMonths(rows.map { it.toDomain() },today,12,CurrencyCode.of("RUB")),rows)
+    }.flowOn(Dispatchers.Default)
 
 interface FinanceSource {
     fun observe(): Flow<FinanceSnapshot>

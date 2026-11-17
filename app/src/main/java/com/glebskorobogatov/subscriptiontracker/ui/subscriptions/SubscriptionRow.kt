@@ -17,7 +17,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.unit.dp
 import com.glebskorobogatov.subscriptiontracker.R
-import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.*
+import com.glebskorobogatov.subscriptiontracker.domain.subscription.SubscriptionState
 import com.glebskorobogatov.subscriptiontracker.domain.model.FrequencyUnit
 import com.glebskorobogatov.subscriptiontracker.ui.design.*
 import java.time.format.DateTimeFormatter
@@ -49,20 +49,13 @@ internal fun SubscriptionRow(model: SubscriptionCardModel, onOpen: (UUID) -> Uni
                 }
             }
             val status = when (model.status) {
-                VisibleStatus.ACTIVE -> if (model.mode == RenewalMode.AUTO) R.string.status_auto else R.string.status_manual
-                VisibleStatus.AWAITING_RENEWAL -> R.string.status_awaiting
-                VisibleStatus.PAYMENT_ISSUE -> R.string.status_payment_issue
-                VisibleStatus.CANCELLATION_SCHEDULED -> R.string.status_cancelled
-                VisibleStatus.ARCHIVED -> R.string.status_archived
+                SubscriptionState.ACTIVE -> R.string.details_active
+                SubscriptionState.CANCELLED -> R.string.status_cancelled
+                SubscriptionState.ARCHIVED -> R.string.status_archived
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (model.status == VisibleStatus.PAYMENT_ISSUE || model.status == VisibleStatus.AWAITING_RENEWAL) {
-                    Icon(Icons.Default.Warning, null, Modifier.size(20.dp), tint = TrackerDesign.colors.statusUrgent)
-                }
-                Text(stringResource(status), style = MaterialTheme.typography.bodyMedium)
-            }
+            Text(stringResource(status), style = MaterialTheme.typography.bodyMedium)
             model.eventDate?.let { date ->
-                Text(stringResource(if (model.status == VisibleStatus.CANCELLATION_SCHEDULED) R.string.access_until else R.string.expected_on,
+                Text(stringResource(if (model.status == SubscriptionState.CANCELLED) R.string.access_until else R.string.expected_on,
                     date.format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))),
                     style = MaterialTheme.typography.bodySmall, color = TrackerDesign.colors.textSecondary)
                 when {
@@ -71,23 +64,12 @@ internal fun SubscriptionRow(model: SubscriptionCardModel, onOpen: (UUID) -> Uni
                         style = MaterialTheme.typography.bodySmall, color = TrackerDesign.colors.textSecondary)
                 }
             }
-            val explanation = when (model.status) {
-                VisibleStatus.AWAITING_RENEWAL -> R.string.awaiting_explanation
-                VisibleStatus.PAYMENT_ISSUE -> R.string.payment_issue_explanation
-                VisibleStatus.CANCELLATION_SCHEDULED -> if (model.eventDate == null) R.string.access_unknown else null
-                else -> if (model.eventDate == null) R.string.event_unknown else null
-            }
-            explanation?.let { Text(stringResource(it), style = MaterialTheme.typography.bodySmall, color = TrackerDesign.colors.textSecondary) }
-            // Display the supplied domain fraction; awaiting renewal has an explicitly empty track.
-            val progress = when (model.status) {
-                VisibleStatus.AWAITING_RENEWAL -> 0f
-                VisibleStatus.PAYMENT_ISSUE, VisibleStatus.ARCHIVED -> null
-                else -> model.remainingFraction
-            }
+            if (model.eventDate == null) Text(stringResource(R.string.event_unknown), style = MaterialTheme.typography.bodySmall)
+            val progress = if (model.status == SubscriptionState.ARCHIVED) null else model.remainingFraction
             progress?.let {
                 val progressText = stringResource(R.string.progress_status, stringResource(status))
                 val color = when {
-                    model.status == VisibleStatus.AWAITING_RENEWAL || (model.remainingDays != null && model.remainingDays <= 1) -> TrackerDesign.colors.statusUrgent
+                    (model.remainingDays != null && model.remainingDays <= 1) -> TrackerDesign.colors.statusUrgent
                     model.remainingDays != null && model.remainingDays <= 3 -> TrackerDesign.colors.statusSoon
                     else -> TrackerDesign.colors.statusCalm
                 }

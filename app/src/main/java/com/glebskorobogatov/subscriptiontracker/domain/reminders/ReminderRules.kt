@@ -1,19 +1,18 @@
 package com.glebskorobogatov.subscriptiontracker.domain.reminders
 
-import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.Subscription
-import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.SubscriptionLifecycleService
+import com.glebskorobogatov.subscriptiontracker.domain.subscription.*
 import com.glebskorobogatov.subscriptiontracker.domain.model.SubscriptionId
 import java.time.*
 import java.time.temporal.ChronoUnit
 
-/** PAYMENT is the stable v1 renewal discriminator; keep logical delivery identities. */
-enum class ReminderEventType { PAYMENT }
+/** The only event kind in the fresh v5 delivery contract. */
+enum class ReminderEventType { RENEWAL }
 private val allowedOffsets = setOf(7,3,1,0)
 
-/** Global renewal offsets only; legacy per-subscription rows are never inputs. */
-data class ReminderSubscription(val subscription: Subscription, val paymentOffsets: Set<Int>) {
+/** Global renewal offsets shared by all active subscriptions. */
+data class ReminderSubscription(val subscription: SubscriptionRecord, val renewalOffsets: Set<Int>) {
     init { validate() }
-    internal fun validate() { require(paymentOffsets.all { it in allowedOffsets }) }
+    internal fun validate() { require(renewalOffsets.all { it in allowedOffsets }) }
 }
 
 /** Logical identity v1: independent of configured time, zone, input order and delivery attempts.
@@ -45,8 +44,8 @@ data class ReminderMessage(val subscriptionId: SubscriptionId,val asOfLocalDate:
 class ReminderCalculationException(message: String,cause: Throwable): IllegalArgumentException(message,cause)
 
 /** No clocks, storage, notifications or owned state. Only the nearest currently eligible renewal
- * is considered; legacy AUTO advances by calendar view, MANUAL keeps its stored cycle until editing (R1b.4). */
-class ReminderRules(private val lifecycle: SubscriptionLifecycleService = SubscriptionLifecycleService()) {
+ * is considered. Rolling-horizon/overlapping-cycle expansion belongs to R2. */
+class ReminderRules(private val domain: SubscriptionDomain = SubscriptionDomain()) {
     private val order = compareBy<PlannedReminder> { it.plannedLocalDateTime }
         .thenBy { it.subscriptionId.toString() }.thenBy { it.eventType.name }
         .thenBy { it.targetDate }.thenBy { it.offsetDays }
@@ -105,7 +104,8 @@ class ReminderRules(private val lifecycle: SubscriptionLifecycleService = Subscr
         require(unique.map { it.subscription.id }.distinct().size == unique.size) { "Conflicting subscription snapshots" }
         return unique.flatMap { input ->
             input.validate()
-            val due = lifecycle.view(input.subscription,today).expectedDate ?: return@flatMap emptyList()
+            if (!input.subscription.participatesInCalculations) return@flatMap emptyList()
+            val due = domain.nextDue(input.subscription.schedule,today)
             buildList {
                 fun append(type: ReminderEventType,target: LocalDate,offsets: Set<Int>) {
                     if(target < today) return
@@ -113,7 +113,7 @@ class ReminderRules(private val lifecycle: SubscriptionLifecycleService = Subscr
                         add(PlannedReminder(input.subscription.id,type,target,offset,target.minusDays(offset.toLong()).atTime(time)))
                     }
                 }
-                append(ReminderEventType.PAYMENT,due,input.paymentOffsets)
+                append(ReminderEventType.RENEWAL,due,input.renewalOffsets)
 
             }
         }.distinct().sortedWith(order)

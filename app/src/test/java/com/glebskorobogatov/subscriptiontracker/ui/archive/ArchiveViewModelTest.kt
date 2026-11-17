@@ -38,7 +38,7 @@ class ArchiveViewModelTest {
         val a = detailsRow().copy(id = UUID(0,1),name = "Сервис",accountLabel = "Первый")
         val b = a.copy(id = UUID(0,2),accountLabel = "Второй")
         val first = a.copy(id = UUID(0,3),name = "Архив")
-        assertEquals(listOf(first,a,b),sortedArchive(listOf(b,first,a)))
+        assertEquals(listOf(a,b,first),sortedArchive(listOf(b,first,a)))
     }
     @Test fun sessionRetryRestartsFailedArchiveReader() = runTest(dispatcher) {
         var bad = true

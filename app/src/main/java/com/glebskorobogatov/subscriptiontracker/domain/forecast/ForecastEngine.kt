@@ -1,9 +1,7 @@
 package com.glebskorobogatov.subscriptiontracker.domain.forecast
 
 import com.glebskorobogatov.subscriptiontracker.domain.calendar.DefaultRenewalCalendar
-import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.LifecycleState
-import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.RenewalMode
-import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.Subscription
+import com.glebskorobogatov.subscriptiontracker.domain.subscription.*
 import com.glebskorobogatov.subscriptiontracker.domain.model.CurrencyCode
 import com.glebskorobogatov.subscriptiontracker.domain.model.Money
 import com.glebskorobogatov.subscriptiontracker.domain.model.SubscriptionId
@@ -17,8 +15,6 @@ data class ExpectedCharge(
     val dueDate: LocalDate,
     val amountMinor: Long,
     val currencyCode: CurrencyCode,
-    val renewalMode: RenewalMode,
-    val cycleIndex: Long,
 )
 
 data class MonthlyForecast(
@@ -38,11 +34,11 @@ data class ForecastResult(
 
 /** Pure recalculation from a snapshot. All dates are explicit; history is deliberately not an input. */
 class ForecastEngine(private val calendar: DefaultRenewalCalendar = DefaultRenewalCalendar()) {
-    fun next30Days(subscriptions: List<Subscription>, today: LocalDate, currency: CurrencyCode? = null): ForecastResult =
+    fun next30Days(subscriptions: List<SubscriptionRecord>, today: LocalDate, currency: CurrencyCode? = null): ForecastResult =
         calculate(subscriptions, today, today.plusDays(30), currency)
 
     fun calendarMonths(
-        subscriptions: List<Subscription>, today: LocalDate, months: Int, currency: CurrencyCode? = null,
+        subscriptions: List<SubscriptionRecord>, today: LocalDate, months: Int, currency: CurrencyCode? = null,
     ): ForecastResult {
         require(months in setOf(3, 6, 12)) { "Expected 3, 6 or 12 calendar months" }
         return calculate(subscriptions, today, YearMonth.from(today).plusMonths(months.toLong()).atDay(1), currency)
@@ -50,7 +46,7 @@ class ForecastEngine(private val calendar: DefaultRenewalCalendar = DefaultRenew
 
     /** Half-open future window. Callers supply today (or a later date) as its lower boundary. */
     fun calculate(
-        subscriptions: List<Subscription>, fromInclusive: LocalDate, untilExclusive: LocalDate,
+        subscriptions: List<SubscriptionRecord>, fromInclusive: LocalDate, untilExclusive: LocalDate,
         currency: CurrencyCode? = null,
     ): ForecastResult {
         require(fromInclusive <= untilExclusive) { "Range end must not precede start" }
@@ -63,24 +59,14 @@ class ForecastEngine(private val calendar: DefaultRenewalCalendar = DefaultRenew
         require(subscriptions.map { it.id }.distinct().size == subscriptions.size) { "Duplicate subscription IDs" }
         val events = mutableListOf<ExpectedCharge>()
         if (fromInclusive < untilExclusive) subscriptions.forEach { subscription ->
-            if (subscription.state != LifecycleState.ACTIVE) return@forEach
-            fun append(date: LocalDate, index: Long) {
-                events += ExpectedCharge(subscription.id, date, subscription.price.amountMinor,
-                    subscription.price.currency, subscription.mode, index)
-            }
-            if (subscription.mode == RenewalMode.MANUAL) {
-                val due = calendar.nextScheduledDate(subscription.schedule)
-                if (due >= fromInclusive && due < untilExclusive) append(due, subscription.schedule.nextCycleIndex)
-            } else {
-                val firstIndex = calendar.firstCycleIndexOnOrAfter(subscription.schedule, fromInclusive)
-                    ?: return@forEach
-                calendar.upcomingEvents(subscription.schedule, fromInclusive, untilExclusive)
-                    .forEachIndexed { offset, date -> append(date, Math.addExact(firstIndex, offset.toLong())) }
+            if (!subscription.participatesInCalculations) return@forEach
+            calendar.upcomingEvents(subscription.schedule, fromInclusive, untilExclusive).forEach { date ->
+                events += ExpectedCharge(subscription.id, date, subscription.price.amountMinor, CurrencyCode.of("RUB"))
             }
         }
         val available = events.map { it.currencyCode }.distinct().sortedBy { it.value }
         val charges = events.filter { currency == null || it.currencyCode == currency }.sortedWith(
-            compareBy<ExpectedCharge> { it.dueDate }.thenBy { it.subscriptionId.toString() }.thenBy { it.cycleIndex })
+            compareBy<ExpectedCharge> { it.dueDate }.thenBy { it.subscriptionId.toString() })
         val grouped = charges.groupBy { YearMonth.from(it.dueDate) }
         val months = linkedMapOf<YearMonth, MonthlyForecast>()
         // Include empty calendar buckets so a future chart can display zero-expense months.

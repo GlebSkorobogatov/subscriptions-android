@@ -80,7 +80,7 @@ internal fun SettingsPane(state: SettingsUiState,version: String,onTheme: (Theme
                 ReminderTimeRow(settings.reminderLocalTime.format(DateTimeFormatter.ofPattern("HH:mm",Locale.ROOT)))
                 HorizontalDivider(color = TrackerDesign.colors.divider)
                 listOf(R.string.settings_payment_offsets).forEach { label ->
-                    val summary = offsetSummary(settings.paymentOffsetsDefault)
+                    val summary = offsetSummary(settings.renewalOffsets)
                     Row(Modifier.fillMaxWidth().heightIn(min = TrackerDimensions.minimumTouchTarget)
                         .clickable(enabled = enabled,role = Role.Button) { offsetsOpen = true }
                         .testTag("settings_payment_offsets").padding(vertical = 16.dp),
@@ -100,7 +100,7 @@ internal fun SettingsPane(state: SettingsUiState,version: String,onTheme: (Theme
                         !access.appEnabled -> R.string.notifications_system_disabled
                         else -> R.string.notifications_allowed
                     }))
-                    if (!access.paymentsEnabled) Text(stringResource(R.string.notifications_payment_disabled))
+                    if (!access.renewalsEnabled) Text(stringResource(R.string.notifications_payment_disabled))
                     TextButton(onClick = onNotificationSettings) { Text(stringResource(R.string.notifications_settings)) }
                 }
                 Text(stringResource(R.string.notifications_best_effort),Modifier.padding(top = 16.dp),color = TrackerDesign.colors.textSecondary,style = MaterialTheme.typography.bodySmall)
@@ -113,7 +113,7 @@ internal fun SettingsPane(state: SettingsUiState,version: String,onTheme: (Theme
             }
         }
         if (offsetsOpen) {
-            val selected = state.data?.paymentOffsetsDefault.orEmpty()
+            val selected = state.data?.renewalOffsets.orEmpty()
             val title = stringResource(R.string.settings_payment_offsets)
             val scrollTitle = scrollDialogHeading()
             AlertDialog(onDismissRequest = { offsetsOpen = false },modifier = Modifier.imePadding().testTag("settings_offsets_dialog").semantics { paneTitle = title },

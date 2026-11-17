@@ -1,25 +1,26 @@
 package com.glebskorobogatov.subscriptiontracker.data.mapping
 
 import com.glebskorobogatov.subscriptiontracker.data.room.SubscriptionEntity
-import com.glebskorobogatov.subscriptiontracker.domain.calendar.*
-import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.*
+import com.glebskorobogatov.subscriptiontracker.domain.calendar.RenewalAnchor
 import com.glebskorobogatov.subscriptiontracker.domain.model.*
+import com.glebskorobogatov.subscriptiontracker.domain.subscription.*
 import java.time.Instant
 import java.time.YearMonth
+import java.util.UUID
 
-fun SubscriptionEntity.toDomain() = Subscription(SubscriptionId(id), renewalMode,
-    RenewalSchedule(RenewalAnchor(YearMonth.of(anchorYear, anchorMonth), anchorDay), Frequency(intervalUnit, intervalCount),
-        nextCycleIndex, oneOffDueDate?.let { CycleOverride(requireNotNull(overrideCycleIndex), it) }),
-    Money(priceMinor, currencyCode), lifecycleState, paidAccessEndDate, currentPeriodStartOverride)
+fun SubscriptionEntity.toDomain() = SubscriptionRecord(SubscriptionId(id), name, RubPrice(priceMinor),
+    RecurringSchedule(RenewalAnchor(YearMonth.of(anchorYear, anchorMonth), anchorDay), Frequency(intervalUnit, intervalCount)),
+    accountLabel, SubscriptionAppearance(catalogLogoId, logoAssetId?.toString()), state,
+    currentPeriodStartOverride?.let { PeriodStart(it, requireNotNull(currentPeriodEnd)) },
+    cancelledAccessEndExclusive, frozenCancelledPeriodStart, archivedAt)
 
-/** Preserve storage-only metadata while persisting every lifecycle/schedule field. */
-fun SubscriptionEntity.withDomain(s: Subscription, changedAt: Instant): SubscriptionEntity {
+fun SubscriptionRecord.toEntity(createdAt: Instant, updatedAt: Instant = createdAt) = SubscriptionEntity(
+    id.value, name, accountLabel, price.amountMinor, schedule.frequency.unit, schedule.frequency.count, state,
+    schedule.anchor.yearMonth.year, schedule.anchor.yearMonth.monthValue, schedule.anchor.day,
+    periodStart?.start, periodStart?.due, cancelledAccessEndExclusive, frozenCancelledPeriodStart,
+    appearance.logoAssetId?.let(UUID::fromString), appearance.catalogLogoId, createdAt, updatedAt, archivedAt)
+
+fun SubscriptionEntity.withDomain(s: SubscriptionRecord, changedAt: Instant): SubscriptionEntity {
     require(id == s.id.value)
-    return copy(renewalMode = s.mode, lifecycleState = s.state,
-        priceMinor = s.price.amountMinor, currencyCode = s.price.currency,
-        intervalUnit = s.schedule.frequency.unit, intervalCount = s.schedule.frequency.count,
-        anchorYear = s.schedule.anchor.yearMonth.year, anchorMonth = s.schedule.anchor.yearMonth.monthValue,
-        anchorDay = s.schedule.anchor.day, nextCycleIndex = s.schedule.nextCycleIndex,
-        oneOffDueDate = s.schedule.oneOff?.date, overrideCycleIndex = s.schedule.oneOff?.cycleIndex,
-        currentPeriodStartOverride = s.periodStartOverride, paidAccessEndDate = s.paidAccessEnd, updatedAt = changedAt)
+    return s.toEntity(createdAt, changedAt)
 }

@@ -83,7 +83,7 @@ internal fun applySetting(current: Settings,intent: Map<String,String>): Setting
     }
     return when(intent.getValue("kind")) {
         "theme" -> current.copy(theme = Theme.valueOf(intent.getValue("value")))
-        "payment" -> current.copy(paymentOffsetsDefault = offsets(current.paymentOffsetsDefault))
+        "payment" -> current.copy(renewalOffsets = offsets(current.renewalOffsets))
         else -> error("Unknown preference")
     }
 }

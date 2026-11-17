@@ -10,7 +10,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import com.glebskorobogatov.subscriptiontracker.R
 import com.glebskorobogatov.subscriptiontracker.data.settings.Settings
 import com.glebskorobogatov.subscriptiontracker.data.settings.Theme
-import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.LifecycleState
+import com.glebskorobogatov.subscriptiontracker.domain.subscription.SubscriptionState
 import com.glebskorobogatov.subscriptiontracker.domain.model.CurrencyCode
 import com.glebskorobogatov.subscriptiontracker.ui.archive.*
 import com.glebskorobogatov.subscriptiontracker.ui.design.*
@@ -20,9 +20,9 @@ import java.util.UUID
 
 /** Fictional debug-only renderer data: no Room/DataStore or production dataset access. */
 internal object ArchiveSettingsPreviewData {
-    val personal = DetailsEditorPreviewData.row.copy(id = UUID(0,61),lifecycleState = LifecycleState.ARCHIVED,
-        accountLabel = "Личный",paidAccessEndDate = LocalDate.of(2027,2,28))
-    val family = personal.copy(id = UUID(0,62),accountLabel = "Семейный",paidAccessEndDate = null,currencyCode = CurrencyCode.of("USD"),priceMinor = 1299)
+    val personal = DetailsEditorPreviewData.row.copy(id = UUID(0,61),state = SubscriptionState.ARCHIVED,
+        accountLabel = "Личный",archivedAt = LocalDate.of(2027,2,28))
+    val family = personal.copy(id = UUID(0,62),accountLabel = "Семейный",archivedAt = null,priceMinor = 1299)
     val archive = ArchiveUiState(ArchivePhase.Content,listOf(personal,family))
     val settings = SettingsUiState(SettingsPhase.Content,Settings())
 }

@@ -73,7 +73,7 @@ internal fun ArchivePane(state: ArchiveUiState,onOpen: (UUID) -> Unit,onRetry: (
                     row.accountLabel?.takeIf(String::isNotBlank)?.let { Text(it,color = TrackerDesign.colors.textSecondary) }
                 } }
                 @Composable fun price() { Column {
-                    Text(stringResource(R.string.money_amount,Money(row.priceMinor,row.currencyCode).format(),row.currencyCode.value),style = MaterialTheme.typography.titleSmall)
+                    Text(stringResource(R.string.money_amount,Money(row.priceMinor,CurrencyCode.of("RUB")).format(),"RUB"),style = MaterialTheme.typography.titleSmall)
                     Text(stringResource(when(row.intervalUnit) {
                         FrequencyUnit.DAY -> R.string.frequency_days; FrequencyUnit.WEEK -> R.string.frequency_weeks
                         FrequencyUnit.MONTH -> R.string.frequency_months; FrequencyUnit.YEAR -> R.string.frequency_years
@@ -86,7 +86,7 @@ internal fun ArchivePane(state: ArchiveUiState,onOpen: (UUID) -> Unit,onRetry: (
                 }
             }
             Text(stringResource(R.string.status_archived),color = TrackerDesign.colors.textSecondary)
-            Text(row.paidAccessEndDate?.let { stringResource(R.string.access_until,it.toString()) } ?: stringResource(R.string.access_unknown),
+            Text(row.archivedAt?.let { stringResource(R.string.archived_on,it.toString()) } ?: stringResource(R.string.archived_date_unknown),
                 color = TrackerDesign.colors.textSecondary,style = MaterialTheme.typography.bodySmall)
         }
     }

@@ -18,33 +18,7 @@ interface SubscriptionDao {
     @Query("DELETE FROM subscriptions WHERE id = :id") fun delete(id: UUID): Int
 }
 
-/** Blocking DAO: invoke off the main thread; inserts and updates abort on conflicts. */
-@Dao
-interface PaymentDao {
-    @Query("SELECT * FROM payments WHERE subscriptionId = :id ORDER BY paidOn, id")
-    fun forSubscription(id: UUID): List<PaymentEntity>
-    @Query("SELECT * FROM payments WHERE operationId = :id")
-    fun findByOperation(id: UUID): PaymentEntity?
-    @Insert fun insert(value: PaymentEntity)
-    @Update fun update(value: PaymentEntity): Int
-    @Query("SELECT * FROM payments ORDER BY id") fun all(): List<PaymentEntity>
-    @Query("SELECT * FROM payments WHERE id = :id") fun find(id: UUID): PaymentEntity?
-    @Query("DELETE FROM payments WHERE id = :id") fun delete(id: UUID): Int
-}
-
-/** Blocking DAO: invoke off the main thread; inserts and updates abort on conflicts. */
-@Dao
-interface RefundDao {
-    @Query("SELECT * FROM refunds WHERE paymentId = :id ORDER BY refundedOn, id")
-    fun forPayment(id: UUID): List<RefundEntity>
-    @Insert fun insert(value: RefundEntity)
-    @Update fun update(value: RefundEntity): Int
-    @Query("SELECT * FROM refunds ORDER BY id") fun all(): List<RefundEntity>
-    @Query("SELECT * FROM refunds WHERE id = :id") fun find(id: UUID): RefundEntity?
-    @Query("DELETE FROM refunds WHERE id = :id") fun delete(id: UUID): Int
-}
-
-/** Blocking DAO: invoke off the main thread; inserts and updates abort on conflicts. */
+/** Blocking DAO: invoke off the main thread. */
 @Dao
 interface AssetDao {
     @Insert fun insert(value: AssetEntity)
@@ -63,16 +37,4 @@ interface NotificationDeliveryDao {
     @Query("SELECT * FROM notification_delivery_ledger ORDER BY id") fun all(): List<NotificationDeliveryEntity>
     @Query("SELECT * FROM notification_delivery_ledger WHERE id = :id") fun find(id: UUID): NotificationDeliveryEntity?
     @Query("DELETE FROM notification_delivery_ledger WHERE id = :id") fun delete(id: UUID): Int
-}
-
-@Dao
-interface ReminderOverrideDao {
-    @Query("SELECT * FROM reminder_overrides ORDER BY subscriptionId, eventType")
-    fun all(): List<ReminderOverrideEntity>
-    @Insert fun insert(value: ReminderOverrideEntity)
-    @Update fun update(value: ReminderOverrideEntity): Int
-    @Query("SELECT * FROM reminder_overrides WHERE subscriptionId = :id ORDER BY eventType")
-    fun forSubscription(id: UUID): List<ReminderOverrideEntity>
-    @Query("DELETE FROM reminder_overrides WHERE subscriptionId = :id AND eventType = :type")
-    fun delete(id: UUID, type: ReminderEventType): Int
 }

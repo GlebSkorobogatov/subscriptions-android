@@ -21,13 +21,13 @@ internal object SettingsCodec {
         theme = p[theme]?.let { raw -> Theme.entries.firstOrNull { it.name == raw } } ?: Theme.SYSTEM,
         // Missing means defaults; a present empty set remains disabled. Invalid legacy members
         // are discarded, never replaced with newly enabled reminder days. I/O errors propagate.
-        paymentOffsetsDefault = p[payment]?.mapNotNull(String::toIntOrNull)
+        renewalOffsets = p[payment]?.mapNotNull(String::toIntOrNull)
             ?.filter { it in setOf(7, 3, 1, 0) }?.toSet() ?: setOf(3, 1),
         version = p[version] ?: 1,
     )
     fun write(p: MutablePreferences, value: Settings) {
         p[theme] = value.theme.name
-        p[payment] = value.paymentOffsetsDefault.map(Int::toString).toSet()
+        p[payment] = value.renewalOffsets.map(Int::toString).toSet()
         p[version] = value.version
         // Retired keys are preserved as inert legacy data, never read or executed.
     }

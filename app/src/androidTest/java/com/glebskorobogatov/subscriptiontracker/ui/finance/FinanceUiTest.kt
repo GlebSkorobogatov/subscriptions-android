@@ -28,7 +28,7 @@ class FinanceUiTest {
         compose.onNodeWithTag("finance_total").assertTextEquals("6587,00 RUB")
         compose.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag("finance_month_2027-02"))
         compose.onNodeWithTag("finance_month_2027-02").performClick().assertIsSelected()
-        compose.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag("finance_charge_00000000-0000-0000-0000-000000000321_1"))
+        compose.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag("finance_charge_00000000-0000-0000-0000-000000000321_2027-02-28"))
         compose.onNodeWithText("Личный").assertIsDisplayed(); compose.onNodeWithText("Семейный").assertDoesNotExist()
         compose.onNodeWithTag("finance_currency_KWD").assertDoesNotExist()
         compose.onNodeWithTag("finance_currency_RUB").assertDoesNotExist()
@@ -48,8 +48,8 @@ class FinanceUiTest {
     @Test fun zeroMonthIsSelectableAndLargeTextRemainsScrollableInBothThemes() {
         var theme by mutableStateOf(Theme.LIGHT)
         var ui by mutableStateOf(FinancePreviewData.state().let { old ->
-            val currency = CurrencyCode.of("JPY")
-            val row = FinancePreviewData.rows.first().copy(currencyCode = currency,priceMinor = Long.MAX_VALUE,renewalMode = com.glebskorobogatov.subscriptiontracker.domain.lifecycle.RenewalMode.MANUAL)
+            val currency = CurrencyCode.of("RUB")
+            val row = FinancePreviewData.rows.first().copy(priceMinor = Long.MAX_VALUE,intervalUnit = com.glebskorobogatov.subscriptiontracker.domain.model.FrequencyUnit.YEAR)
             val result = com.glebskorobogatov.subscriptiontracker.domain.forecast.ForecastEngine().calendarMonths(listOf(row.toDomain()),FinancePreviewData.day,3,currency)
             old.copy(snapshot = FinanceSnapshot(result,listOf(row)),currency = currency)
         })
@@ -61,7 +61,7 @@ class FinanceUiTest {
         for(value in listOf(Theme.LIGHT,Theme.DARK)) {
             compose.runOnIdle { theme = value; ui = ui.copy(month = YearMonth.of(2027,1)) }
             compose.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag("finance_total"))
-            val total = compose.onNodeWithTag("finance_total").assertIsDisplayed().assertTextEquals("9223372036854775807 JPY")
+            val total = compose.onNodeWithTag("finance_total").assertIsDisplayed().assertTextEquals("92233720368547758,07 RUB")
             val layouts = mutableListOf<TextLayoutResult>()
             total.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
             assertTrue(layouts.isNotEmpty()); layouts.forEach { assertFalse(it.hasVisualOverflow) }

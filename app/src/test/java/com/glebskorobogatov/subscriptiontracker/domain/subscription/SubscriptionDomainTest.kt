@@ -1,5 +1,6 @@
 package com.glebskorobogatov.subscriptiontracker.domain.subscription
 
+import com.glebskorobogatov.subscriptiontracker.domain.subscription.*
 import com.glebskorobogatov.subscriptiontracker.domain.calendar.*
 import com.glebskorobogatov.subscriptiontracker.domain.model.*
 import com.glebskorobogatov.subscriptiontracker.domain.time.ClockDateProvider
@@ -20,7 +21,7 @@ class SubscriptionDomainTest {
             accountLabel = "Тест", appearance = SubscriptionAppearance(catalogLogoId = "other"))
     private fun events(first: String, frequency: Frequency, count: Int, day: Int? = null): List<LocalDate> {
         val schedule = RecurringSchedule.starting(d(first), frequency, day)
-        return (0 until count).map { calendar.plannedCycleDate(schedule.calendarInput(), it.toLong()) }
+        return (0 until count).map { calendar.plannedCycleDate(schedule, it.toLong()) }
     }
 
     @Test fun monthlyClampingRestoresAllAnchorDays() {
@@ -48,7 +49,7 @@ class SubscriptionDomainTest {
         val s = row(first = "2027-11-15")
         assertEquals(0L, domain.period(s, d("2027-11-15")).remainingDays)
         assertEquals(d("2027-12-15"), domain.nextDue(s.schedule, d("2027-11-16")))
-        assertEquals(d("2027-11-15"), calendar.plannedCycleDate(s.schedule.calendarInput(), 0))
+        assertEquals(d("2027-11-15"), calendar.plannedCycleDate(s.schedule, 0))
     }
     @Test(timeout = 2000) fun directLookupAfterExtremeAbsence() {
         val series = RecurringSchedule.starting(LocalDate.MIN, Frequency(FrequencyUnit.DAY, 1))
@@ -90,7 +91,7 @@ class SubscriptionDomainTest {
         assertThrows(IllegalArgumentException::class.java) { domain.edit(row(), today, scheduleEdit = ScheduleEdit(today.minusDays(1), month)) }
         assertThrows(CalendarCalculationException::class.java) {
             domain.nextDue(RecurringSchedule.starting(LocalDate.MAX, month), LocalDate.MAX) // Last date is valid.
-                .let { calendar.plannedCycleDate(RecurringSchedule.starting(it, month).calendarInput(), 1) }
+                .let { calendar.plannedCycleDate(RecurringSchedule.starting(it, month), 1) }
         }
         assertThrows(CalendarCalculationException::class.java) {
             domain.nextDue(RecurringSchedule.starting(d("2027-01-01"), Frequency(FrequencyUnit.YEAR, Int.MAX_VALUE)), today)
@@ -105,9 +106,9 @@ class SubscriptionDomainTest {
     }
     @Test fun calculatedBoundaryRestores31AndLeapDayBackwards() {
         val monthly = RecurringSchedule.starting(d("2027-02-28"), month, 31)
-        assertEquals(d("2027-01-31"), calendar.previousRegularBoundary(monthly.calendarInput(), d("2027-02-28")))
+        assertEquals(d("2027-01-31"), calendar.previousRegularBoundary(monthly, d("2027-02-28")))
         val yearly = RecurringSchedule.starting(d("2029-02-28"), Frequency(FrequencyUnit.YEAR, 1), 29)
-        assertEquals(d("2028-02-29"), calendar.previousRegularBoundary(yearly.calendarInput(), d("2029-02-28")))
+        assertEquals(d("2028-02-29"), calendar.previousRegularBoundary(yearly, d("2029-02-28")))
     }
     @Test fun overrideAppliesOnlyToItsEndBoundary() {
         val original = row()
@@ -142,8 +143,8 @@ class SubscriptionDomainTest {
     }
     @Test fun foreignAmountIsRejectedNeverRelabelled() {
         for (code in listOf("USD", "EUR", "JPY"))
-            assertThrows(IllegalArgumentException::class.java) { RubPrice.fromLegacy(Money(29950, CurrencyCode.of(code))) }
-        assertEquals(RubPrice(29950), RubPrice.fromLegacy(Money(29950, CurrencyCode.of("RUB"))))
+            assertThrows(IllegalArgumentException::class.java) { RubPrice.fromMoney(Money(29950, CurrencyCode.of(code))) }
+        assertEquals(RubPrice(29950), RubPrice.fromMoney(Money(29950, CurrencyCode.of("RUB"))))
     }
     @Test fun createAndEditKeepIdentityAndIndependentDuplicateNames() {
         assertEquals(SubscriptionState.ACTIVE, row().state)

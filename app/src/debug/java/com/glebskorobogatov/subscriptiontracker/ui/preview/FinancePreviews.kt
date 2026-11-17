@@ -6,7 +6,6 @@ import androidx.compose.ui.tooling.preview.Preview
 import com.glebskorobogatov.subscriptiontracker.data.mapping.toDomain
 import com.glebskorobogatov.subscriptiontracker.data.settings.Theme
 import com.glebskorobogatov.subscriptiontracker.domain.forecast.ForecastEngine
-import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.RenewalMode
 import com.glebskorobogatov.subscriptiontracker.domain.model.CurrencyCode
 import com.glebskorobogatov.subscriptiontracker.ui.design.TrackerTheme
 import com.glebskorobogatov.subscriptiontracker.ui.finance.*
@@ -18,11 +17,9 @@ internal object FinancePreviewData {
     val rub = CurrencyCode.of("RUB")
     val rows = listOf(
         DetailsEditorPreviewData.row.copy(id = UUID(0,801),name = "Учебный сервис",accountLabel = "Личный",priceMinor = 49900,
-            currencyCode = rub,anchorYear = 2027,anchorMonth = 1,anchorDay = 31,nextCycleIndex = 0,oneOffDueDate = null,overrideCycleIndex = null,currentPeriodStartOverride = null),
+            anchorYear = 2027,anchorMonth = 1,anchorDay = 31,currentPeriodStartOverride = null,currentPeriodEnd = null),
         DetailsEditorPreviewData.row.copy(id = UUID(0,802),name = "Учебный сервис",accountLabel = "Семейный",priceMinor = 59900,
-            currencyCode = rub,anchorYear = 2027,anchorMonth = 1,anchorDay = 31,nextCycleIndex = 0,oneOffDueDate = null,overrideCycleIndex = null,currentPeriodStartOverride = null,renewalMode = RenewalMode.MANUAL),
-        DetailsEditorPreviewData.row.copy(id = UUID(0,803),name = "Другой сервис",accountLabel = null,priceMinor = 12345,
-            currencyCode = CurrencyCode.of("KWD"),anchorYear = 2027,anchorMonth = 1,anchorDay = 31,nextCycleIndex = 0,oneOffDueDate = null,overrideCycleIndex = null,currentPeriodStartOverride = null))
+            anchorYear = 2027,anchorMonth = 1,anchorDay = 31,currentPeriodStartOverride = null,currentPeriodEnd = null,intervalUnit = com.glebskorobogatov.subscriptiontracker.domain.model.FrequencyUnit.YEAR))
     fun chartState(months: Int = 12): FinanceUiState {
         val sample = rows.take(2).map { it.copy(anchorYear = 2026,anchorMonth = 11,anchorDay = 30,intervalCount = 3) }
         val today = LocalDate.of(2026,11,15)

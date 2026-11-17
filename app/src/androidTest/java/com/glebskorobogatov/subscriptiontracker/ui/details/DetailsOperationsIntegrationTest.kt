@@ -8,6 +8,7 @@ import com.glebskorobogatov.subscriptiontracker.data.room.*
 import com.glebskorobogatov.subscriptiontracker.data.settings.*
 import com.glebskorobogatov.subscriptiontracker.domain.calendar.*
 import com.glebskorobogatov.subscriptiontracker.domain.integration.CurrentDate
+import com.glebskorobogatov.subscriptiontracker.domain.subscription.*
 import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.*
 import com.glebskorobogatov.subscriptiontracker.domain.model.*
 import com.glebskorobogatov.subscriptiontracker.data.lifecycle.LifecycleConflict
@@ -33,7 +34,6 @@ class DetailsOperationsIntegrationTest {
     private val day = LocalDate.of(2027,1,31)
     private val now = Instant.parse("2027-01-31T12:00:00Z")
     private val rub = CurrencyCode.of("RUB")
-    private val usd = CurrencyCode.of("USD")
     private var store = ViewModelStore()
     private val owners = mutableListOf<Job>()
     @Before fun open() = runBlocking {
@@ -54,45 +54,36 @@ class DetailsOperationsIntegrationTest {
         context.deleteDatabase("subscriptions-$dataset.db").also { _ -> com.glebskorobogatov.subscriptiontracker.fixtures.forgetFixtureInitialization(context, "subscriptions-$dataset.db") }
         File(context.filesDir,"datastore/settings-$dataset.preferences_pb").delete(); Unit
     }
-    private suspend fun create(label: String = "Личный") = use.createSubscription(SubscriptionDraft(UUID.randomUUID(),"Одинаковое имя",label,
-        Money(49900,rub),RenewalMode.MANUAL,RenewalSchedule(RenewalAnchor.from(day.minusDays(2)),Frequency(FrequencyUnit.MONTH,1))),now)
+    private suspend fun create(label: String = "Личный") = use.createSubscription(SubscriptionDraft(id = UUID.randomUUID(), name = "Одинаковое имя", accountLabel = label, price = RubPrice(49900), schedule = ScheduleEdit(day, Frequency(FrequencyUnit.MONTH,1))),now)
     private suspend fun details(id: UUID) = withTimeout(5000) { use.details(id).first() }!!
     private suspend fun rejected(block: suspend () -> Unit) {
         try { block(); fail("Expected rejection") } catch(_: IllegalArgumentException) { } catch(_: IllegalStateException) { }
     }
     @Test fun liveLifecycleDetailsPreserveOtherSubscriptionAndLegacyRows() = runBlocking {
         val s = create(); val other = create("Семейный")
-        val p = legacyPayment(db,s,day); val r = legacyRefund(db,p,day)
         val events = Channel<SubscriptionDetails?>(Channel.UNLIMITED)
         val reader = launch { use.details(s.id).collect { events.send(it) } }
         try {
             assertEquals(s,withTimeout(5000) { events.receive() }!!.subscription)
             val archived = use.changeLifecycle(s,LifecycleCommand.Archive,now)
             withTimeout(5000) { events.receiveAsFlow().first { it?.subscription == archived } }
-            val restored = use.changeLifecycle(archived,LifecycleCommand.Reactivate(day.plusDays(5),
-                Frequency(FrequencyUnit.MONTH,1),RenewalMode.AUTO,Money(s.priceMinor,s.currencyCode)),now.plusSeconds(1))
+            val restored = use.changeLifecycle(archived,LifecycleCommand.Reactivate(RubPrice(s.priceMinor), ScheduleEdit(day.plusDays(5),Frequency(FrequencyUnit.MONTH,1))),now.plusSeconds(1))
             withTimeout(5000) { events.receiveAsFlow().first { it?.subscription == restored } }
             assertEquals(other,details(other.id).subscription)
             withContext(Dispatchers.IO) {
-                assertEquals(listOf(p),db.payments().forSubscription(s.id))
-                assertEquals(listOf(r),db.refunds().forPayment(p.id))
             }
         } finally { reader.cancelAndJoin(); events.close() }
     }
     @Test fun completeSavedSubscriptionSnapshotRejectsConcurrentEditAfterReopen() = runBlocking {
-        val s = create(); val p = legacyPayment(db,s,day)
+        val s = create()
         val saved = SubscriptionSnapshot.snapshot(s)
-        val edited = use.editSubscription(s,SubscriptionEdit(s.name,s.accountLabel,Money(s.priceMinor+1,rub),s.renewalMode),now.plusSeconds(1))
+        val edited = use.editSubscription(s,SubscriptionEdit(name = s.name, accountLabel = s.accountLabel, price = RubPrice(s.priceMinor+1)),now.plusSeconds(1))
         db.close(); lease.close(); reopen()
         try { use.deleteSubscription(SubscriptionSnapshot.row(saved),true); fail() } catch (_: LifecycleConflict) { }
         assertEquals(edited,details(s.id).subscription)
-        withContext(Dispatchers.IO) {
-            assertEquals(listOf(p),db.payments().forSubscription(s.id))
-            assertFalse(db.retiredPaymentOperations().contains(p.operationId))
-        }
     }
     @Test fun lostArchiveResponseRestoresExpectedSnapshotWithoutAutomaticResubmission() = runBlocking {
-        val s = create(); val p = legacyPayment(db,s,day); var calls = 0; var loseResponse = true
+        val s = create(); var calls = 0; var loseResponse = true
         suspend fun model(saved: SavedStateHandle): DetailsViewModel = withContext(Dispatchers.Main) {
             val owner = SubscriptionsViewModel(object : SubscriptionsSource {
                 override fun activeDatasetId() = dataset
@@ -120,7 +111,6 @@ class DetailsOperationsIntegrationTest {
         assertEquals(1,calls); assertEquals(SubscriptionSnapshot.snapshot(s),restored.get<ArrayList<String>>("snapshot"))
         withContext(Dispatchers.Main) { retry.submit() }
         withTimeout(5000) { retry.state.first { it.conflicted } }
-        assertEquals(2,calls); assertEquals(LifecycleState.ARCHIVED,details(s.id).subscription.lifecycleState)
-        withContext(Dispatchers.IO) { assertEquals(listOf(p),db.payments().forSubscription(s.id)) }
+        assertEquals(2,calls); assertEquals(SubscriptionState.ARCHIVED,details(s.id).subscription.state)
     }
 }

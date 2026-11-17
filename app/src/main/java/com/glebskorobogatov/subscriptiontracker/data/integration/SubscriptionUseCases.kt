@@ -14,7 +14,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.*
 
-data class SubscriptionDetails(val subscription: SubscriptionEntity, val lifecycle: LifecycleView)
+data class SubscriptionDetails(val subscription: SubscriptionEntity, val period: com.glebskorobogatov.subscriptiontracker.domain.subscription.SubscriptionPeriod)
 
 /** No owned scope/cache. Caller owns DB and Settings lease; UI may stateIn its own lifecycle scope. */
 class SubscriptionUseCases(
@@ -33,7 +33,7 @@ class SubscriptionUseCases(
     private val domainSubscriptions = subscriptions.map { rows -> rows.map { it.toDomain() } }.distinctUntilChanged()
     val groups = combine(domainSubscriptions, date.today, ::groupSubscriptions).distinctUntilChanged().flowOn(Dispatchers.Default)
     val active = groups.map { it.active }.distinctUntilChanged()
-    val needsDecision = groups.map { it.needsDecision }.distinctUntilChanged()
+    val cancelled = groups.map { it.cancelled }.distinctUntilChanged()
     val archive = groups.map { it.archived }.distinctUntilChanged()
     val forecast30Days = combine(domainSubscriptions, date.today) { rows, today -> forecast.next30Days(rows, today) }
         .distinctUntilChanged().flowOn(Dispatchers.Default)
@@ -42,12 +42,10 @@ class SubscriptionUseCases(
         return combine(domainSubscriptions, date.today) { rows, today -> forecast.calendarMonths(rows, today, months, currency) }
             .distinctUntilChanged().flowOn(Dispatchers.Default)
     }
-    // Fixed selection through the existing engine. Legacy foreign rows retain their own currency;
-    // they are not relabelled or summed into this RUB forecast. Full runtime migration is R1b.4.
     val selectedChart = forecastMonths(12, CurrencyCode.of("RUB"))
 
     fun details(id: UUID): Flow<SubscriptionDetails?> = combine(database.subscriptions().observeDetails(id), date.today) { row, today ->
-        row?.let { SubscriptionDetails(it, SubscriptionLifecycleService().view(it.toDomain(), today)) }
+        row?.let { SubscriptionDetails(it, com.glebskorobogatov.subscriptiontracker.domain.subscription.SubscriptionDomain().period(it.toDomain(), today)) }
     }.distinctUntilChanged().flowOn(Dispatchers.Default)
 
     suspend fun stageImage(uri: android.net.Uri): UUID = requireNotNull(assetStore).stage(uri)
@@ -61,7 +59,7 @@ class SubscriptionUseCases(
     suspend fun createSubscription(draft: SubscriptionDraft, recordedAt: Instant) = reminderChanges.write {
         val image = draft.logoAssetId?.let { assetStore?.prepared(it) }
         try {
-            editor.create(draft, recordedAt, image).also { image?.let { assetStore?.finish(it.id) } }
+            editor.create(draft, recordedAt, date.today.value, image).also { image?.let { assetStore?.finish(it.id) } }
         } catch (error: Exception) {
             image?.let { if (database.assets().find(it.id) == null) assetStore?.removeFile(it) }
             throw error
@@ -70,7 +68,7 @@ class SubscriptionUseCases(
     suspend fun editSubscription(expected: SubscriptionEntity, edit: SubscriptionEdit, changedAt: Instant) = reminderChanges.write {
         val prepared = (edit.image as? ImageEdit.Set)?.let { requireNotNull(assetStore).prepared(it.assetId) }
         try {
-            editor.edit(expected, edit, changedAt, prepared).also {
+            editor.edit(expected, edit, changedAt, date.today.value, prepared).also {
                 prepared?.let { assetStore?.finish(it.id) }
                 if (expected.logoAssetId != it.logoAssetId) expected.logoAssetId?.let { id -> runCatching { cleanupAsset(id) } }
             }
@@ -85,8 +83,8 @@ class SubscriptionUseCases(
         })
         orphan?.let { assetStore?.removeFile(it) }
     }
-    /** Non-payment lifecycle operations; no command can create PAYMENT_ISSUE or financial facts. */
-    suspend fun changeLifecycle(expected: SubscriptionEntity, command: LifecycleCommand, changedAt: Instant) = reminderChanges.write { lifecycle.execute(expected, command, changedAt) }
+    /** Target lifecycle operations, serialized with reminder reconciliation. */
+    suspend fun changeLifecycle(expected: SubscriptionEntity, command: LifecycleCommand, changedAt: Instant) = reminderChanges.write { lifecycle.execute(expected, command, changedAt, date.today.value) }
     suspend fun deleteSubscription(expected: SubscriptionEntity, confirmed: Boolean) = reminderChanges.write {
         lifecycle.delete(expected, confirmed)
         expected.logoAssetId?.let { runCatching { cleanupAsset(it) } }
@@ -96,7 +94,7 @@ class SubscriptionUseCases(
             val before = settingsRepository.settings.first()
             settingsRepository.update(transform)
             val after = settingsRepository.settings.first()
-            before.paymentOffsetsDefault != after.paymentOffsetsDefault
+            before.renewalOffsets != after.renewalOffsets
         }
     }
     /** Calendar refresh never changes subscription status or writes to Room. */

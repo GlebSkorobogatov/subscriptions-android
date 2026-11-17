@@ -9,7 +9,7 @@ import com.glebskorobogatov.subscriptiontracker.data.mapping.toDomain
 import com.glebskorobogatov.subscriptiontracker.data.room.*
 import com.glebskorobogatov.subscriptiontracker.domain.calendar.*
 import com.glebskorobogatov.subscriptiontracker.domain.model.*
-import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.*
+import com.glebskorobogatov.subscriptiontracker.domain.subscription.*
 import com.glebskorobogatov.subscriptiontracker.ui.subscriptions.SubscriptionsViewModel
 import java.time.*
 import java.util.UUID
@@ -21,10 +21,16 @@ data class EditorState(val fields: Map<String,String> = emptyMap(), val loading:
     val errors: Map<String,Int> = emptyMap(), val error: Int? = null, val conflict: Boolean = false,
     val loadFailure: Boolean = false, val notFound: Boolean = false,
     val logoAssetId: UUID? = null, val pendingImageId: UUID? = null, val imageRemoved: Boolean = false,
-    val importingImage: Boolean = false, val catalogLogoId: String? = null)
+    val importingImage: Boolean = false, val catalogLogoId: String? = null, val scheduleEditable: Boolean = true)
 
 class EditorViewModel(private val saved: SavedStateHandle, private val owner: SubscriptionsViewModel,
     private val id: UUID?) : ViewModel() {
+    init {
+        if (saved.get<Int>("draftVersion") != 5) {
+            listOf("fields", "expected", "pendingImage", "imageRemoved", "catalogChoice", "generation").forEach { saved.remove<Any>(it) }
+            saved["draftVersion"] = 5
+        }
+    }
     private var expected: SubscriptionEntity? = null
     private val mutable = MutableStateFlow(EditorState(fields = saved.get<HashMap<String,String>>("fields") ?: emptyMap(),dirty = saved.contains("fields")))
     val state = mutable.asStateFlow()
@@ -36,8 +42,12 @@ class EditorViewModel(private val saved: SavedStateHandle, private val owner: Su
     val savedSubscriptionId: UUID get() = id ?: newId
     init { reload(false) }
     fun change(key: String, value: String) {
-        if (state.value.saving || key in setOf("currency","lead","PAYMENT","CANCELLATION")) return
-        val fields = state.value.fields + (key to value)
+        if (state.value.saving || key !in FIELD_KEYS) return
+        if (state.value.fields[key] == value) return
+        var fields = state.value.fields + (key to value)
+        if (key in setOf("date", "unit", "count")) fields = fields - setOf("anchorDay", "start", "periodDue")
+        if (key == "start") fields = if (value.isBlank()) fields - "periodDue"
+            else fields + ("periodDue" to fields.getValue("date"))
         saved["fields"] = HashMap(fields)
         mutable.value = state.value.copy(fields = fields, dirty = true, errors = emptyMap(), error = null)
     }
@@ -100,18 +110,18 @@ class EditorViewModel(private val saved: SavedStateHandle, private val owner: Su
                 fromRow(detail.subscription)
             }
             val oldDraft = if (discard) null else saved.get<HashMap<String,String>>("fields")
-            val currencyChanged = oldDraft?.get("currency")?.let { it != fields.getValue("currency") } == true
-            val restored = oldDraft?.filterKeys { it !in setOf("lead","PAYMENT","CANCELLATION") }?.toMutableMap()?.apply {
-                put("currency",fields.getValue("currency"))
-                if (currencyChanged) put("amount","") // Never relabel a saved foreign-currency amount.
-            }
+            val restored = oldDraft?.filterKeys { it in FIELD_KEYS }
             restored?.let { saved["fields"] = HashMap(it) }
             val fingerprint = expected.toString()
-            val stale = restored != null && saved.get<String>("expected")?.let { it != fingerprint && !it.startsWith(fingerprint + "[") } == true
-            if (!stale) saved["expected"] = fingerprint
+            val stale = restored != null && (saved.get<String>("expected")?.let { it != fingerprint } == true ||
+                saved.get<String>("generation")?.let { it != owner.activeDatasetId()?.toString() } == true)
+            if (!stale) {
+                saved["expected"] = fingerprint
+                owner.activeDatasetId()?.let { saved["generation"] = it.toString() }
+            }
             if (discard) discardImageDraft()
             mutable.value = EditorState(restored ?: fields, loading = false, dirty = restored != null || pendingImage != null || imageRemoved || catalogChoice != null,
-                errors = if (currencyChanged) mapOf("amount" to R.string.editor_price_reentry) else emptyMap(),
+                errors = emptyMap(), scheduleEditable = expected?.state?.let { it == SubscriptionState.ACTIVE } ?: true,
                 conflict = stale, error = if (stale) R.string.editor_conflict else null,
                 logoAssetId = expected?.logoAssetId, pendingImageId = pendingImage, imageRemoved = imageRemoved,
                 catalogLogoId = catalogChoice ?: if (imageRemoved || pendingImage != null) null else expected?.catalogLogoId)
@@ -128,31 +138,24 @@ class EditorViewModel(private val saved: SavedStateHandle, private val owner: Su
         viewModelScope.launch {
             try {
                 owner.perform { use ->
-                    val currency = expected?.currencyCode ?: CurrencyCode.of("RUB")
-                    val price = Money.parse(fields.getValue("amount"), currency)
-                    val schedule = schedule(fields)
-                    val mode = RenewalMode.valueOf(fields.getValue("mode"))
+                    if (saved.get<String>("generation")?.let { it != owner.activeDatasetId()?.toString() } == true) throw LifecycleConflict()
+                    val price = RubPrice.parse(fields.getValue("amount"))
+                    val schedule = scheduleEdit(fields)
                     val uuid = id ?: newId
                     val start = fields["start"]?.takeIf { it.isNotBlank() }?.let(LocalDate::parse)
-                    val end = fields["end"]?.takeIf { it.isNotBlank() }?.let(LocalDate::parse)
                     val label = fields["label"]?.trim()?.takeIf { it.isNotEmpty() }
                     val old = expected
-                    if (old == null) use.createSubscription(SubscriptionDraft(uuid, fields.getValue("name").trim(), label,
-                        price, mode, schedule, start, end, logoAssetId = pendingImage, catalogLogoId = catalogChoice), Instant.now())
-                    else {
-                        val original = old.toDomain().schedule
-                        val date = LocalDate.parse(fields.getValue("date"))
-                        val changed = schedule.frequency != original.frequency || fields["anchorMonth"] != original.anchor.yearMonth.toString() || fields["anchorDay"] != original.anchor.day.toString()
-                        val edit = when {
-                            changed || (fields["series"] == "true" && date != DefaultRenewalCalendar().nextScheduledDate(original)) -> ScheduleEdit.FutureSeries(date, schedule.frequency, if (fields["anchorMonth"] != original.anchor.yearMonth.toString() || fields["anchorDay"] != original.anchor.day.toString()) schedule.anchor else null)
-                            date != DefaultRenewalCalendar().nextScheduledDate(original) -> ScheduleEdit.NextOnly(date)
-                            else -> ScheduleEdit.Keep
-                        }
+                    if (old == null) {
+                        val initial = requireNotNull(schedule)
+                        use.createSubscription(SubscriptionDraft(uuid, fields.getValue("name").trim(), label,
+                            price, initial, start?.let { PeriodStart(it, initial.firstDue) }, logoAssetId = pendingImage, catalogLogoId = catalogChoice), Instant.now())
+                    } else {
+                        val periodStart = start?.let { PeriodStart(it, fields["periodDue"]?.takeIf(String::isNotBlank)?.let(LocalDate::parse)
+                            ?: LocalDate.parse(fields.getValue("date"))) }
                         val imageEdit = pendingImage?.let { ImageEdit.Set(it) }
                             ?: catalogChoice?.let { ImageEdit.Catalog(it) }
                             ?: if (imageRemoved) ImageEdit.Remove else ImageEdit.Keep
-                        use.editSubscription(old, SubscriptionEdit(fields.getValue("name").trim(), label, price, mode, edit,
-                            SubscriptionExtras(start,end), imageEdit), Instant.now())
+                        use.editSubscription(old, SubscriptionEdit(fields.getValue("name").trim(), label, price, schedule, PeriodStartEdit.Set(periodStart), imageEdit), Instant.now())
                     }
                 }
                 saved.remove<HashMap<String,String>>("fields")
@@ -164,49 +167,62 @@ class EditorViewModel(private val saved: SavedStateHandle, private val owner: Su
             catch (_: Exception) { mutable.value = state.value.copy(saving = false, error = R.string.editor_save_error) }
         }
     }
-    private fun defaults() = mapOf("name" to "", "amount" to "", "currency" to "RUB", "unit" to "MONTH", "count" to "1",
-        "date" to LocalDate.now().toString(), "mode" to "AUTO", "series" to "false")
+    private fun defaults() = mapOf("name" to "", "amount" to "", "unit" to "MONTH", "count" to "1",
+        "date" to owner.today().toString())
     private fun fromRow(row: SubscriptionEntity): Map<String,String> {
-        val s = row.toDomain()
-        return defaults() + mapOf("name" to row.name, "amount" to s.price.format(), "currency" to row.currencyCode.value,
+        val record = row.toDomain()
+        val due = SubscriptionDomain().nextDue(record.schedule, owner.today())
+        return defaults() + mapOf("name" to row.name, "amount" to record.price.format(),
             "label" to (row.accountLabel ?: ""), "unit" to row.intervalUnit.name, "count" to row.intervalCount.toString(),
-            "date" to DefaultRenewalCalendar().nextScheduledDate(s.schedule).toString(), "mode" to row.renewalMode.name,
-            "anchorMonth" to s.schedule.anchor.yearMonth.toString(), "anchorDay" to s.schedule.anchor.day.toString(),
-            "start" to (row.currentPeriodStartOverride?.toString() ?: ""), "end" to (row.paidAccessEndDate?.toString() ?: ""))
+            "date" to due.toString(), "displayedDue" to due.toString(), "anchorDay" to row.anchorDay.toString(),
+            "start" to (row.currentPeriodStartOverride?.toString() ?: ""), "periodDue" to (row.currentPeriodEnd?.toString() ?: ""))
     }
     fun validate(f: Map<String,String>): Map<String,Int> {
         val result = mutableMapOf<String,Int>()
         fun check(key: String, block: () -> Unit) { try { block() } catch (_: Exception) { result[key] = R.string.editor_invalid } }
         check("name") { require(!f["name"].isNullOrBlank()) }
-        check("amount") { Money.parse(f["amount"].orEmpty(), expected?.currencyCode ?: CurrencyCode.of("RUB")) }
-        check("count") { Frequency(FrequencyUnit.valueOf(f.getValue("unit")), f.getValue("count").toInt()) }
-        check("date") { LocalDate.parse(f.getValue("date")) }
-        check("anchorDay") { schedule(f) }
+        check("amount") { RubPrice.parse(f["amount"].orEmpty()) }
+        try { scheduleEdit(f) }
+        catch (error: ScheduleFieldError) { result[error.field] = R.string.editor_invalid }
         check("start") {
-            val start = f["start"]?.takeIf { it.isNotBlank() }?.let(LocalDate::parse)
-            val end = f["end"]?.takeIf { it.isNotBlank() }?.let(LocalDate::parse)
-            require(start == null || start < LocalDate.parse(f.getValue("date")))
-            require(start == null || end == null || start < end)
-        }
-        check("end") { f["end"]?.takeIf { it.isNotBlank() }?.let(LocalDate::parse) }
-        expected?.let { old ->
-            val original = old.toDomain().schedule
-            val changed = f["unit"] != original.frequency.unit.name || f["count"] != original.frequency.count.toString() ||
-                f["anchorMonth"] != original.anchor.yearMonth.toString() || f["anchorDay"] != original.anchor.day.toString()
-            if (changed && f["series"] != "true") result["series"] = R.string.editor_series_required
-            if (!changed && f["series"] != "true") check("date") { DefaultRenewalCalendar().moveNextOnly(original, LocalDate.parse(f.getValue("date"))) }
+            f["start"]?.takeIf(String::isNotBlank)?.let {
+                val start = LocalDate.parse(it)
+                require(start <= owner.today() && start < LocalDate.parse(f["periodDue"].orEmpty().ifBlank { f.getValue("date") }))
+            }
         }
         return result
     }
+    /** The same decision and full new-series validation serve both validate() and save(). */
+    private fun scheduleEdit(f: Map<String,String>): ScheduleEdit? = scheduleEdit(f, expected?.toDomain(), owner.today())
+
+    private class ScheduleFieldError(val field: String) : IllegalArgumentException()
     companion object {
-        fun schedule(f: Map<String,String>): RenewalSchedule {
-            val date = LocalDate.parse(f.getValue("date"))
-            val anchor = RenewalAnchor(f["anchorMonth"]?.takeIf { it.isNotBlank() }?.let(YearMonth::parse) ?: YearMonth.from(date),
-                f["anchorDay"]?.takeIf { it.isNotBlank() }?.toInt() ?: date.dayOfMonth)
-            val base = RenewalSchedule(anchor, Frequency(FrequencyUnit.valueOf(f.getValue("unit")), f.getValue("count").toInt()))
-            val calendar = DefaultRenewalCalendar()
-            val index = calendar.firstCycleIndexOnOrAfter(base,date) ?: error("Invalid date")
-            return calendar.moveNextOnly(base.copy(nextCycleIndex = index), date)
+        private val FIELD_KEYS = setOf("name", "label", "amount", "unit", "count", "date", "displayedDue", "anchorDay", "start", "periodDue")
+        private inline fun <T> scheduleField(key: String, block: () -> T): T = try { block() }
+            catch (error: CancellationException) { throw error }
+            catch (_: Exception) { throw ScheduleFieldError(key) }
+
+        private fun scheduleEdit(f: Map<String,String>, original: SubscriptionRecord?, today: LocalDate): ScheduleEdit? {
+            val frequency = scheduleField("count") {
+                Frequency(FrequencyUnit.valueOf(f.getValue("unit")), f.getValue("count").toInt())
+            }
+            val date = scheduleField("date") { LocalDate.parse(f.getValue("date")) }
+            val day = scheduleField("anchorDay") { f["anchorDay"]?.takeIf(String::isNotBlank)?.toInt() }
+            // displayedDue is the date originally loaded into this draft, not a new series anchor.
+            // It remains stable on recreation and when today advances. An absent refinement inherits
+            // the stored anchor if the user reverted the other schedule fields to their loaded values.
+            val keep = original != null && date.toString() == f["displayedDue"] && frequency == original.schedule.frequency &&
+                (!f.containsKey("anchorDay") || (day ?: date.dayOfMonth) == original.schedule.anchor.day)
+            if (keep) return null
+            scheduleField("date") {
+                require(original == null || original.state == SubscriptionState.ACTIVE)
+                require(date >= today)
+            }
+            scheduleField("anchorDay") { RecurringSchedule.starting(date, frequency, day) }
+            return ScheduleEdit(date, frequency, day)
         }
+
+        /** Explicit new-series input; unchanged edits must use the nullable decision above. */
+        fun schedule(f: Map<String,String>): ScheduleEdit = requireNotNull(scheduleEdit(f, null, LocalDate.MIN))
     }
 }

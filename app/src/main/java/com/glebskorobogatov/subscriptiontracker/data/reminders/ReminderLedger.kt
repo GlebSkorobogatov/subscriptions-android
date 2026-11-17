@@ -22,10 +22,6 @@ class ReminderLedger(private val db: TrackerDatabase, val generation: UUID) {
         return PlannedReminder(SubscriptionId(subscriptionId), DomainEvent.valueOf(eventType.name), eventDate,
             offsetDays, plannedLocalDate.atTime(time))
     }
-    private fun retire(value: NotificationDeliveryEntity) {
-        // Preserve all logical delivery identities and historical metadata. Never clear the ledger.
-        db.deliveries().update(value.copy(state = DeliveryState.SKIPPED, claimToken = null, leaseUntil = null))
-    }
     private fun NotificationDeliveryEntity.complete() = state == DeliveryState.DELIVERED || state == DeliveryState.SKIPPED
     private fun NotificationDeliveryEntity.live(now: Instant) = state == DeliveryState.PROCESSING &&
         leaseUntil != null && leaseUntil > now && leaseUntil <= now.plus(ReminderScheduling.lease)
@@ -40,19 +36,14 @@ class ReminderLedger(private val db: TrackerDatabase, val generation: UUID) {
         val source = inputs(settings)
         publisher?.reconcilePublished(PublishedReminderSnapshot(generation, source,
             db.subscriptions().all().associate { it.id to ReminderPresentation(it.name,
-                com.glebskorobogatov.subscriptiontracker.domain.model.Money(it.priceMinor, it.currencyCode)) },
+                com.glebskorobogatov.subscriptiontracker.domain.model.Money(it.priceMinor, com.glebskorobogatov.subscriptiontracker.domain.model.CurrencyCode.of("RUB"))) },
             settings.reminderLocalTime, now, zone))
         val horizon = now.atZone(zone).toLocalDate().plusDays(7).atStartOfDay()
         val fresh = rules.plan(source, settings.reminderLocalTime, now, zone)
             .filter { it.plannedLocalDateTime < horizon }.associateBy { it.key }
         val remaining = fresh.toMutableMap()
         rows().forEach { old ->
-            if (old.eventType != ReminderEventType.PAYMENT) {
-                // Retired v4 event type, possibly with an old/null payload: do not decode or claim it.
-                if (!old.complete()) retire(old)
-                return@forEach
-            }
-            val key = ReminderKey(SubscriptionId(old.subscriptionId), DomainEvent.PAYMENT, old.eventDate, old.offsetDays)
+            val key = ReminderKey(SubscriptionId(old.subscriptionId), DomainEvent.RENEWAL, old.eventDate, old.offsetDays)
             if (old.complete()) remaining.remove(key)
             else {
                 val event = old.event() // Invalid current payloads remain explicit errors.
@@ -74,7 +65,7 @@ class ReminderLedger(private val db: TrackerDatabase, val generation: UUID) {
             }
         }
         remaining.values.forEach { db.deliveries().insert(row(it)) }
-        rows().filter { it.eventType == ReminderEventType.PAYMENT && !it.complete() &&
+        rows().filter { it.eventType == ReminderEventType.RENEWAL && !it.complete() &&
             (it.live(now) || rules.matchesCurrentSchedule(it.event(),source,settings.reminderLocalTime,now,zone)) }
     }
 
@@ -82,7 +73,7 @@ class ReminderLedger(private val db: TrackerDatabase, val generation: UUID) {
     data class Claim(val token: UUID, val message: ReminderMessage)
 
     fun claim(subscription: UUID, settings: Settings, now: Instant, zone: ZoneId): Claim? = transaction {
-        val all = rows().filter { it.subscriptionId == subscription && it.eventType == ReminderEventType.PAYMENT }
+        val all = rows().filter { it.subscriptionId == subscription && it.eventType == ReminderEventType.RENEWAL }
         if (all.any { it.live(now) }) return@transaction null
         val candidates = all.filter { !it.complete() && it.failureCount < ReminderScheduling.MAX_FAILURES &&
             (it.notBefore == null || it.notBefore <= now) }
@@ -101,7 +92,6 @@ class ReminderLedger(private val db: TrackerDatabase, val generation: UUID) {
     fun publish(claim: Claim, settings: Settings, now: Instant, zone: ZoneId,
         publisher: ReminderPublisher): PublicationResult? = transaction {
         val owned = rows().filter { it.claimToken == claim.token && it.state == DeliveryState.PROCESSING }
-        if (owned.any { it.eventType != ReminderEventType.PAYMENT }) { owned.forEach(::retire); return@transaction null }
         if (owned.isEmpty() || owned.any { !it.live(now) }) return@transaction null
         val current = rules.dueMessages(inputs(settings), settings.reminderLocalTime, events(owned), now, zone).singleOrNull()
         if (current == null) {
@@ -111,7 +101,7 @@ class ReminderLedger(private val db: TrackerDatabase, val generation: UUID) {
         val result = try {
             val row = requireNotNull(db.subscriptions().find(current.subscriptionId.value))
             publisher.publish(NotificationIdentity(ReminderScheduling.identity(generation, current.subscriptionId.value)), current,
-                ReminderPresentation(row.name, com.glebskorobogatov.subscriptiontracker.domain.model.Money(row.priceMinor, row.currencyCode)))
+                ReminderPresentation(row.name, com.glebskorobogatov.subscriptiontracker.domain.model.Money(row.priceMinor, com.glebskorobogatov.subscriptiontracker.domain.model.CurrencyCode.of("RUB"))))
         } catch (cancel: kotlinx.coroutines.CancellationException) { throw cancel }
           catch (_: Exception) { PublicationResult.RETRYABLE_FAILURE }
         owned.forEach { old ->

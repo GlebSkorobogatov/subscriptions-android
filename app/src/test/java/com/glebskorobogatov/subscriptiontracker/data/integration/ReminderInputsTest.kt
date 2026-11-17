@@ -2,6 +2,7 @@ package com.glebskorobogatov.subscriptiontracker.data.integration
 
 import com.glebskorobogatov.subscriptiontracker.data.room.*
 import com.glebskorobogatov.subscriptiontracker.data.settings.Settings
+import com.glebskorobogatov.subscriptiontracker.domain.subscription.*
 import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.*
 import com.glebskorobogatov.subscriptiontracker.domain.model.*
 import com.glebskorobogatov.subscriptiontracker.domain.reminders.ReminderRules
@@ -15,32 +16,23 @@ class ReminderInputsTest {
     private val now = Instant.parse("2027-01-01T00:00:00Z")
     private val utc = ZoneId.of("UTC")
     private val id = UUID(0,1)
-    private fun row(id: UUID = this.id) = SubscriptionEntity(id,"Одинаковое имя","Аккаунт $id",100,CurrencyCode.of("RUB"),
-        FrequencyUnit.MONTH,1,RenewalMode.AUTO,LifecycleState.ACTIVE,2027,1,31,0,null,null,null,null,5,null,null,now,now)
+    private fun row(id: UUID = this.id) = SubscriptionEntity(id = id, name = "Одинаковое имя", accountLabel = "Аккаунт $id", priceMinor = 100, intervalUnit = FrequencyUnit.MONTH, intervalCount = 1, state = SubscriptionState.ACTIVE, anchorYear = 2027, anchorMonth = 1, anchorDay = 31, currentPeriodStartOverride = null, currentPeriodEnd = null, cancelledAccessEndExclusive = null, frozenCancelledPeriodStart = null, logoAssetId = null, catalogLogoId = null, createdAt = now, updatedAt = now, archivedAt = null)
 
     @Test fun globalDefaultsMapToPureRenewalPlansAndSameNamesRemainIndependent() {
         val settings = Settings(); val rows = listOf(row(UUID(0,2)),row())
         val inputs = reminderInputs(rows,settings)
         assertEquals(LocalTime.of(9,0),settings.reminderLocalTime)
-        assertEquals(setOf(3,1),inputs.first().paymentOffsets)
+        assertEquals(setOf(3,1),inputs.first().renewalOffsets)
         assertEquals(listOf(UUID(0,1),UUID(0,2)),inputs.map { it.subscription.id.value })
         val plans = ReminderRules().plan(inputs,settings.reminderLocalTime,now,utc)
         assertEquals(4,plans.size); assertEquals(4,plans.map { it.key }.distinct().size)
-        assertTrue(plans.all { it.eventType == DomainEvent.PAYMENT && it.plannedLocalDateTime.toLocalTime() == LocalTime.of(9,0) })
+        assertTrue(plans.all { it.eventType == DomainEvent.RENEWAL && it.plannedLocalDateTime.toLocalTime() == LocalTime.of(9,0) })
         assertEquals(inputs,reminderInputs(rows.reversed(),settings))
     }
 
-    @Test fun legacyCancellationLeadCannotAffectGlobalRenewalPlan() {
-        val before = row(); val settings = Settings(paymentOffsetsDefault = setOf(7,0))
-        val baseline = reminderInputs(listOf(before),settings)
-        for (lead in listOf(null,0,1,999)) {
-            assertEquals(baseline,reminderInputs(listOf(before.copy(cancellationLeadDays = lead)),settings))
-        }
-        assertEquals(5,before.cancellationLeadDays)
-    }
 
     @Test fun emptyGlobalSetDisablesEverySubscription() {
-        val settings = Settings(paymentOffsetsDefault = emptySet())
+        val settings = Settings(renewalOffsets = emptySet())
         val inputs = reminderInputs(listOf(row(),row(UUID(0,2))),settings)
         assertTrue(ReminderRules().plan(inputs,settings.reminderLocalTime,now,utc).isEmpty())
     }

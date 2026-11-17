@@ -19,6 +19,7 @@ import com.glebskorobogatov.subscriptiontracker.data.room.*
 import com.glebskorobogatov.subscriptiontracker.data.settings.*
 import com.glebskorobogatov.subscriptiontracker.domain.calendar.*
 import com.glebskorobogatov.subscriptiontracker.domain.integration.CurrentDate
+import com.glebskorobogatov.subscriptiontracker.domain.subscription.*
 import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.*
 import com.glebskorobogatov.subscriptiontracker.domain.model.*
 import com.glebskorobogatov.subscriptiontracker.ui.design.TrackerTheme
@@ -81,16 +82,8 @@ class SubscriptionsUiTest {
         if (restoration == null) compose.setContent(content) else restoration.setContent(content)
         compose.waitUntil(5000) { vm.state.value !is SubscriptionsUiState.Loading }
     }
-    private fun create(label: String = "Личный", date: LocalDate = day, currency: String = "RUB",
-        mode: RenewalMode = RenewalMode.AUTO, price: Long = 49900) = runBlocking {
-        if (currency == "RUB") use.createSubscription(SubscriptionDraft(UUID.randomUUID(), "Сервис", label, Money(price, CurrencyCode.of(currency)), mode,
-            RenewalSchedule(RenewalAnchor.from(date), Frequency(FrequencyUnit.MONTH, 1))), now)
-        else {
-            // Synthetic existing legacy record, not an application currency-creation command.
-            val row = SubscriptionEntity(UUID.randomUUID(),"Сервис",label,price,CurrencyCode.of(currency),FrequencyUnit.MONTH,1,
-                mode,LifecycleState.ACTIVE,date.year,date.monthValue,date.dayOfMonth,0,null,null,null,null,null,null,null,now,now)
-            withContext(Dispatchers.IO) { db.subscriptions().insert(row) }; row
-        }
+    private fun create(label: String="Личный",date: LocalDate=day,price: Long=49900) = runBlocking {
+        use.createSubscription(SubscriptionDraft(UUID.randomUUID(),"Сервис",label,RubPrice(price),ScheduleEdit(date,Frequency(FrequencyUnit.MONTH,1))),now)
     }
     private fun show(id: UUID) {
         compose.onNodeWithTag("subscriptions_screen").performScrollToNode(hasTestTag("subscription_$id"))
@@ -98,7 +91,7 @@ class SubscriptionsUiTest {
     }
     private fun awaitContent(count: Int) {
         compose.waitUntil(5000) {
-            (vm.state.value as? SubscriptionsUiState.Content)?.let { it.active.size + it.needsDecision.size == count } == true
+            (vm.state.value as? SubscriptionsUiState.Content)?.let { it.active.size + it.cancelled.size == count } == true
         }
     }
 
@@ -112,16 +105,18 @@ class SubscriptionsUiTest {
         for (field in listOf("name", "amount", "currency", "count", "date")) {
             compose.onNodeWithTag("field_$field").performScrollTo().assertIsDisplayed().assertHasClickAction()
         }
-        for (label in listOf("Периодичность оплаты", "Автопродление", "Ручное продление")) {
+        for (label in listOf("Периодичность оплаты")) {
             compose.onNodeWithText(label).performScrollTo().assertIsDisplayed().assertHasClickAction()
         }
+        compose.onNodeWithText("Автопродление").assertDoesNotExist()
+        compose.onNodeWithText("Ручное продление").assertDoesNotExist()
         compose.onNodeWithText("Сохранить").performScrollTo().assertIsDisplayed().assertHasClickAction()
         compose.onNodeWithTag("bottom_navigation").assertDoesNotExist()
         compose.onNodeWithContentDescription("Назад").performClick()
         compose.onNodeWithTag("tab_subscriptions").assertIsSelected()
     }
     @Test fun useCaseInsertionIsReactiveAndDuplicateServicesRetainLabels() {
-        start(); val a = create(); val b = create("Семейный", day.plusDays(3), "USD")
+        start(); val a = create(); val b = create("Семейный", day.plusDays(3))
         awaitContent(2)
         compose.waitUntil(5000) { (vm.state.value as? SubscriptionsUiState.Content)?.forecast?.size == 2 }
         show(a.id); compose.onNodeWithText("Личный").assertIsDisplayed()
@@ -129,30 +124,27 @@ class SubscriptionsUiTest {
         compose.onNodeWithText("Требуют решения").assertDoesNotExist()
         val state = vm.state.value as SubscriptionsUiState.Content
         assertEquals(listOf(a.id, b.id), state.active.map { it.id })
-        assertEquals(listOf("RUB", "USD"), state.forecast.map { it.currency.value })
+        assertEquals(listOf("RUB"), state.forecast.map { it.currency.value })
         compose.onNodeWithTag("subscriptions_screen").performScrollToIndex(0)
-        compose.onNodeWithTag("forecast_summary").assertTextContains("998,00 RUB", substring = true)
-        compose.onNodeWithTag("forecast_summary").assertTextContains("499,00 USD", substring = true)
+        compose.onNodeWithTag("forecast_summary").assertTextContains("1497,00 RUB", substring = true)
     }
-    @Test fun decisionsAreSeparateAndNotDuplicatedInActiveList() {
-        val issue = create("Проблема")
-        runBlocking { withContext(Dispatchers.IO) { db.subscriptions().update(issue.copy(lifecycleState = LifecycleState.PAYMENT_ISSUE)) } }
-        val manual = create("Просрочена", day.minusDays(1), mode = RenewalMode.MANUAL)
-        val active = create("Обычная")
-        start(); awaitContent(3)
-        val state = vm.state.value as SubscriptionsUiState.Content
-        assertEquals(setOf(issue.id, manual.id), state.needsDecision.map { it.id }.toSet())
-        assertEquals(listOf(active.id), state.active.map { it.id })
-        show(issue.id); compose.onNodeWithText("Проблема с оплатой").assertIsDisplayed()
-        show(manual.id); compose.onNodeWithText("Ожидает продления").assertIsDisplayed()
-        compose.onAllNodesWithTag("subscription_${manual.id}").assertCountEquals(1)
+    @Test fun cancelledRowsAreBelowActiveWithoutDuplicatesOrProblemStates() {
+        val cancelled=create("Отменённая")
+        val end=day.plusDays(4)
+        runBlocking { use.changeLifecycle(cancelled,LifecycleCommand.Cancel(end),now) }
+        val active=create("Обычная")
+        start(); awaitContent(2)
+        val state=vm.state.value as SubscriptionsUiState.Content
+        assertEquals(listOf(cancelled.id),state.cancelled.map { it.id }); assertEquals(listOf(active.id),state.active.map { it.id })
+        show(cancelled.id); compose.onNodeWithText("Отменена").assertIsDisplayed()
+        compose.onAllNodesWithTag("subscription_${cancelled.id}").assertCountEquals(1)
     }
     @Test fun cancelledUnknownAccessNeverShowsImaginedDate() {
         val s = create()
-        runBlocking { use.changeLifecycle(s, LifecycleCommand.DisableRenewal(null), now) }
+        runBlocking { withContext(Dispatchers.IO) { db.subscriptions().update(s.copy(state=SubscriptionState.CANCELLED)) } }
         start(); show(s.id)
         compose.onNodeWithText("Дата окончания доступа неизвестна").assertIsDisplayed()
-        compose.onNodeWithText("Продление отменено").assertIsDisplayed()
+        compose.onNodeWithText("Отменена").assertIsDisplayed()
         assertNull((vm.state.value as SubscriptionsUiState.Content).active.single().eventDate)
         compose.onNodeWithTag("subscriptions_screen").performScrollToIndex(0)
         compose.onNodeWithText("В ближайшие 30 дней ожидаемых списаний нет").assertIsDisplayed()

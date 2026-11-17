@@ -1,24 +1,18 @@
 package com.glebskorobogatov.subscriptiontracker.domain.calendar
 
 import com.glebskorobogatov.subscriptiontracker.domain.model.FrequencyUnit
+import com.glebskorobogatov.subscriptiontracker.domain.subscription.RecurringSchedule
 import java.time.DateTimeException
 import java.time.LocalDate
 import java.time.YearMonth
 
 interface RenewalCalendar {
-    /** Returns the effective date, including the single indexed override if present. */
-    fun plannedCycleDate(schedule: RenewalSchedule, index: Long): LocalDate
-    fun upcomingEvents(schedule: RenewalSchedule, from: LocalDate, untilExclusive: LocalDate): Sequence<LocalDate>
+    /** Returns a regular series boundary from the original anchor. */
+    fun plannedCycleDate(schedule: RecurringSchedule, index: Long): LocalDate
+    fun upcomingEvents(schedule: RecurringSchedule, from: LocalDate, untilExclusive: LocalDate): Sequence<LocalDate>
 }
 
 class CalendarCalculationException(message: String, cause: Throwable? = null) : IllegalArgumentException(message, cause)
-
-class CycleConflictException(
-    val cycleIndex: Long,
-    val proposedDate: LocalDate,
-    val previousDate: LocalDate?,
-    val nextDate: LocalDate?,
-) : IllegalArgumentException("Override must be strictly between adjacent regular cycles")
 
 /** Pure calendar arithmetic. No clock, zone, subscription state or persistence dependency. */
 class DefaultRenewalCalendar(private val maxEventsPerQuery: Int = 10_000) : RenewalCalendar {
@@ -26,38 +20,27 @@ class DefaultRenewalCalendar(private val maxEventsPerQuery: Int = 10_000) : Rene
         require(maxEventsPerQuery > 0) { "Event limit must be positive" }
     }
 
-    override fun plannedCycleDate(schedule: RenewalSchedule, index: Long): LocalDate {
+    override fun plannedCycleDate(schedule: RecurringSchedule, index: Long): LocalDate {
         require(index >= 0) { "Cycle index must not be negative" }
         validate(schedule)
-        return effectiveDate(schedule, index)
-    }
-
-    fun nextScheduledDate(schedule: RenewalSchedule): LocalDate = plannedCycleDate(schedule, schedule.nextCycleIndex)
-
-    fun moveNextOnly(schedule: RenewalSchedule, date: LocalDate): RenewalSchedule =
-        schedule.copy(oneOff = CycleOverride(schedule.nextCycleIndex, date)).also(::validate)
-
-    /** New future segment; keep the old segment/history separately. Never mutates the input. */
-    fun moveFutureSeries(schedule: RenewalSchedule, firstDate: LocalDate): RenewalSchedule {
-        validate(schedule)
-        return RenewalSchedule(RenewalAnchor.from(firstDate), schedule.frequency).also(::validate)
+        return regularDate(schedule, index)
     }
 
     /** Inclusive lookup; unlike a half-open range it can also return LocalDate.MAX. */
-    fun firstOnOrAfter(schedule: RenewalSchedule, from: LocalDate): LocalDate? {
+    fun firstOnOrAfter(schedule: RecurringSchedule, from: LocalDate): LocalDate? {
         validate(schedule)
-        return effectiveDateOrNull(schedule, lowerBound(schedule, from))
+        return regularDateOrNull(schedule, lowerBound(schedule, from))
     }
 
     /** Indexed counterpart of firstOnOrAfter; uses the same bounded binary search. */
-    fun firstCycleIndexOnOrAfter(schedule: RenewalSchedule, from: LocalDate): Long? {
+    fun firstCycleIndexOnOrAfter(schedule: RecurringSchedule, from: LocalDate): Long? {
         validate(schedule)
         val index = lowerBound(schedule, from)
-        return index.takeIf { effectiveDateOrNull(schedule, it) != null }
+        return index.takeIf { regularDateOrNull(schedule, it) != null }
     }
 
     override fun upcomingEvents(
-        schedule: RenewalSchedule,
+        schedule: RecurringSchedule,
         from: LocalDate,
         untilExclusive: LocalDate,
     ): Sequence<LocalDate> {
@@ -69,7 +52,7 @@ class DefaultRenewalCalendar(private val maxEventsPerQuery: Int = 10_000) : Rene
             var index = first
             var emitted = 0
             while (true) {
-                val date = effectiveDateOrNull(schedule, index) ?: break
+                val date = regularDateOrNull(schedule, index) ?: break
                 if (date >= untilExclusive) break
                 if (emitted == maxEventsPerQuery) {
                     throw CalendarCalculationException("Too many events; narrow the query range")
@@ -82,10 +65,9 @@ class DefaultRenewalCalendar(private val maxEventsPerQuery: Int = 10_000) : Rene
     }
 
     /** Previous regular boundary, including the calculated boundary before the first event.
-     * Target schedules have no payment index or one-off overrides; legacy callers retain their API.
+     * This also permits a precise period before the first expected event.
      */
-    fun previousRegularBoundary(schedule: RenewalSchedule, due: LocalDate): LocalDate? {
-        require(schedule.oneOff == null) { "A regular period cannot contain a one-off override" }
+    fun previousRegularBoundary(schedule: RecurringSchedule, due: LocalDate): LocalDate? {
         val index = firstCycleIndexOnOrAfter(schedule, due) ?: return null
         require(plannedCycleDate(schedule, index) == due) { "Expected a series boundary" }
         return try {
@@ -108,42 +90,27 @@ class DefaultRenewalCalendar(private val maxEventsPerQuery: Int = 10_000) : Rene
         } catch (_: CalendarCalculationException) { null }
     }
 
-    private fun validate(schedule: RenewalSchedule) {
-        // A schedule cannot start at an unrepresentable index, even with an overriding date.
-        regularDate(schedule, schedule.nextCycleIndex)
-        val override = schedule.oneOff ?: return
-        val previous = if (override.cycleIndex > 0) regularDate(schedule, override.cycleIndex - 1) else null
-        val next = regularDateOrNull(schedule, Math.incrementExact(override.cycleIndex))
-        if ((previous != null && override.date <= previous) || (next != null && override.date >= next)) {
-            throw CycleConflictException(override.cycleIndex, override.date, previous, next)
-        }
-    }
-
-    private fun effectiveDate(schedule: RenewalSchedule, index: Long): LocalDate =
-        schedule.oneOff?.takeIf { it.cycleIndex == index }?.date ?: regularDate(schedule, index)
-
-    private fun effectiveDateOrNull(schedule: RenewalSchedule, index: Long): LocalDate? =
-        schedule.oneOff?.takeIf { it.cycleIndex == index }?.date ?: regularDateOrNull(schedule, index)
+    private fun validate(schedule: RecurringSchedule) { regularDate(schedule, 0) }
 
     /** At most 63 probes, regardless of history length. Out-of-domain future dates act as +infinity. */
-    private fun lowerBound(schedule: RenewalSchedule, from: LocalDate): Long {
-        var low = schedule.nextCycleIndex
+    private fun lowerBound(schedule: RecurringSchedule, from: LocalDate): Long {
+        var low = 0L
         var high = Long.MAX_VALUE
         while (low < high) {
             val mid = low + (high - low) / 2
-            val date = effectiveDateOrNull(schedule, mid)
+            val date = regularDateOrNull(schedule, mid)
             if (date == null || date >= from) high = mid else low = mid + 1
         }
         return low
     }
 
-    private fun regularDateOrNull(schedule: RenewalSchedule, index: Long): LocalDate? = try {
+    private fun regularDateOrNull(schedule: RecurringSchedule, index: Long): LocalDate? = try {
         regularDate(schedule, index)
     } catch (_: CalendarCalculationException) {
         null
     }
 
-    private fun regularDate(schedule: RenewalSchedule, index: Long): LocalDate {
+    private fun regularDate(schedule: RecurringSchedule, index: Long): LocalDate {
         require(index >= 0) { "Cycle index must not be negative" }
         try {
             val offset = Math.multiplyExact(index, schedule.frequency.count.toLong())
