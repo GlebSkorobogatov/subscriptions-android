@@ -38,7 +38,13 @@ fun EditorScreen(vm: EditorViewModel, exitRequest: Int, onSaved: (java.util.UUID
     fun leave() { if (!state.saving) { if (state.dirty) confirm = true else onBack() } }
     BackHandler { if (catalogOpen) catalogOpen = false else leave() }
     var lastExit by remember { mutableIntStateOf(exitRequest) }
-    LaunchedEffect(exitRequest) { if (exitRequest != lastExit) { lastExit = exitRequest; leave() } }
+    LaunchedEffect(exitRequest, state.saving, state.done) {
+        when (resolveEditorExit(exitRequest, lastExit, state.saving, state.done)) {
+            EditorExitResolution.AlreadyHandled, EditorExitResolution.Pending -> Unit
+            EditorExitResolution.SavedOwnsExit -> lastExit = exitRequest
+            EditorExitResolution.Leave -> { lastExit = exitRequest; leave() }
+        }
+    }
     LaunchedEffect(state.done) { if (state.done) { onSaved(vm.savedSubscriptionId); onBack() } }
     if (confirm) TrackerConfirmationDialog(
         title = stringResource(R.string.editor_unsaved), message = stringResource(R.string.editor_unsaved_explanation),

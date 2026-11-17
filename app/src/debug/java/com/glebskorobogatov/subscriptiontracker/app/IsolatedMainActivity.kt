@@ -5,14 +5,18 @@ import com.glebskorobogatov.subscriptiontracker.ui.subscriptions.SubscriptionsSo
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.withContext
 
 /** Instrumentation host only; launcher and release builds always use MainActivity. */
 class IsolatedMainActivity : MainActivity() {
     private lateinit var dataset: UUID
+    private var pauseNavigationLookup = false
     override fun onCreate(savedInstanceState: Bundle?) {
         dataset = savedInstanceState?.getString("test_dataset")?.let(UUID::fromString) ?: intent.getStringExtra("test_dataset")?.let(UUID::fromString) ?: UUID.randomUUID()
+        pauseNavigationLookup = intent.getBooleanExtra(NavigationLookupPause.EXTRA, false)
         if (savedInstanceState == null && intent.getStringExtra("test_dataset") == null) {
             // Explicit new synthetic generation, before the test host can create its database.
             com.glebskorobogatov.subscriptiontracker.data.room.InitializationJournal(filesDir, dataset).locked { authorizeFresh() }
@@ -31,6 +35,7 @@ class IsolatedMainActivity : MainActivity() {
     override fun createSubscriptionsSource(): SubscriptionsSource {
         val context = applicationContext
         val id = dataset
+        val pauseLookup = pauseNavigationLookup
         val source = SubscriptionsComposition(context) { id }
         return object : SubscriptionsSource {
             override fun activeDatasetId() = source.activeDatasetId()
@@ -38,7 +43,11 @@ class IsolatedMainActivity : MainActivity() {
             override fun finance() = source.finance()
             override fun archive() = source.archive()
             override fun today() = source.today()
-            override fun details(id: UUID) = source.details(id)
+            override fun details(id: UUID) = if (!pauseLookup) source.details(id) else flow {
+                // The UI recheck is the only read held here. ViewModel.open keeps its own lookup.
+                NavigationLookupPause.awaitTurn()
+                emitAll(source.details(id))
+            }
             override suspend fun <T> perform(block: suspend (com.glebskorobogatov.subscriptiontracker.data.integration.SubscriptionUseCases) -> T): T = source.perform(block)
             override fun observe(refreshes: kotlinx.coroutines.flow.Flow<Unit>) =
             source.observe(refreshes).onCompletion {

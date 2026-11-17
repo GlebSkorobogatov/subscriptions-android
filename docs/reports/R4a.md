@@ -270,3 +270,132 @@ Merge, ручной запуск Actions, сброс устройства, ав�
 - `app/src/test/java/com/glebskorobogatov/subscriptiontracker/ui/subscriptions/HomeProjectionTest.kt`
 - `docs/reports/R4a.md`
 - `docs/reports/R4a/README.md`
+
+## R4a-fix — навигация из уведомления не теряется на проверке записи
+
+Исходный SHA: `3472aad74b1a47bc1e07ae973354a666b900e10a`.
+Итоговый SHA коммита с этим исправлением публикуется в Draft PR #10: отчёт не вписывает самоссылку в тот же коммит.
+Base остаётся `codex/r3-design-system`. Новый PR не создавался. Force push, merge и ручной запуск Actions не выполнялись.
+PERSONAL-READY не объявляется. R4b и следующие этапы не начинались.
+
+### Первопричина
+
+В `TrackerApp` эффект `LaunchedEffect(notificationState?.navigation?.sequence, editor)` вызывал `consumed(sequence)` до `owner.details(id).first()` и до навигации.
+`consumed` обнуляет navigation state и меняет ключ эффекта. Выполняющийся эффект отменяется вместе с незавершённой проверкой.
+Запрос уже считается обработанным, а детали не открываются.
+
+Это подтверждено по исходному коду и воспроизведением. На исходном `TrackerApp` холодный запуск из уведомления (`coldActivityIntentOpensCorrectUuidAndBackReturnsHome`) завершился `ComposeTimeoutException`: экран деталей не появился. Отдельный прогон с управляемой задержкой UI-проверки (`delayedLookupStillOpensTheNotifiedDetails`) тоже не открыл детали; процесс затем падал на уничтожении activity, потому что переход так и не был доведён до устойчивого back stack. Лог первого падения гонки сохранён как артефакт прогона, успешным повтором он не подменяется.
+
+### Исправление
+
+Решение вынесено из эффекта:
+
+- `NotificationNavigationResolver` после асинхронного чтения заново проверяет поколение, последовательность и наличие записи. `CancellationException` пробрасывается. Обычная ошибка хранилища даёт `ReadFailed` и ведёт на главный экран, а не в детали. Более новый sequence не позволяет старому завершению ни перейти, ни вызвать `consumed`.
+- `NotificationNavigationSession` запускает проверку в `rememberCoroutineScope`, а не внутри `LaunchedEffect`. Очистка того же запроса ключ эффекта меняет, но свою проверку не отменяет. Другой sequence или другой режим редактора предыдущую проверку отменяют.
+- Побочные действия (`navigate`, `consumed`, запрос выхода из редактора) выполняются на `Dispatchers.Main.immediate` после состояния lifecycle не ниже `STARTED`. Чтение `NavController` вне главного потока не используется для решения.
+- Перед решением ждётся реальный destination через Compose `State` (`currentBackStackEntryAsState`). Прямой `snapshotFlow` по `NavController.currentBackStackEntry` не просыпается: это не snapshot state, и после пересоздания activity проверка зависала. Если к моменту решения редактор уже восстановлен, переход не кладётся поверх черновика.
+- `EditorExitRequest`: выход во время `saving` не проглатывается и не двигает `lastExit`. Успешное сохранение само закрывает редактор. Неуспешное сохранение по-прежнему спрашивает подтверждение грязного черновика.
+- Проверка существования не отключена. Optimistic snapshot, правила сохранения, изображения и защита черновика не менялись.
+
+Инструментальная задержка только у debug-хоста `IsolatedMainActivity`: `NavigationLookupPause` держит повторную UI-проверку. `NotificationViewModel.open` по-прежнему читает Room без этой задержки. В release этого типа нет.
+
+### Изменённые файлы
+
+- `app/src/main/java/.../ui/navigation/TrackerApp.kt`
+- `app/src/main/java/.../ui/navigation/NotificationNavigationResolver.kt`
+- `app/src/main/java/.../ui/navigation/NotificationNavigationSession.kt`
+- `app/src/main/java/.../ui/editor/EditorExitRequest.kt`
+- `app/src/main/java/.../ui/editor/EditorScreen.kt`
+- `app/src/debug/java/.../app/NavigationLookupPause.kt`
+- `app/src/debug/java/.../app/IsolatedMainActivity.kt`
+- `app/src/test/java/.../ui/navigation/NotificationNavigationResolverTest.kt` — 12
+- `app/src/test/java/.../ui/editor/EditorExitRequestTest.kt` — 4
+- `app/src/androidTest/java/.../notifications/NotificationNavigationRaceUiTest.kt` — 6
+- `app/src/androidTest/java/.../notifications/NotificationNavigationUiTest.kt` — 2 новых метода и синхронизация `ActivityScenario` после `setIntent`
+- `app/src/androidTest/java/.../notifications/ActivityScenarioIntentSync.kt`
+- `docs/reports/R4a.md`
+
+### Тесты, которые закрывают требуемые сценарии
+
+JVM, с управляемой задержкой lookup, не мгновенный fake:
+
+1. Задержанное чтение потребляет запрос только после чтения.
+2. Новый запрос во время чтения предыдущего сохраняется, старый не навигирует.
+3. Завершение старого запроса не очищает новый sequence.
+4. Удаление во время чтения ведёт домой.
+5. Смена поколения после чтения блокирует открытие.
+6. Ошибка хранилища не считается успешным открытием.
+7. `CancellationException` не потребляет запрос.
+8. Обёрнутая отмена не превращается в «записи нет».
+9. Редактор ждёт без lookup и без `consumed`.
+10. Уже открытые детали не пушатся повторно.
+11. Последовательные запросы открываются по порядку.
+12. Отмена scope во время чтения оставляет запрос pending.
+
+Инструментально, Compose → ViewModel → Room → Navigation, API 31:
+
+- холодный и тёплый запуск, в том числе с задержкой lookup;
+- повтор не дублирует маршрут;
+- новый запрос во время проверки предыдущего открывает вторую цель один раз;
+- удаление во время проверки возвращает на главный экран с другого корня;
+- пересоздание activity во время проверки и во время диалога выхода;
+- отказ от выхода сохраняет черновик и отменяет переход;
+- подтверждение выхода открывает нужные детали и не пишет черновик;
+- уведомление во время сохранения редактора сохраняет запись и открывает запрос;
+- прежние методы `NotificationNavigationUiTest` сохранены.
+
+`ActivityScenario` после `setIntent` перестаёт видеть lifecycle, потому что сравнивает action и data исходного intent. Это ломало `close()` и `recreate()` уже после успешного UI-решения. Тесты, которые доставляют уведомление в живую activity, завершают её через lifecycle monitor, не через этот матчинг. Продуктовый `setIntent` сохранён: он нужен, чтобы пересоздание activity видело последний intent.
+
+### Фактические проверки
+
+Среда: JDK 21 (`JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64`), Android SDK локально в `/opt/android-sdk` (в коммит не входит), platform 36, build-tools 35.0.0, emulator, system image google_apis API 31 x86_64, AVD `api31`, устройство `emulator-5554`. Сохранённый снимок окружения SDK не содержал; инструменты в репозиторий и в `local.properties` не добавлялись. `/dev/kvm` доступен как `crw-rw-rw-` без отдельной группы `kvm`. Сохранённый start script и режим доступа не менялись.
+
+`git diff --check` — PASS.
+
+`./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug :app:compileDebugAndroidTestKotlin --no-daemon --max-workers=2 --console=plain` — PASS.
+
+- JVM: **365 выполнено, 365 успешно, 0 падений, 0 пропущено.** Это 349 прежних и 16 новых. `SubscriptionsViewModelTest.overflowNeverProducesEmptyOrPartialTotals` / `UncaughtExceptionsBeforeTest` в этом прогоне не повторился. Гипотеза об утечке `Dispatchers.Main` не подтверждена и не опровергнута; scope из-за неё не расширялся.
+- Lint: **0 ошибок, 19 предупреждений.** Все вне кода R4a-fix: версии Gradle/зависимостей, `mipmap-anydpi-v26`, неиспользуемый `welcome_message`. Прежний отчёт Codex указывал 8 предупреждений на исходном SHA; этот прогон зафиксирован как есть, предупреждения не подавлялись.
+- `assembleDebug` — PASS.
+- `compileDebugAndroidTestKotlin` — PASS. В дереве 415 методов `@Test` (прежние 407 плюс 8 новых). Компиляция не равна выполнению всего набора.
+
+Инструментально на API 31, один прогон финального кода:
+
+| Набор | Выполнено | Успешно | Падения | Пропуски |
+|---|---:|---:|---:|---:|
+| `NotificationNavigationRaceUiTest` | 6 | 6 | 0 | 0 |
+| `NotificationNavigationUiTest` | 14 | 14 | 0 | 0 |
+| `RootNavigationUiTest` | 4 | 4 | 0 | 0 |
+| `EditorUiTest` | 8 | 8 | 0 | 0 |
+| `LegacyNavigationUiTest` | 1 | 0 | 1 | 0 |
+| Итого | 33 | 32 | 1 | 0 |
+
+Полный накопленный Android-набор не запускался.
+
+### Первоначальные падения, которые не скрыты повторным зелёным прогоном
+
+1. Исходная реализация: холодный переход и задержанный lookup не открывают детали. Это и есть дефект.
+2. После выноса проверки из эффекта переход выполнялся не на main looper (`LifecycleRegistry.setCurrentState` / `setMaxLifecycle`). На API 31 это роняло activity. Исправлено переносом navigate/consume на `Dispatchers.Main.immediate`.
+3. Первый прогон `NotificationNavigationRaceUiTest` на уже исправленной навигации: 6 выполнено, 3 падения (`warmDelayedLookupOpensTheNotifiedDetails`, `newerRequestDuringLookupOpensOnceAndDropsTheStaleTarget`, `deletionDuringLookupReturnsHomeFromAnotherRoot`). UI-проверки внутри теста исключения не бросали; `ActivityScenario.close()` ждал `DESTROYED`, а после `setIntent` событие игнорировалось. Последнее известное состояние — `PAUSED`.
+4. `recreationDuringLookupKeepsTheRequestUntilItCanOpen` на 15 с не дождался повторного входа в lookup: ожидание destination было на `snapshotFlow`, который не видит смену back stack. После чтения Compose `State` метод проходит.
+5. `LegacyNavigationUiTest.legacyArchiveParentIsRepairedAndNestedArchiveSurvivesStateRestoration` падает и на финальном коде, и на исходном `TrackerApp` с тем же SHA: после `StateRestorationTester` системный Back не выбирает `tab_subscriptions` (`Selected = false`, строка 52). Это не регрессия R4a-fix. В scope не входило.
+
+### Скриншоты с эмулятора API 31
+
+Сняты с живого `IsolatedMainActivity`, не нарисованы. В git не добавлялись. Файлы прогона:
+
+- главный экран со синтетической «Целевая подписка»;
+- детали, открытые intent уведомления;
+- диалог «Есть несохранённые изменения» поверх черновика «Несохранённый учебный черновик»;
+- тот же редактор после «Продолжить редактирование»: черновик на месте, диалога нет;
+- детали «Целевая подписка» после «Выйти без сохранения».
+
+### Ограничения и защищённые компоненты
+
+Не менялись: дизайн главного экрана и островка, алгоритм скрытия панелей, дизайн-система R3, Room v5 и schema exports, InitializationJournal, защита хранилища, generation/mutation guards, SubscriptionDomain, DefaultRenewalCalendar, ForecastEngine, денежная арифметика, ReminderRules, WorkManager, ledger, PendingIntent, AssetStore, схема DataStore, Manifest, applicationId, Backup/D2D, Gradle и зависимости, продуктовые требования.
+
+Не выполнялись: весь накопленный Android-набор, TalkBack, системная шторка уведомлений, process death, реальные exact alarm. Отказ ОС по-прежнему не блокирует приложение. Успешная доставка уведомления не утверждается.
+
+`LegacyNavigationUiTest` остаётся FAIL на этой среде и на исходном SHA. К приёмке R4a-fix это отдельный известный дефект восстановления Back, не часть потерянного перехода из уведомления.
+
+Статус: готово к независимой приёмке ChatGPT. PERSONAL-READY не объявляется.
