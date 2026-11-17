@@ -50,4 +50,23 @@ class SettingsTest {
         assertEquals(setOf("nonsense"),p[cancellation])
     }
 
+    @Test fun missingAnimationPreferenceStaysEnabledAndExplicitValuesRoundTrip() {
+        assertTrue(SettingsCodec.read(emptyPreferences()).animationsEnabled)
+        val legacy = mutablePreferencesOf(stringPreferencesKey("theme") to "DARK",
+            stringSetPreferencesKey("payment_offsets") to setOf("7","0"),
+            stringPreferencesKey("reminder_time") to "18:45")
+        val read = SettingsCodec.read(legacy)
+        assertTrue(read.animationsEnabled)
+        assertEquals(Theme.DARK,read.theme)
+        assertEquals(setOf(7,0),read.renewalOffsets)
+        SettingsCodec.write(legacy,read.copy(animationsEnabled = false))
+        assertFalse(SettingsCodec.read(legacy).animationsEnabled)
+        assertEquals(Theme.DARK,SettingsCodec.read(legacy).theme)
+        assertEquals(setOf(7,0),SettingsCodec.read(legacy).renewalOffsets)
+        assertEquals("18:45",legacy[stringPreferencesKey("reminder_time")])
+        SettingsCodec.write(legacy,SettingsCodec.read(legacy).copy(animationsEnabled = true))
+        assertTrue(SettingsCodec.read(legacy).animationsEnabled)
+        assertEquals(1,SettingsCodec.read(legacy).version)
+    }
+
 }

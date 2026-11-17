@@ -93,4 +93,54 @@ class SettingsViewModelTest {
         for(day in listOf(7,3,1,0)) empty = applySetting(empty,mapOf("kind" to "payment","day" to day.toString(),"enabled" to "false"))
         assertTrue(empty.renewalOffsets.isEmpty())
     }
+
+    @Test fun animationAssignmentIsExplicitIdempotentAndKeepsThemeAndOffsets() {
+        val original = Settings(theme = Theme.DARK,renewalOffsets = setOf(7,0),animationsEnabled = true)
+        val off = mapOf("kind" to "animations","value" to "false")
+        val disabled = applySetting(original,off)
+        assertFalse(disabled.animationsEnabled)
+        assertEquals(disabled,applySetting(disabled,off))
+        assertEquals(Theme.DARK,disabled.theme)
+        assertEquals(setOf(7,0),disabled.renewalOffsets)
+        val themed = applySetting(disabled,mapOf("kind" to "theme","value" to "LIGHT"))
+        assertEquals(Theme.LIGHT,themed.theme); assertFalse(themed.animationsEnabled)
+        val offsets = applySetting(themed,mapOf("kind" to "payment","day" to "3","enabled" to "true"))
+        assertEquals(setOf(7,0,3),offsets.renewalOffsets); assertFalse(offsets.animationsEnabled)
+        assertTrue(applySetting(offsets,mapOf("kind" to "animations","value" to "true")).animationsEnabled)
+    }
+
+    @Test fun pendingAnimationIntentRestoresWithoutRewritingUntilRetry() = runTest(dispatcher) {
+        var writes = 0
+        val saved = SavedStateHandle(mapOf("intent" to hashMapOf("kind" to "animations","value" to "false")))
+        val vm = model(saved,operation = { writes++ }); runCurrent()
+        assertTrue(vm.state.value.pending); assertEquals(0,writes)
+        vm.setAnimations(true); runCurrent(); assertEquals(0,writes)
+        vm.retryWrite(); runCurrent(); assertEquals(1,writes)
+        assertEquals("false",saved.get<HashMap<String,String>>("intent")?.get("value"))
+    }
+
+    @Test fun failedAnimationWriteKeepsTheSameIntentForRetry() = runTest(dispatcher) {
+        var writes = 0
+        val saved = SavedStateHandle(); val vm = model(saved,operation = { writes++ }); runCurrent()
+        vm.setAnimations(false); runCurrent()
+        assertEquals(1,writes); assertTrue(vm.state.value.pending)
+        assertEquals("false",saved.get<HashMap<String,String>>("intent")?.get("value"))
+        vm.retryWrite(); runCurrent(); assertEquals(2,writes)
+        assertEquals("false",saved.get<HashMap<String,String>>("intent")?.get("value"))
+    }
+
+    @Test fun rapidAnimationChangesKeepOnlyTheInFlightAssignment() = runTest(dispatcher) {
+        val gate = CompletableDeferred<Unit>(); var writes = 0
+        val vm = model(operation = { writes++; gate.await() }); runCurrent()
+        vm.setAnimations(false); vm.setAnimations(true); vm.setTheme(Theme.DARK); runCurrent()
+        assertEquals(1,writes); assertEquals(SettingsPhase.Saving,vm.state.value.phase)
+        gate.complete(Unit); runCurrent()
+    }
+
+    @Test fun malformedAnimationIntentIsDiscarded() = runTest(dispatcher) {
+        var writes = 0
+        val saved = SavedStateHandle(mapOf("intent" to hashMapOf("kind" to "animations","value" to "yes")))
+        val vm = model(saved,operation = { writes++ }); runCurrent(); vm.retryWrite(); runCurrent()
+        assertEquals(0,writes); assertFalse(vm.state.value.pending); assertFalse(saved.contains("intent"))
+    }
 }

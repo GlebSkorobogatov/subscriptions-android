@@ -91,11 +91,14 @@
     <string name="archive_error">Не удалось загрузить архив. Данные не удалены.</string>
     <string name="archive_empty">В архиве пока пусто</string>
     <string name="archive_empty_explanation">Здесь появятся подписки, которые вы архивируете вручную.</string>
-    <string name="settings_appearance">Внешний вид</string>
+    <string name="settings_appearance">Оформление</string>
     <string name="settings_theme_system">Как в системе</string>
     <string name="settings_theme_light">Светлая</string>
     <string name="settings_theme_dark">Тёмная</string>
-    <string name="settings_reminders">Напоминания</string>
+    <string name="settings_animations">Анимации</string>
+    <string name="settings_animations_on">Включены</string>
+    <string name="settings_animations_off">Выключены</string>
+    <string name="settings_section_notifications">Уведомления</string>
     <string name="settings_time">Общее время: %1$s</string>
     <string name="settings_payment_offsets">Напоминания о продлении</string>
     <string name="settings_days_before">За %1$d дн.</string>

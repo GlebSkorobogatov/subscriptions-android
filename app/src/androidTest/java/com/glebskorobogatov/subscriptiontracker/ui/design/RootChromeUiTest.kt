@@ -28,6 +28,54 @@ class RootChromeUiTest {
     @get:Rule val compose = createComposeRule()
     private val rows = (1L..40L).map { SubscriptionsPreviewData.video.copy(id = UUID(0,it),name = "Учебная строка $it") }
     private fun state() = SubscriptionsPreviewData.content(rows,emptyList())
+    @Test fun disabledAnimationsAndZeroScaleHideOnTheNextFrameWhileEnabledMotionStaysVisible() {
+        compose.mainClock.autoAdvance = false
+        var animations by mutableStateOf(false)
+        var forced by mutableStateOf<Boolean?>(null)
+        compose.setContent { TrackerTheme(Theme.DARK) { TrackerRootChrome(TrackerTab.Subscriptions,{},{},animationsEnabled = animations,visibleOverride = forced) {
+            SubscriptionsScreen(state(),{},{},{})
+        } } }
+        compose.mainClock.advanceTimeByFrame()
+        compose.onNodeWithTag("subscriptions_screen").performTouchInput {
+            swipe(Offset(centerX,height*0.7f),Offset(centerX,height*0.25f),1000)
+        }
+        compose.mainClock.advanceTimeByFrame()
+        compose.onNodeWithTag("bottom_navigation").assertIsNotDisplayed()
+        compose.onNodeWithTag("root_header").assertIsNotDisplayed()
+        compose.onNodeWithTag("subscriptions_screen").performTouchInput {
+            swipe(Offset(centerX,height*0.3f),Offset(centerX,height*0.55f),1000)
+        }
+        compose.mainClock.advanceTimeByFrame()
+        compose.onNodeWithTag("bottom_navigation").assertIsDisplayed()
+        // A swipe advances the test clock by its own duration, so it cannot measure a 220 ms tween.
+        // The hide clears semantics at once; pixels stay until the tween ends.
+        compose.runOnUiThread { animations = true; forced = true }
+        compose.mainClock.advanceTimeByFrame()
+        val bounds = compose.onNodeWithTag("bottom_navigation").fetchSemanticsNode().boundsInRoot
+        val before = meanIn(bounds)
+        compose.runOnUiThread { forced = false }
+        compose.mainClock.advanceTimeBy(32)
+        val mid = meanIn(bounds)
+        compose.mainClock.advanceTimeBy(220)
+        val late = meanIn(bounds)
+        assertTrue("Island still drawn at 32 ms: before=$before mid=$mid late=$late",kotlin.math.abs(mid-before) < kotlin.math.abs(late-before))
+        assertTrue("Island gone after 220 ms: before=$before late=$late",kotlin.math.abs(late-before) > 0.02f)
+    }
+    private fun meanIn(bounds: androidx.compose.ui.geometry.Rect): Float {
+        val pixels = compose.onRoot().captureToImage().toPixelMap()
+        val x0 = bounds.left.toInt().coerceIn(0,pixels.width-1)
+        val x1 = (bounds.right.toInt()-1).coerceIn(0,pixels.width-1)
+        val y0 = bounds.top.toInt().coerceIn(0,pixels.height-1)
+        val y1 = (bounds.bottom.toInt()-1).coerceIn(0,pixels.height-1)
+        var sum = 0.0
+        var count = 0
+        for(y in y0..y1 step 2) for(x in x0..x1 step 2) {
+            val color = pixels[x,y]
+            sum += (color.red+color.green+color.blue)/3.0
+            count++
+        }
+        return if(count == 0) 0f else (sum/count).toFloat()
+    }
     @Test fun realVerticalGesturesHideAndReverseRestoresBothPanels() {
         compose.setContent { TrackerTheme { TrackerRootChrome(TrackerTab.Subscriptions,{},{},animationsEnabled = false) {
             SubscriptionsScreen(state(),{},{},{})
