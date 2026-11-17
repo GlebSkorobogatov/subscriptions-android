@@ -13,7 +13,7 @@ object ReminderScheduling {
     fun identity(generation: UUID, subscription: UUID) = "reminder:v1:$generation:$subscription"
     fun fingerprint(events: List<PlannedReminder>, zone: ZoneId): String {
         val canonical = events.distinct().map { "${it.key.stableId}|${it.plannedLocalDateTime}" }.sorted()
-        return MessageDigest.getInstance("SHA-256").digest(("global-renewals:2|$zone|" + canonical.joinToString("\n")).toByteArray(Charsets.UTF_8))
+        return MessageDigest.getInstance("SHA-256").digest(("global-renewals:3|$zone|" + canonical.joinToString("\n")).toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(it) }
     }
     fun workName(generation: UUID, subscription: UUID, fingerprint: String, at: Instant): String {

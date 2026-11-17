@@ -77,13 +77,17 @@ class AndroidReminderPublisher(context: Context) : ReminderPublisher {
             if (!access().allows(message)) return@synchronized PublicationResult.UNAVAILABLE
             val channel = PAYMENTS
             val copy = ReminderText.render(presentation, message, AndroidReminderWords(context))
+            val occurrences = message.reasons.flatMap { it.occurrences }.distinct()
+            require(occurrences.size in 1..ReminderRules.MAX_MESSAGE_OCCURRENCES)
+            val encoded = occurrences.map { "${it.eventType}|${it.targetDate}|${it.offsetDays}|${it.plannedLocalDateTime}" }
+            // 15 bounded calendar occurrences; reject malformed/oversized payload explicitly.
+            // Keep metadata well below Binder's limit, even for extended ISO years.
+            require(encoded.sumOf { it.toByteArray(Charsets.UTF_8).size } <= 4096)
             val metadata = Bundle().apply {
                 putString(META + "route", route.identity)
                 putString(META + "day", message.asOfLocalDate.toString())
                 putString(META + "presentation", signature(presentation))
-                putStringArray(META + "events", message.reasons.flatMap { it.occurrences }.distinct().map {
-                    "${it.eventType}|${it.targetDate}|${it.offsetDays}|${it.plannedLocalDateTime}"
-                }.toTypedArray())
+                putStringArray(META + "events", encoded.toTypedArray())
             }
             val notification = NotificationCompat.Builder(context, channel)
                 .setSmallIcon(R.drawable.ic_notification).setContentTitle(copy.title).setContentText(copy.body)
@@ -124,7 +128,8 @@ class AndroidReminderPublisher(context: Context) : ReminderPublisher {
                 require(extras.getString(META + "day") == snapshot.now.atZone(snapshot.zone).toLocalDate().toString())
                 require(extras.getString(META + "presentation") == signature(snapshot.presentations.getValue(previous.subscription)))
                 val payload = requireNotNull(extras.getStringArray(META + "events"))
-                require(payload.size in 1..8)
+                require(payload.size in 1..ReminderRules.MAX_MESSAGE_OCCURRENCES)
+                require(payload.sumOf { it.toByteArray(Charsets.UTF_8).size } <= 4096)
                 payload.all { encoded ->
                     val parts = encoded.split('|'); require(parts.size == 4)
                     rules.matchesCurrentSchedule(PlannedReminder(SubscriptionId(previous.subscription), ReminderEventType.valueOf(parts[0]),
@@ -196,7 +201,7 @@ class AndroidReminderPublisher(context: Context) : ReminderPublisher {
         if (children.size == 1 && previous == null) return
         val channel = PAYMENTS
         if (!manager.areNotificationsEnabled() || manager.getNotificationChannel(channel).importance == NotificationManager.IMPORTANCE_NONE) return
-        val members = children.toSortedMap().map { (key, child) -> "$key|${child.extras.getCharSequence(Notification.EXTRA_TITLE)}" }.joinToString("\n")
+        val members = digest(children.toSortedMap().map { (key, child) -> "$key|${child.extras.getCharSequence(Notification.EXTRA_TITLE)}" }.joinToString("\n"))
         if (previous?.channelId == channel && previous.extras.getString(META + "members") == members) return
         post(tag, NotificationCompat.Builder(context, channel)
             .setSmallIcon(R.drawable.ic_notification).setContentTitle(context.getString(R.string.notification_group_title))
@@ -213,7 +218,9 @@ class AndroidReminderPublisher(context: Context) : ReminderPublisher {
             .setGroup(group(generation)).setGroupSummary(true).setOnlyAlertOnce(true)
             .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN).setVisibility(NotificationCompat.VISIBILITY_PRIVATE).build())
     }
-    private fun signature(p: ReminderPresentation) = "${p.name}|${p.price.amountMinor}|${p.price.currency.value}"
+    private fun signature(p: ReminderPresentation) = digest("${p.name}|${p.price.amountMinor}|${p.price.currency.value}")
+    private fun digest(value: String) = java.security.MessageDigest.getInstance("SHA-256")
+        .digest(value.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
     private fun route(tag: String?): NotificationRoute? {
         if (tag == null || !tag.startsWith("reminder:v1:")) return null
         val parts = tag.split(':')

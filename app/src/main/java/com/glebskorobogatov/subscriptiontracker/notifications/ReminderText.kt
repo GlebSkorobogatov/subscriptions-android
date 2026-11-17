@@ -15,7 +15,7 @@ object ReminderText {
     fun render(presentation: ReminderPresentation, message: ReminderMessage, words: ReminderWords): ReminderCopy {
         require(message.reasons.isNotEmpty())
         val title = words.text("payment_title", presentation.name)
-        val body = message.reasons.sortedBy { it.eventType.name }.joinToString("\n") { reason ->
+        val body = message.reasons.sortedWith(compareBy({ it.targetDate },{ it.eventType.name })).joinToString("\n") { reason ->
             require(reason.daysRemaining >= 0)
             val whenText = when (reason.daysRemaining) {
                 0L -> words.text("today")

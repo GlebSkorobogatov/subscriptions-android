@@ -1,6 +1,7 @@
 package com.glebskorobogatov.subscriptiontracker.domain.reminders
 
 import com.glebskorobogatov.subscriptiontracker.domain.subscription.*
+import com.glebskorobogatov.subscriptiontracker.domain.calendar.*
 import com.glebskorobogatov.subscriptiontracker.domain.model.SubscriptionId
 import java.time.*
 import java.time.temporal.ChronoUnit
@@ -43,9 +44,17 @@ data class ReminderMessage(val subscriptionId: SubscriptionId,val asOfLocalDate:
 }
 class ReminderCalculationException(message: String,cause: Throwable): IllegalArgumentException(message,cause)
 
-/** No clocks, storage, notifications or owned state. Only the nearest currently eligible renewal
- * is considered. Rolling-horizon/overlapping-cycle expansion belongs to R2. */
-class ReminderRules(private val domain: SubscriptionDomain = SubscriptionDomain()) {
+/** Bounded projection, not a second calendar. Failed series never authorize delivery. */
+data class ReminderCandidates(val events: List<PlannedReminder>, val failedSubscriptions: Set<SubscriptionId>)
+
+/** No clocks, storage, notifications or owned state. All boundaries come from the shared calendar. */
+class ReminderRules(private val calendar: DefaultRenewalCalendar = DefaultRenewalCalendar()) {
+    companion object {
+        const val HORIZON_DAYS = 7L
+        // At most one series event/day. For a due >= today and a past reminder there are
+        // sum(offset+1) = 8+4+2+1 = 15 logical occurrences, and at most 8 distinct due dates.
+        const val MAX_MESSAGE_OCCURRENCES = 15
+    }
     private val order = compareBy<PlannedReminder> { it.plannedLocalDateTime }
         .thenBy { it.subscriptionId.toString() }.thenBy { it.eventType.name }
         .thenBy { it.targetDate }.thenBy { it.offsetDays }
@@ -53,7 +62,7 @@ class ReminderRules(private val domain: SubscriptionDomain = SubscriptionDomain(
     /** Future plan: never schedule a missed offset retrospectively (including earlier today).
      * Inclusive at now; F-02 must suppress handled keys using its persistent ledger. */
     fun plan(subscriptions: List<ReminderSubscription>,localTime: LocalTime,now: Instant,zone: ZoneId): List<PlannedReminder> = calculation {
-        candidates(subscriptions,localTime,now.atZone(zone).toLocalDate())
+        currentCandidates(subscriptions,localTime,now.atZone(zone).toLocalDate()).events
             .filter { !resolveLocal(it.plannedLocalDateTime,zone).toInstant().isBefore(now) }
     }
 
@@ -61,7 +70,8 @@ class ReminderRules(private val domain: SubscriptionDomain = SubscriptionDomain(
      * despite its original time being past. Normal scheduling must use plan(), recovery dueMessages(). */
     fun matchesCurrentSchedule(reminder: PlannedReminder,subscriptions: List<ReminderSubscription>,
         localTime: LocalTime,now: Instant,zone: ZoneId): Boolean = calculation {
-        reminder in candidates(subscriptions,localTime,now.atZone(zone).toLocalDate())
+        reminder in currentCandidates(subscriptions.filter { it.subscription.id == reminder.subscriptionId },
+            localTime,now.atZone(zone).toLocalDate()).events
     }
 
     /** Explicitly previously planned occurrences only: empty input cannot invent a catch-up on creation.
@@ -73,7 +83,7 @@ class ReminderRules(private val domain: SubscriptionDomain = SubscriptionDomain(
         previouslyPlanned: List<PlannedReminder>,now: Instant,zone: ZoneId,
         handledKeys: Set<ReminderKey> = emptySet()): List<ReminderMessage> = calculation {
         val today = now.atZone(zone).toLocalDate()
-        val current = candidates(subscriptions,localTime,today).toSet()
+        val current = currentCandidates(subscriptions,localTime,today).events.toSet()
         previouslyPlanned.asSequence().filter { it in current && it.key !in handledKeys }
             .filter { !resolveLocal(it.plannedLocalDateTime,zone).toInstant().isAfter(now) }
             .distinct().sortedWith(order).toList().groupBy { it.subscriptionId }.entries
@@ -82,7 +92,8 @@ class ReminderRules(private val domain: SubscriptionDomain = SubscriptionDomain(
                     .sortedWith(compareBy({ it.key.second },{ it.key.first.name })).map { (event,occurrences) ->
                         CurrentReminderReason(event.first,event.second,ChronoUnit.DAYS.between(today,event.second),occurrences)
                     }
-                ReminderMessage(id,today,reasons)
+                ReminderMessage(id,today,reasons).also { require(it.coveredKeys.size <= MAX_MESSAGE_OCCURRENCES) }
+
             }
     }
 
@@ -99,25 +110,43 @@ class ReminderRules(private val domain: SubscriptionDomain = SubscriptionDomain(
         }
     }
 
-    private fun candidates(inputs: List<ReminderSubscription>,time: LocalTime,today: LocalDate): List<PlannedReminder> {
+    /** Includes persisted missed occurrences as well as future ones. The upper boundary applies
+     * to reminder dates. No event before the first series boundary can be invented. Mapping/read
+     * errors are deliberately outside this calculation boundary; cancellation is never caught. */
+    fun currentCandidates(inputs: List<ReminderSubscription>, time: LocalTime, today: LocalDate): ReminderCandidates = calculation {
         val unique = inputs.distinct()
         require(unique.map { it.subscription.id }.distinct().size == unique.size) { "Conflicting subscription snapshots" }
-        return unique.flatMap { input ->
+        val until = today.plusDays(HORIZON_DAYS)
+        val failed = linkedSetOf<SubscriptionId>()
+        val events = unique.flatMap { input ->
             input.validate()
-            if (!input.subscription.participatesInCalculations) return@flatMap emptyList()
-            val due = domain.nextDue(input.subscription.schedule,today)
-            buildList {
-                fun append(type: ReminderEventType,target: LocalDate,offsets: Set<Int>) {
-                    if(target < today) return
-                    offsets.forEach { offset ->
-                        add(PlannedReminder(input.subscription.id,type,target,offset,target.minusDays(offset.toLong()).atTime(time)))
+            if (!input.subscription.participatesInCalculations || input.renewalOffsets.isEmpty()) return@flatMap emptyList()
+            try {
+                // Verify representability, even when the bounded range contains no event.
+                if (calendar.firstOnOrAfter(input.subscription.schedule,today) == null)
+                    throw CalendarCalculationException("No representable next renewal date")
+                val dueUntil = until.plusDays(input.renewalOffsets.max().toLong())
+                calendar.upcomingEvents(input.subscription.schedule,today,dueUntil).flatMap { due ->
+                    input.renewalOffsets.asSequence().map { offset ->
+                        PlannedReminder(input.subscription.id,ReminderEventType.RENEWAL,due,offset,
+                            due.minusDays(offset.toLong()).atTime(time))
                     }
-                }
-                append(ReminderEventType.RENEWAL,due,input.renewalOffsets)
-
+                }.filter { it.plannedLocalDateTime.toLocalDate() < until }.toList()
+            } catch (_: CalendarCalculationException) {
+                failed += input.subscription.id; emptyList()
+            } catch (_: DateTimeException) {
+                failed += input.subscription.id; emptyList()
+            } catch (_: ArithmeticException) {
+                failed += input.subscription.id; emptyList()
             }
         }.distinct().sortedWith(order)
+        ReminderCandidates(events,failed)
     }
+
+    /** Permission context is independent of whether an occurrence falls in this week's horizon. */
+    fun eligibleForPermission(input: ReminderSubscription, today: LocalDate): Boolean =
+        input.subscription.participatesInCalculations && input.renewalOffsets.isNotEmpty() &&
+            calendar.firstOnOrAfter(input.subscription.schedule,today) != null
 
     private inline fun <T> calculation(block: () -> T): T = try { block() }
         catch(error: DateTimeException) { throw ReminderCalculationException("Reminder date/time outside supported range",error) }
