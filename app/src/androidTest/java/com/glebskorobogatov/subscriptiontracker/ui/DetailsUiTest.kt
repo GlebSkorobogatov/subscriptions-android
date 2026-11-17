@@ -9,8 +9,8 @@ import org.junit.Test
 class DetailsUiTest {
     @get:Rule val compose = createAndroidComposeRule<IsolatedMainActivity>()
     private fun createAndOpen(periodStart: Boolean = false) {
-        compose.waitUntil(5000) { compose.onAllNodesWithText("Добавить первую подписку").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithText("Добавить первую подписку").performClick()
+        compose.waitUntil(5000) { compose.onAllNodesWithText("Добавить подписку").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Добавить подписку").performClick()
         compose.waitUntil(5000) { compose.onAllNodesWithTag("field_name").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("field_name").performTextInput("Сервис D03")
         compose.onNodeWithTag("field_amount").performTextInput("499,00")
@@ -55,7 +55,7 @@ class DetailsUiTest {
         confirm()
         compose.waitUntil(5000) { compose.onAllNodesWithText("Возобновить подписку").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithContentDescription("Назад").performClick()
-        compose.onNodeWithTag("tab_archive").performClick()
+        compose.openArchive()
         compose.waitUntil(5000) { compose.onAllNodesWithText("Сервис D03").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Сервис D03").performScrollTo().performClick()
         compose.openDetailsManagement()

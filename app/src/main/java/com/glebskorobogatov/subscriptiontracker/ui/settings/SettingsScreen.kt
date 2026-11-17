@@ -41,14 +41,14 @@ internal val renewalOffsetsDialogSaver = Saver<MutableState<Boolean>,Any>(
 
 @Composable
 fun SettingsScreen(vm: SettingsViewModel, notifications: com.glebskorobogatov.subscriptiontracker.notifications.NotificationAccess? = null,
-    onNotificationSettings: () -> Unit = {}) {
+    onNotificationSettings: () -> Unit = {},onArchive: () -> Unit = {}) {
     val state by vm.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val version = remember(context) {
         @Suppress("DEPRECATION")
         context.packageManager.getPackageInfo(context.packageName,0).versionName.orEmpty()
     }
-    SettingsPane(state,version,vm::setTheme,vm::setOffset,vm::retryRead,vm::retryWrite,notifications,onNotificationSettings)
+    SettingsPane(state,version,vm::setTheme,vm::setOffset,vm::retryRead,vm::retryWrite,notifications,onNotificationSettings,onArchive)
 }
 
 /** UI-only dialog selection. Preference writes and retry identity still belong to SettingsViewModel. */
@@ -56,12 +56,17 @@ fun SettingsScreen(vm: SettingsViewModel, notifications: com.glebskorobogatov.su
 internal fun SettingsPane(state: SettingsUiState,version: String,onTheme: (Theme) -> Unit,
     onOffset: (Int,Boolean) -> Unit,onRetryRead: () -> Unit,onRetryWrite: () -> Unit,
     notifications: com.glebskorobogatov.subscriptiontracker.notifications.NotificationAccess? = null,
-    onNotificationSettings: () -> Unit = {}) {
+    onNotificationSettings: () -> Unit = {},onArchive: () -> Unit = {}) {
+    val scroll = rememberScrollState()
+    BindRootScroll(TrackerTab.Settings,scroll,canHide = state.phase == SettingsPhase.Content)
+    val chrome = LocalRootContentPadding.current
     var offsetsOpen by rememberSaveable(saver = renewalOffsetsDialogSaver) { mutableStateOf(false) }
     val enabled = state.phase == SettingsPhase.Content && !state.pending
     ProvideTextStyle(MaterialTheme.typography.bodyMedium.copy(lineHeightStyle =
         LineHeightStyle(LineHeightStyle.Alignment.Center,LineHeightStyle.Trim.None))) {
-        Column(Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(horizontal = TrackerDimensions.screenPadding)
+        Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)).imePadding().verticalScroll(scroll)
+            .padding(top = chrome.calculateTopPadding(),bottom = chrome.calculateBottomPadding())
+            .padding(horizontal = trackerPageHorizontalPadding())
             .testTag("settings_screen")) {
             if(!offsetsOpen) SettingsFeedback(state,onRetryRead,onRetryWrite)
             state.data?.let { settings ->
@@ -104,6 +109,7 @@ internal fun SettingsPane(state: SettingsUiState,version: String,onTheme: (Theme
                     TextButton(onClick = onNotificationSettings) { Text(stringResource(R.string.notifications_settings)) }
                 }
                 Text(stringResource(R.string.notifications_best_effort),Modifier.padding(top = 16.dp),color = TrackerDesign.colors.textSecondary,style = MaterialTheme.typography.bodySmall)
+                TrackerListRow(stringResource(R.string.archive),Modifier.testTag("settings_archive"),onClick = onArchive)
                 SettingsHeading(R.string.settings_data)
                 Text(stringResource(R.string.settings_data_note),color = TrackerDesign.colors.textSecondary)
                 SettingsHeading(R.string.settings_about)

@@ -16,8 +16,8 @@ class EditorUiTest {
         compose.onNodeWithText("Убрать оформление").assertDoesNotExist()
     }
     private fun open() {
-        compose.waitUntil(5000) { compose.onAllNodesWithText("Добавить первую подписку").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithText("Добавить первую подписку").performClick()
+        compose.waitUntil(5000) { compose.onAllNodesWithText("Добавить подписку").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Добавить подписку").performClick()
         compose.waitUntil(5000) { compose.onAllNodesWithTag("field_name").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Добавление подписки").assertIsDisplayed()
     }

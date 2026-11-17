@@ -31,13 +31,14 @@ class ForecastModelsAvailabilityTest {
             ScheduleEdit(today.minusDays(1),Frequency(unit,count)),today.minusDays(1)).toEntity(Instant.EPOCH)
     private fun owner(row: SubscriptionEntity): SubscriptionsViewModel = SubscriptionsViewModel(object: SubscriptionsSource {
         override fun today() = today
-        override fun observe(refreshes: Flow<Unit>) = subscriptionStates(flow { emit(forecastSnapshot(listOf(row),today)) })
+        override fun observe(refreshes: Flow<Unit>) = subscriptionStates(flowOf(listOf(row)),flowOf(today))
         override fun details(id: UUID) = flowOf(detailsSnapshot(row,today))
     }).also { store.put("owner",it) }
     @Test fun overflowDoesNotPreventActualEditorReloadOrDetailsLoading() = runTest(dispatcher) {
         val row = row(); val owner = owner(row)
         val loaded = owner.state.first { it !is SubscriptionsUiState.Loading } as SubscriptionsUiState.Content
-        assertNull(loaded.forecast)
+        assertNull(forecastSnapshot(listOf(row),today).forecast)
+        assertEquals(row.id,loaded.active.single().id)
         val editor = EditorViewModel(SavedStateHandle(),owner,row.id).also { store.put("editor",it) }
         val details = DetailsViewModel(SavedStateHandle(),owner,row.id).also { store.put("details",it) }
         val form = editor.state.first { !it.loading }

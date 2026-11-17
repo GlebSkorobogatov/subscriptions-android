@@ -117,6 +117,7 @@ class NotificationViewModelTest {
         present = false; vm.visibleSubscription(id)
         vm.open(NotificationRoute(environment.generation(),id).identity); runCurrent()
         assertNotNull(vm.state.value.navigation); assertNull(vm.state.value.navigation!!.subscription)
+        assertEquals(environment.generation(),vm.state.value.navigation!!.generation)
     }
 
 }

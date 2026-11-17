@@ -1,5 +1,6 @@
 package com.glebskorobogatov.subscriptiontracker.ui.review
 
+import com.glebskorobogatov.subscriptiontracker.ui.openArchive
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.Bitmap
@@ -67,14 +68,14 @@ class KeyboardRotationUiTest {
             compose.onNodeWithTag("field_name").assertTextContains("Учебная проверка UI-06")
             back();compose.onNodeWithText(compose.activity.getString(R.string.editor_discard)).performClick()
             compose.onNodeWithTag("tab_subscriptions").assertIsSelected()
-            compose.onNodeWithText("Добавить первую подписку").performScrollTo().assertIsDisplayed()
+            compose.onNodeWithText("Добавить подписку").performScrollTo().assertIsDisplayed()
         } finally { orient(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT,Configuration.ORIENTATION_PORTRAIT) }
     }
     @Test fun landscapeGlobalOffsetsRecreationPreservesOriginTabAndFixedTime() {
         orient(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE,Configuration.ORIENTATION_LANDSCAPE)
         try {
-            compose.onNodeWithTag("tab_archive").performClick()
-            compose.onNodeWithContentDescription("Открыть настройки").performClick()
+            compose.openArchive()
+            compose.onNodeWithContentDescription("Назад").performClick()
             compose.onNodeWithTag("settings_payment_offsets").performScrollTo().performClick()
             compose.onNodeWithTag("settings_payment_3").assertIsOn()
             compose.activityRule.scenario.recreate()
@@ -83,8 +84,9 @@ class KeyboardRotationUiTest {
             compose.onNodeWithText("Готово").assertIsDisplayed().performClick()
             compose.onNodeWithTag("settings_time_value",useUnmergedTree = true).performScrollTo().assertTextEquals("09:00")
             compose.onNodeWithTag("settings_time_dialog").assertDoesNotExist()
-            compose.onNodeWithContentDescription("Назад").performClick()
-            compose.onNodeWithTag("tab_archive").assertIsSelected()
+            compose.openArchive()
+            compose.onNodeWithTag("archive_screen").assertExists()
+            compose.onNodeWithTag("bottom_navigation").assertDoesNotExist()
         } finally { orient(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT,Configuration.ORIENTATION_PORTRAIT) }
     }
 

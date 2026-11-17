@@ -78,7 +78,8 @@ class DatasetCompositionTest {
             use.editSubscription(row, SubscriptionEdit(name = row.name, accountLabel = null, price = RubPrice(10000), schedule = ScheduleEdit(day.plusDays(3), Frequency(FrequencyUnit.MONTH, 1))), now)
             val after = content()
             assertEquals(day.plusDays(3), after.active.single().eventDate)
-            assertEquals(10000L, after.forecast)
+            assertEquals(10000L,after.active.single().price.amountMinor)
+            assertEquals(10000L,use.forecasts.first().forecast!!.next30Days.totalMinor)
         } finally { db.close(); lease.close() }
     }
     @Test fun startupAndResumeRefreshCalendarWithoutCreatingPayments() = runBlocking {

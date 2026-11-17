@@ -28,10 +28,9 @@ internal object ArchiveSettingsPreviewData {
 }
 
 @Composable internal fun ArchiveDemo(state: ArchiveUiState = ArchiveSettingsPreviewData.archive,theme: Theme = Theme.SYSTEM,
-    onOpen: (UUID) -> Unit = {},onRetry: () -> Unit = {},onSettings: () -> Unit = {}) {
+    onOpen: (UUID) -> Unit = {},onRetry: () -> Unit = {},onBack: () -> Unit = {}) {
     TrackerTheme(theme) {
-        Scaffold(topBar = { TrackerPageHeader(stringResource(R.string.archive),onSettings = onSettings) },
-            bottomBar = { TrackerBottomNavigation(TrackerTab.Archive,{}) }) { padding ->
+        Scaffold(topBar = { TrackerPageHeader(stringResource(R.string.archive),onBack = onBack) }) { padding ->
             Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) { ArchivePane(state,onOpen,onRetry) }
         }
     }
@@ -39,11 +38,11 @@ internal object ArchiveSettingsPreviewData {
 @Composable internal fun SettingsDemo(state: SettingsUiState = ArchiveSettingsPreviewData.settings,theme: Theme = Theme.SYSTEM,
     onTheme: (Theme) -> Unit = {},onOffset: (Int,Boolean) -> Unit = {_,_ ->},
     onRetryRead: () -> Unit = {},onRetryWrite: () -> Unit = {},onBack: () -> Unit = {}) {
-    TrackerTheme(theme) { Scaffold(topBar = { TrackerPageHeader(stringResource(R.string.settings),onBack = onBack) }) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
+    TrackerTheme(theme) {
+        TrackerRootChrome(TrackerTab.Settings,{ if(it != TrackerTab.Settings) onBack() },{}) {
             SettingsPane(state,"0.1",onTheme,onOffset,onRetryRead,onRetryWrite)
         }
-    } }
+    }
 }
 
 @Preview(name = "Архив • светлая",widthDp = 390,heightDp = 844,uiMode = Configuration.UI_MODE_NIGHT_NO)

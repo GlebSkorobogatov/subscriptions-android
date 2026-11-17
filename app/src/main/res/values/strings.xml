@@ -4,7 +4,7 @@
     <string name="app_name">Менеджер подписок</string>
     <string name="welcome_message">Добро пожаловать в Менеджер подписок!</string>
     <string name="subscriptions">Подписки</string>
-    <string name="finance">Финансы</string>
+    <string name="finance">Статистика</string>
     <string name="archive">Архив</string>
     <string name="settings">Настройки</string>
     <string name="open_settings">Открыть настройки</string>
@@ -14,8 +14,8 @@
     <string name="details_loading">Загружаем сведения о подписке…</string>
     <string name="subscriptions_empty">Подписок пока нет</string>
     <string name="subscriptions_empty_explanation">Добавьте подписку, чтобы видеть сроки продления и ожидаемые расходы.</string>
-    <string name="subscriptions_only_archive">Действующих подписок нет. Сохранённые записи доступны во вкладке «Архив».</string>
-    <string name="add_first_subscription">Добавить первую подписку</string>
+    <string name="subscriptions_only_archive">Действующих подписок нет. Сохранённые записи доступны в архиве через настройки.</string>
+    <string name="add_first_subscription">Добавить подписку</string>
     <string name="add_subscription">Добавить подписку</string>
     <string name="editor_title">Добавление подписки</string>
     <string name="details_title">Подписка</string>
@@ -25,8 +25,6 @@
     <string name="subscriptions_error_explanation">Не удалось прочитать данные или рассчитать прогноз. Повторите загрузку. Сохранённые данные не будут удалены.</string>
     <string name="retry_loading">Повторить загрузку</string>
     <string name="forecast_30_days">Прогноз на 30 дней</string>
-    <string name="forecast_empty">В ближайшие 30 дней ожидаемых списаний нет</string>
-    <string name="active_subscriptions">Мои подписки</string>
     <string name="money_amount">%1$s %2$s</string>
     <string name="frequency_days">Период: %1$d дн.</string>
     <string name="frequency_weeks">Период: %1$d нед.</string>
@@ -110,7 +108,6 @@
     <string name="settings_uncertain">Сохранение не подтверждено. Повторите выбранное изменение или обновите данные, чтобы проверить результат.</string>
     <string name="settings_retry_write">Повторить сохранение</string>
     <string name="progress_status">Оставшийся период. %1$s</string>
-    <string name="forecast_explanation">Ожидаемые расходы, не фактические списания</string>
     <string name="open_subscription_details">Открыть подписку</string>
     <string name="editor_edit_title">Редактирование подписки</string>
     <string name="editor_pick_own_image">Выбрать своё изображение</string>
@@ -169,7 +166,6 @@
     <string name="storage_manual_cleanup">Ручная очистка тестовой установки через настройки Android удаляет локальные данные, настройки и изображения. Для реальных пользовательских данных это не обязательное решение: сначала необходимо решить вопрос с их сохранением и совместимостью.</string>
     <string name="editor_price_currency">Валюта стоимости: %1$s</string>
     <string name="details_edit_end">Изменить дату окончания доступа</string>
-    <string name="cancelled_subscriptions">Отменённые</string>
     <string name="archived_on">В архиве с %1$s</string>
     <string name="archived_date_unknown">Дата архивирования неизвестна</string>
     <string name="editor_restore_schedule">Дату и периодичность можно изменить при возобновлении подписки.</string>
@@ -177,4 +173,11 @@
     <string name="tracker_loading">Загрузка…</string>
     <string name="tracker_selected">Выбрано</string>
     <string name="tracker_not_selected">Не выбрано</string>
+    <string name="home_date_days">%1$s · %2$d дн.</string>
+    <string name="home_period_day">День</string>
+    <string name="home_period_week">Неделя</string>
+    <string name="home_period_month">Месяц</string>
+    <string name="home_period_year">Год</string>
+    <string name="home_period_quarter">Квартал</string>
+    <string name="home_period_half_year">Полугодие</string>
 </resources>

@@ -81,7 +81,7 @@ class AccessibilityUiTest {
         if(restoration == null) compose.setContent(content) else restoration.setContent(content)
         compose.waitUntil(5000) { preferences.state.value.data != null && owner.state.value !is SubscriptionsUiState.Loading }
     }
-    private fun settings() { compose.onNodeWithContentDescription("Открыть настройки").performClick() }
+    private fun settings() { compose.onNodeWithTag("tab_settings").performClick() }
     private fun theme(value: String) {
         compose.waitUntil(5000) { preferences.state.value.phase == SettingsPhase.Content && !preferences.state.value.pending }
         compose.onNodeWithTag("settings_theme_$value").performScrollTo().performClick()
@@ -124,7 +124,7 @@ class AccessibilityUiTest {
         compose.onNodeWithText("Готово").performClick()
         compose.onNodeWithTag("settings_time").performScrollTo().assertIsDisplayed()
         compose.onNodeWithTag("settings_time").assert(SemanticsMatcher.keyNotDefined(SemanticsActions.OnClick))
-        compose.onNodeWithContentDescription("Назад").performClick()
+        compose.onNodeWithTag("tab_subscriptions").performClick()
         compose.onNodeWithTag("subscriptions_screen").performScrollToNode(hasText(row.name))
         compose.onNodeWithText(row.name).performClick()
         compose.onNodeWithText("Изменить").assertIsDisplayed().performClick()
@@ -140,7 +140,7 @@ class AccessibilityUiTest {
         awaitStep("editor_save_completed") { compose.onAllNodesWithTag("subscription_editor").fetchSemanticsNodes().isEmpty() }
         compose.onNodeWithText("История платежей и возвратов").assertDoesNotExist()
         compose.onNodeWithContentDescription("Назад").performClick()
-        compose.onNodeWithTag("tab_archive").performClick()
+        compose.openArchive()
         awaitStep("archive_loaded") { compose.onAllNodesWithTag("archive_${archived.id}").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("archive_screen").performScrollToNode(hasTestTag("archive_${archived.id}"))
         compose.onNodeWithTag("archive_${archived.id}").assertHasClickAction().assertIsDisplayed()
@@ -148,7 +148,7 @@ class AccessibilityUiTest {
     @Test fun archiveLoadingAndReadErrorNeverRenderEmptyUntilSuccessfulRetry() {
         val gate = CompletableDeferred<Unit>(); var fail = true
         archiveOverride = flow { gate.await(); check(!fail) { "Injected Room read error" }; emitAll(archiveRows(use)) }
-        start(); compose.onNodeWithTag("tab_archive").performClick()
+        start(); compose.openArchive()
         compose.onNodeWithText("Загружаем архив…").assertExists()
         compose.onNodeWithText("В архиве пока пусто").assertDoesNotExist()
         gate.complete(Unit)

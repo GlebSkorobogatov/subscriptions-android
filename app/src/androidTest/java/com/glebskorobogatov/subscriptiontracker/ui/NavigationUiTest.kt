@@ -19,7 +19,7 @@ class NavigationUiTest {
     private fun tab(name: String) = compose.onNodeWithTag("tab_$name")
     private fun select(name: String) { tab(name).performClick(); tab(name).assertIsSelected() }
     private fun text(id: Int) = compose.activity.getString(id)
-    private fun openSettings() = compose.onNodeWithContentDescription(text(R.string.open_settings)).performClick()
+    private fun openSettings() = tab("settings").performClick()
     private fun financeEmpty(): SemanticsNodeInteraction {
         compose.waitUntil(5000) { compose.onAllNodesWithTag("finance_empty").fetchSemanticsNodes().isNotEmpty() }
         return compose.onNodeWithTag("finance_empty")
@@ -33,7 +33,7 @@ class NavigationUiTest {
         compose.onNodeWithTag("subscriptions_screen").assertIsDisplayed()
     }
     @Test fun floatingIslandKeepsRootContentAboveNavigation() {
-        for ((tabName, screenTag) in listOf("subscriptions" to "subscriptions_screen", "archive" to "archive_screen")) {
+        for ((tabName, screenTag) in listOf("subscriptions" to "subscriptions_screen", "settings" to "settings_screen")) {
             select(tabName)
             compose.waitUntil(5000) { compose.onAllNodesWithTag(screenTag).fetchSemanticsNodes().isNotEmpty() }
             val root = compose.onRoot().fetchSemanticsNode().boundsInRoot
@@ -41,7 +41,7 @@ class NavigationUiTest {
             val content = compose.onNodeWithTag(screenTag).fetchSemanticsNode().boundsInRoot
             org.junit.Assert.assertTrue(island.left > root.left && island.right < root.right)
             org.junit.Assert.assertTrue(island.bottom < root.bottom)
-            org.junit.Assert.assertTrue(content.bottom <= island.top)
+            org.junit.Assert.assertTrue(content.bottom > island.top) // Content viewport passes behind chrome.
         }
     }
     @Test fun subscriptionsHeaderAddOpensEditorAndBackKeepsIsland() {
@@ -57,40 +57,43 @@ class NavigationUiTest {
         financeEmpty().assertIsDisplayed()
     }
     @Test fun archiveTabShowsItsEmptyState() {
-        select("archive")
+        compose.openArchive()
+        compose.onNodeWithTag("bottom_navigation").assertDoesNotExist()
         compose.waitUntil(5000) { compose.onAllNodesWithText(text(R.string.archive_empty)).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText(text(R.string.archive_empty)).assertIsDisplayed()
     }
     @Test fun returnToSubscriptionsFromOtherTabs() {
-        select("finance"); select("archive"); select("subscriptions")
+        select("finance"); select("settings"); select("subscriptions")
         compose.onNodeWithTag("subscriptions_screen").assertIsDisplayed()
     }
     @Test fun settingsIsSeparateFromThreeTabs() {
         compose.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.Selected)).assertCountEquals(3)
         openSettings()
         compose.onNodeWithText(text(R.string.settings_appearance)).assertIsDisplayed()
-        compose.onNodeWithTag("bottom_navigation").assertDoesNotExist()
-        compose.onNodeWithContentDescription(text(R.string.navigate_back)).assertHasClickAction()
+        compose.onNodeWithTag("bottom_navigation").assertIsDisplayed()
+        tab("settings").assertIsSelected()
+        compose.onNodeWithContentDescription(text(R.string.navigate_back)).assertDoesNotExist()
     }
     @Test fun toolbarBackReturnsToOriginatingTab() {
-        for (name in listOf("subscriptions", "finance", "archive")) {
-            select(name); openSettings()
+        for (name in listOf("subscriptions", "finance")) {
+            select(name); compose.openArchive()
             compose.onNodeWithContentDescription(text(R.string.navigate_back)).performClick()
-            tab(name).assertIsSelected()
+            tab("settings").assertIsSelected()
+            select(name); tab(name).assertIsSelected()
         }
     }
     @Test fun systemBackReturnsToOriginatingTab() {
-        select("finance"); openSettings(); back(); tab("finance").assertIsSelected()
+        select("finance"); openSettings(); back(); tab("subscriptions").assertIsSelected()
     }
     @Test fun repeatedTabSelectionDoesNotAccumulateBackStack() {
-        repeat(4) { select("finance"); select("archive"); select("archive") }
+        repeat(4) { select("finance"); select("settings"); select("settings") }
         back(); tab("subscriptions").assertIsSelected()
     }
     @Test fun rapidSettingsTapDoesNotCreateDuplicateRoute() {
-        select("archive")
-        compose.onNodeWithContentDescription(text(R.string.open_settings)).performTouchInput { doubleClick() }
+        select("settings")
+        tab("settings").performTouchInput { doubleClick() }
         compose.onNodeWithText(text(R.string.settings_appearance)).assertIsDisplayed()
-        back(); tab("archive").assertIsSelected()
+        back(); tab("subscriptions").assertIsSelected()
     }
     @Test fun selectedTabSurvivesActivityRecreation() {
         select("finance"); compose.activityRule.scenario.recreate()
@@ -98,18 +101,18 @@ class NavigationUiTest {
         financeEmpty().assertIsDisplayed()
     }
     @Test fun settingsRouteAndOriginSurviveRecreation() {
-        select("archive"); openSettings(); compose.activityRule.scenario.recreate()
+        select("settings"); openSettings(); compose.activityRule.scenario.recreate()
         compose.onNodeWithText(text(R.string.settings_appearance)).assertIsDisplayed()
-        back(); tab("archive").assertIsSelected()
+        back(); tab("subscriptions").assertIsSelected()
     }
     @Test fun russianLabelsAndActionSemanticsAreVisible() {
-        for ((name, label) in listOf("subscriptions" to "Подписки", "finance" to "Финансы", "archive" to "Архив")) {
-            tab(name).assertTextContains(label).assertHasClickAction()
+        for ((name, label) in listOf("subscriptions" to "Подписки", "finance" to "Статистика", "settings" to "Настройки")) {
+            tab(name).assertContentDescriptionEquals(label).assertHasClickAction()
         }
-        compose.onNodeWithContentDescription("Открыть настройки").assertHasClickAction()
+        compose.onNodeWithContentDescription("Открыть настройки").assertDoesNotExist()
         openSettings()
         compose.onAllNodesWithText("Настройки").assertCountEquals(1)
-        compose.onNodeWithContentDescription("Назад").assertHasClickAction()
+        compose.onNodeWithContentDescription("Назад").assertDoesNotExist()
     }
     @Test fun orientationChangePreservesRouteAndControls() {
         select("finance")
@@ -121,7 +124,7 @@ class NavigationUiTest {
                 matches
             }
             tab("finance").assertIsSelected().assertIsDisplayed()
-            compose.onNodeWithContentDescription(text(R.string.open_settings)).assertIsDisplayed()
+            tab("settings").assertIsDisplayed()
             financeEmpty().performScrollTo().assertIsDisplayed()
         }
         try { orient(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE, Configuration.ORIENTATION_LANDSCAPE) }

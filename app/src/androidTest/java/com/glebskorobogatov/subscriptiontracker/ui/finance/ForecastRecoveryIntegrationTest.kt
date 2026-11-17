@@ -104,7 +104,7 @@ class ForecastRecoveryIntegrationTest {
 
     @Test fun overflowIsRepairedThroughActualEditorAndBothExistingObserversRecoverAutomatically() = runBlocking {
         val row = fixture(Long.MAX_VALUE).single(); val owner = owner()
-        val library = content(owner) { it.forecast == null }; assertEquals(row.id,library.active.single().id)
+        val library = content(owner) { it.active.size == 1 }; assertEquals(row.id,library.active.single().id)
         val finance = tracked { FinanceViewModel(SavedStateHandle(),owner) }
         val failed = withTimeout(30000) { finance.state.first { it.phase == FinancePhase.Error } }
         val failedSnapshot = requireNotNull(failed.snapshot)
@@ -113,7 +113,7 @@ class ForecastRecoveryIntegrationTest {
         val vm = editor(owner,row.id)
         assertEquals(RubPrice(Long.MAX_VALUE).format(),vm.state.value.fields["amount"])
         change(vm,"amount","1,23"); save(vm)
-        content(owner) { it.forecast == 246L }
+        content(owner) { it.active.singleOrNull()?.price?.amountMinor == 123L }
         val recovered = withTimeout(30000) { finance.state.first { it.phase == FinancePhase.Content } }
         assertEquals(1476L,recovered.snapshot!!.forecast!!.totalMinor)
         val saved = requireNotNull(stored(row.id)); assertEquals(123L,saved.priceMinor)
@@ -122,16 +122,20 @@ class ForecastRecoveryIntegrationTest {
     }
     @Test fun cancellationAndConfirmedDeletionThroughDetailsRestoreForecastWithoutOtherRowChanges() = runBlocking {
         val good = fixture().single(); val owner = owner()
+        val finance = tracked { FinanceViewModel(SavedStateHandle(),owner) }
         for (action in listOf(DetailsAction.Disable,DetailsAction.Delete)) {
             val bad = fixture(Long.MAX_VALUE).single()
-            content(owner) { it.forecast == null }
+            content(owner) { it.active.any { item -> item.id == bad.id } }
+            withTimeout(30000) { finance.state.first { it.phase == FinancePhase.Error && it.snapshot?.rows?.any { item -> item.id == bad.id } == true } }
             val vm = detail(owner,bad)
             if (action == DetailsAction.Delete) {
                 withContext(Dispatchers.Main) { vm.open(action); vm.dismiss() }
                 assertEquals(bad,stored(bad.id)) // Dismissing confirmation cannot delete.
             }
             command(vm,action)
-            content(owner) { it.forecast == 200L }
+            content(owner) { it.active.none { item -> item.id == bad.id } }
+            val restored = withTimeout(30000) { finance.state.first { it.phase == FinancePhase.Content } }
+            assertEquals(200L,restored.snapshot!!.forecast!!.next30Days.totalMinor)
             assertEquals(good,stored(good.id))
             if (action == DetailsAction.Delete) assertNull(stored(bad.id))
             else assertEquals(SubscriptionState.CANCELLED,stored(bad.id)!!.state)
@@ -139,15 +143,18 @@ class ForecastRecoveryIntegrationTest {
     }
     @Test fun actualEventBudgetDoesNotBlockCreateManualArchiveOrArchiveReader() = runBlocking {
         val rows = fixture(unit = FrequencyUnit.DAY,amount = 300); val owner = owner()
-        assertEquals(300,content(owner) { it.forecast == null }.active.size)
+        assertEquals(300,content(owner) { it.active.size == 300 }.active.size)
+        val finance = tracked { FinanceViewModel(SavedStateHandle(),owner) }
+        withTimeout(30000) { finance.state.first { it.phase == FinancePhase.Error } }
         val archive = tracked { ArchiveViewModel(owner) }
         withTimeout(30000) { archive.state.first { it.phase == ArchivePhase.Empty } }
         val create = editor(owner,null)
         change(create,"name","Новая годовая"); change(create,"amount","1,00"); change(create,"unit","YEAR")
         save(create); assertNotNull(stored(create.savedSubscriptionId))
         for (row in rows.take(2)) command(detail(owner,row),DetailsAction.Archive)
-        val recovered = content(owner) { it.forecast != null }
+        val recovered = content(owner) { it.active.size == 299 }
         assertEquals(299,recovered.active.size)
+        withTimeout(30000) { finance.state.first { it.phase == FinancePhase.Content } }
         withTimeout(30000) { archive.state.first { it.rows.size == 2 } }
         val projection = use.forecasts.first()
         assertEquals(99831,projection.forecast!!.charges.size)
@@ -156,7 +163,9 @@ class ForecastRecoveryIntegrationTest {
     @Test fun unrepresentableRecordCanOpenDetailsDismissDeletionAndRepairScheduleInEditor() = runBlocking {
         val row = fixture(unit = FrequencyUnit.YEAR,count = Int.MAX_VALUE).single()
         use.refreshToday(date.today.value.plusDays(1),Instant.EPOCH)
-        val owner = owner(); val library = content(owner) { it.forecast == null }
+        val owner = owner(); val library = content(owner) { it.active.singleOrNull()?.calendarError == true }
+        val finance = tracked { FinanceViewModel(SavedStateHandle(),owner) }
+        withTimeout(30000) { finance.state.first { it.phase == FinancePhase.Error } }
         assertTrue(library.active.single().calendarError); assertNull(library.active.single().eventDate)
         val details = detail(owner,row); assertTrue(details.state.value.data!!.calendarError)
         withContext(Dispatchers.Main) { details.open(DetailsAction.Delete); details.dismiss() }
@@ -164,7 +173,9 @@ class ForecastRecoveryIntegrationTest {
         val vm = editor(owner,row.id); assertEquals("",vm.state.value.fields["date"])
         change(vm,"unit","MONTH"); change(vm,"count","1"); change(vm,"date",date.today.value.toString())
         save(vm)
-        val recovered = content(owner) { it.forecast == 200L }
+        val recovered = content(owner) { it.active.singleOrNull()?.calendarError == false }
+        val projected = withTimeout(30000) { finance.state.first { it.phase == FinancePhase.Content } }
+        assertEquals(200L,projected.snapshot!!.forecast!!.next30Days.totalMinor)
         assertFalse(recovered.active.single().calendarError)
         assertEquals(row.id,recovered.active.single().id)
         assertEquals(Frequency(FrequencyUnit.MONTH,1),stored(row.id)!!.toDomain().schedule.frequency)
@@ -172,16 +183,21 @@ class ForecastRecoveryIntegrationTest {
     @Test fun todayChangeRecoversBudgetErrorWithoutRecreatingTheLibraryObserver() = runBlocking {
         use.refreshToday(LocalDate.of(2027,1,1),Instant.EPOCH)
         val rows = fixture(unit = FrequencyUnit.DAY,amount = 275); val owner = owner()
-        assertEquals(275,content(owner) { it.forecast == null }.active.size)
+        assertEquals(275,content(owner) { it.active.size == 275 }.active.size)
+        val finance = tracked { FinanceViewModel(SavedStateHandle(),owner) }
+        withTimeout(30000) { finance.state.first { it.phase == FinancePhase.Error } }
         use.refreshToday(LocalDate.of(2027,1,31),Instant.EPOCH)
-        content(owner) { it.forecast != null }
+        content(owner) { it.active.all { item -> item.eventDate == LocalDate.of(2027,1,31) } }
+        withTimeout(30000) { finance.state.first { it.phase == FinancePhase.Content && it.snapshot?.today == LocalDate.of(2027,1,31) } }
         val projection = use.forecasts.first()
         assertEquals(92125,projection.forecast!!.charges.size)
         assertEquals(rows.toSet(),projection.rows.toSet())
     }
     @Test fun failedForecastDoesNotWeakenOptimisticSnapshotChecks() = runBlocking {
         val row = fixture(Long.MAX_VALUE).single(); val owner = owner()
-        content(owner) { it.forecast == null }
+        content(owner) { it.active.singleOrNull()?.id == row.id }
+        val finance = tracked { FinanceViewModel(SavedStateHandle(),owner) }
+        withTimeout(30000) { finance.state.first { it.phase == FinancePhase.Error } }
         val vm = editor(owner,row.id)
         // A second writer races the actual form; this is not a repair of the error fixture.
         val concurrent = use.editSubscription(row,SubscriptionEdit("Конкурентное имя",row.accountLabel,RubPrice(Long.MAX_VALUE)),Instant.now())

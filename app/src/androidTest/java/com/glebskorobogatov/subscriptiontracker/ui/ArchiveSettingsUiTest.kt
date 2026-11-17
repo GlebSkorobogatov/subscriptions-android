@@ -17,7 +17,7 @@ class ArchiveSettingsUiTest {
     @get:Rule val compose = createAndroidComposeRule<IsolatedMainActivity>()
     @Before fun ready() { compose.waitUntil(5000) { compose.onAllNodesWithTag("bottom_navigation").fetchSemanticsNodes().isNotEmpty() } }
     private fun settings() {
-        compose.onNodeWithContentDescription("Открыть настройки").performClick()
+        compose.onNodeWithTag("tab_settings").performClick()
         compose.onNodeWithText("Внешний вид").assertExists()
     }
     private fun checked(tag: String,expected: Boolean) {
@@ -36,8 +36,8 @@ class ArchiveSettingsUiTest {
         compose.onNodeWithTag(if(dark) "theme_dark" else "theme_light").assertExists()
     }
     private fun createAndOpen(label: String = "Личный тест") {
-        compose.waitUntil(5000) { compose.onAllNodesWithText("Добавить первую подписку").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithText("Добавить первую подписку").performClick()
+        compose.waitUntil(5000) { compose.onAllNodesWithText("Добавить подписку").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Добавить подписку").performClick()
         compose.onNodeWithTag("field_name").performTextInput("Архив D05")
         compose.onNodeWithTag("field_amount").performTextInput("499")
         compose.onNodeWithText("Дополнительно").performScrollTo().performClick()
@@ -59,17 +59,18 @@ class ArchiveSettingsUiTest {
         compose.onNodeWithContentDescription("Назад").performClick()
     }
     @Test fun emptyArchiveAndSettingsReturnToOriginWithoutFourthTab() {
-        compose.onNodeWithTag("tab_archive").performClick()
+        compose.openArchive()
         compose.waitUntil(5000) { compose.onAllNodesWithText("В архиве пока пусто").fetchSemanticsNodes().isNotEmpty() }
-        settings(); compose.onNodeWithTag("bottom_navigation").assertDoesNotExist()
+        compose.onNodeWithTag("bottom_navigation").assertDoesNotExist()
         compose.activityRule.scenario.recreate()
-        compose.onNodeWithTag("settings_screen").assertExists()
+        compose.onNodeWithTag("archive_screen").assertExists()
         compose.onNodeWithContentDescription("Назад").performClick()
-        compose.onNodeWithTag("tab_archive").assertIsSelected()
+        compose.onNodeWithTag("settings_screen").assertExists()
+        compose.onNodeWithTag("tab_settings").assertIsSelected()
     }
     @Test fun archiveReactivationPreservesUuidAndUpdatesActiveForecast() {
         createAndOpen()
-        archiveAndReturn(); compose.onNodeWithTag("tab_archive").performClick()
+        archiveAndReturn(); compose.openArchive()
         compose.waitUntil(5000) { compose.onAllNodesWithText("Личный тест").fetchSemanticsNodes().isNotEmpty() }
         val archiveMatcher = SemanticsMatcher("archive UUID card") { it.config.getOrElse(SemanticsProperties.TestTag) { "" }.matches(Regex("archive_[0-9a-f-]{36}")) }
         val tag = compose.onNode(archiveMatcher).fetchSemanticsNode().config[SemanticsProperties.TestTag]
@@ -89,15 +90,20 @@ class ArchiveSettingsUiTest {
         compose.onAllNodes(hasText("Оплата ",substring = true)).assertCountEquals(0)
         compose.onNodeWithContentDescription("Назад").performClick()
         compose.waitUntil(5000) { compose.onAllNodesWithText("В архиве пока пусто").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithContentDescription("Назад").performClick() // Archive -> Settings.
         compose.onNodeWithTag("tab_subscriptions").performClick()
         compose.onNodeWithTag("subscriptions_screen").performScrollToNode(hasTestTag("subscription_$id"))
         compose.onNodeWithTag("subscription_$id").assertExists()
-        compose.onAllNodesWithText("599,00 RUB").assertCountEquals(2)
+        compose.onNodeWithText("599 ₽").assertExists()
+        compose.onNodeWithTag("tab_finance").performClick()
+        compose.waitUntil(5000) { compose.onAllNodesWithTag("finance_30_total").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag("finance_30_total"))
+        compose.onNodeWithTag("finance_30_total").assertTextEquals("599,00 RUB")
     }
     @Test fun duplicateArchiveNamesKeepAccountLabelsAndIndependentCards() {
         createAndOpen("Личный тест"); archiveAndReturn()
         createAndOpen("Семейный тест"); archiveAndReturn()
-        compose.onNodeWithTag("tab_archive").performClick()
+        compose.openArchive()
         compose.waitUntil(5000) { compose.onAllNodesWithText("Семейный тест").fetchSemanticsNodes().isNotEmpty() }
         compose.onAllNodesWithText("Архив D05").assertCountEquals(2)
         compose.onNodeWithText("Личный тест").assertExists(); compose.onNodeWithText("Семейный тест").assertExists()
@@ -109,7 +115,7 @@ class ArchiveSettingsUiTest {
         compose.onNodeWithTag("theme_dark").assertExists(); compose.onNodeWithTag("settings_theme_DARK").assertIsSelected()
         val systemDark = compose.activity.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
         theme("SYSTEM",systemDark)
-        compose.onNodeWithContentDescription("Назад").performClick(); compose.onNodeWithTag("tab_finance").assertIsSelected()
+        compose.onNodeWithTag("tab_finance").performClick(); compose.onNodeWithTag("tab_finance").assertIsSelected()
     }
     @Test fun fixedNineSurvivesRecreationWithoutTimeDialog() {
         settings()

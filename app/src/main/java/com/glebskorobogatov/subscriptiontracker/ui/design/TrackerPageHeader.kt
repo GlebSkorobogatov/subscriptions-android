@@ -20,7 +20,7 @@ import com.glebskorobogatov.subscriptiontracker.R
 @Composable
 fun TrackerPageHeader(title: String,onBack: (() -> Unit)? = null,onSettings: (() -> Unit)? = null) {
     Row(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
-        .padding(horizontal = TrackerDimensions.screenPadding,vertical = 12.dp),
+        .padding(horizontal = trackerPageHorizontalPadding(),vertical = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),verticalAlignment = Alignment.CenterVertically) {
         onBack?.let { TrackerIconButton(Icons.AutoMirrored.Outlined.ArrowBack,stringResource(R.string.navigate_back),it) }
         Text(title,Modifier.weight(1f).semantics { heading() },
