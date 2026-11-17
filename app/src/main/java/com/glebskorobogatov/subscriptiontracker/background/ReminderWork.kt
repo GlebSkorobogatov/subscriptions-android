@@ -19,8 +19,8 @@ import kotlinx.coroutines.sync.withLock
 
 /** Small explicit payload, never serialized entities or unbounded event arrays. */
 object ReminderWorkInput {
-    const val POLICY = 2
-    const val POLICY_TAG = "tracker-renewals-policy-2"
+    const val POLICY = 3
+    const val POLICY_TAG = "tracker-renewals-policy-3"
     fun data(generation: UUID, subscription: UUID? = null, fingerprint: String? = null): Data =
         workDataOf("version" to ReminderScheduling.VERSION, "policy" to POLICY, "generation" to generation.toString(),
             "subscription" to subscription?.toString(), "fingerprint" to fingerprint).also {
@@ -113,7 +113,7 @@ class ReminderWorker(context: Context, parameters: WorkerParameters,
     override suspend fun doWork(): Result { return try {
         require(inputData.getInt("version", -1) == ReminderScheduling.VERSION)
         val policy = inputData.getInt("policy", 0)
-        if (policy == 0) {
+        if (policy in 0 until ReminderWorkInput.POLICY) {
             // A persisted v1 delivery/control/wake may represent individual/cancellation rules.
             // No Room open, claim, publication or subscription mutation through this compatibility path.
             runtime.requestCurrentReconcile()

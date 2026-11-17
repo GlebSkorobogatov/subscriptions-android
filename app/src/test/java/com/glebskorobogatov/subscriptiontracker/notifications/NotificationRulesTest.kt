@@ -87,4 +87,16 @@ class NotificationRulesTest {
     }
     @Test(expected = IllegalArgumentException::class) fun negativeRemainingDaysAreRejected() { russianDayForm(-1) }
 
+
+    @Test fun overlappingReasonsKeepDistinctDatesAndActualRemainingDaysInOneCopy() {
+        val reasons = listOf(7L,0L,3L,1L).map { message(it).reasons.single() }
+        val rendered = ReminderText.render(ReminderPresentation("Синтетический сервис",Money(123,CurrencyCode.of("RUB"))),
+            ReminderMessage(SubscriptionId(id),today,reasons),words)
+        assertEquals(4,rendered.body.lines().size)
+        assertTrue(rendered.body.lines()[0].startsWith("Сегодня"))
+        assertTrue(rendered.body.lines()[1].startsWith("Завтра"))
+        assertTrue(rendered.body.lines()[2].startsWith("Через 3 дня"))
+        assertTrue(rendered.body.lines()[3].startsWith("Через 7 дней"))
+        assertTrue(rendered.body.contains("04.01.2027")); assertTrue(rendered.body.contains("11.01.2027"))
+    }
 }

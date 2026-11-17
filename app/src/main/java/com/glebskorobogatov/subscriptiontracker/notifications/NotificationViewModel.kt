@@ -89,8 +89,8 @@ class NotificationViewModel(private val saved: SavedStateHandle, private val own
             val eligible = owner.perform { cases ->
                 val detail = cases.details(id).first() ?: return@perform false
                 val settings = cases.settings.first()
-                ReminderRules().plan(reminderInputs(listOf(detail.subscription), settings),
-                    settings.reminderLocalTime, now(), zone()).isNotEmpty()
+                ReminderRules().eligibleForPermission(reminderInputs(listOf(detail.subscription), settings).single(),
+                    now().atZone(zone()).toLocalDate())
             }
             if (eligible && withContext(io) { environment.claimAutomaticOffer() }) {
                 saved["explanation"] = true

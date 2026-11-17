@@ -13,7 +13,7 @@ import org.junit.Test
 import org.junit.Assert.*
 
 class ReminderInputsTest {
-    private val now = Instant.parse("2027-01-01T00:00:00Z")
+    private val now = Instant.parse("2027-01-24T00:00:00Z")
     private val utc = ZoneId.of("UTC")
     private val id = UUID(0,1)
     private fun row(id: UUID = this.id) = SubscriptionEntity(id = id, name = "Одинаковое имя", accountLabel = "Аккаунт $id", priceMinor = 100, intervalUnit = FrequencyUnit.MONTH, intervalCount = 1, state = SubscriptionState.ACTIVE, anchorYear = 2027, anchorMonth = 1, anchorDay = 31, currentPeriodStartOverride = null, currentPeriodEnd = null, cancelledAccessEndExclusive = null, frozenCancelledPeriodStart = null, logoAssetId = null, catalogLogoId = null, createdAt = now, updatedAt = now, archivedAt = null)

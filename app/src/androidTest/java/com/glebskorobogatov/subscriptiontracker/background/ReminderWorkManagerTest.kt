@@ -186,13 +186,14 @@ class ReminderWorkManagerTest {
         val payloads = listOf(
             workDataOf("version" to 1,"generation" to dataset.toString(),"subscription" to UUID.randomUUID().toString(),"fingerprint" to "a".repeat(64)),
             workDataOf("version" to 1,"generation" to dataset.toString(),"reconcile" to true),
-            workDataOf("version" to 1,"generation" to dataset.toString()))
+            workDataOf("version" to 1,"generation" to dataset.toString()),
+            Data.Builder().putAll(ReminderWorkInput.data(dataset)).putInt("policy",2).build())
         for (payload in payloads) {
             val worker = TestListenableWorkerBuilder<ReminderWorker>(context).setWorkerFactory(factory).setInputData(payload).build()
             assertEquals(ListenableWorker.Result.success(),worker.doWork())
             assertFalse(context.getDatabasePath("subscriptions-$dataset.db").exists())
         }
-        assertEquals(originalRequests+3,records.requests)
+        assertEquals(originalRequests+4,records.requests)
         assertTrue(records.tasks.isEmpty()); assertNull(records.wake)
     }
     @Test fun futureUnknownPolicyFailsWithoutOpeningOrRequestingWork() = runBlocking {

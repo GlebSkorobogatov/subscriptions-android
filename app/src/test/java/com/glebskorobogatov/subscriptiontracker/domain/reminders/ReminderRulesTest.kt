@@ -13,7 +13,7 @@ class ReminderRulesTest {
     private val rules = ReminderRules()
     private val utc = ZoneId.of("UTC")
     private val nine = LocalTime.of(9,0)
-    private val start = Instant.parse("2027-01-01T00:00:00Z")
+    private val start = Instant.parse("2027-01-24T00:00:00Z")
     private fun d(text: String) = LocalDate.parse(text)
     private fun input(id: Long = 1,due: LocalDate = d("2027-01-31"),
         pay: Set<Int> = setOf(3,1),
@@ -124,19 +124,22 @@ class ReminderRulesTest {
 
     @Test fun monthlyAnchorReturnsFromFebruaryToMarch() {
         val auto = input(pay = setOf(0))
-        assertEquals(d("2027-02-28"),plan(auto,Instant.parse("2027-02-01T00:00:00Z")).single().targetDate)
-        assertEquals(d("2027-03-31"),plan(auto,Instant.parse("2027-03-01T00:00:00Z")).single().targetDate)
+        assertEquals(d("2027-02-28"),plan(auto,Instant.parse("2027-02-22T00:00:00Z")).single().targetDate)
+        assertEquals(d("2027-03-31"),plan(auto,Instant.parse("2027-03-25T00:00:00Z")).single().targetDate)
     }
     @Test fun leapAnchorIsPreservedForFutureLeapYears() {
         val s = input(due = d("2028-02-29"),pay = setOf(0),frequency = Frequency(FrequencyUnit.YEAR,1))
-        assertEquals(d("2029-02-28"),plan(s,Instant.parse("2029-01-01T00:00:00Z")).single().targetDate)
-        assertEquals(d("2032-02-29"),plan(s,Instant.parse("2032-01-01T00:00:00Z")).single().targetDate)
+        assertEquals(d("2029-02-28"),plan(s,Instant.parse("2029-02-22T00:00:00Z")).single().targetDate)
+        assertEquals(d("2032-02-29"),plan(s,Instant.parse("2032-02-23T00:00:00Z")).single().targetDate)
     }
 
     @Test fun customDayWeekAndCalendarMonthIntervalsUseDomainCalendar() {
         for((frequency,expected) in listOf(Frequency(FrequencyUnit.DAY,3) to "2027-02-03",Frequency(FrequencyUnit.WEEK,2) to "2027-02-14",Frequency(FrequencyUnit.MONTH,3) to "2027-04-30")) {
             val s = input(pay = setOf(0),frequency = frequency)
-            assertEquals(d(expected),plan(s,Instant.parse("2027-02-01T00:00:00Z")).single().targetDate)
+            val at = if (frequency.unit == FrequencyUnit.DAY) d("2027-02-01") else d(expected).minusDays(6)
+            val events = plan(s,at.atStartOfDay(utc).toInstant())
+            assertEquals(d(expected),events.first().targetDate)
+            assertTrue(events.all { it.plannedLocalDateTime.toLocalDate() < at.plusDays(7) })
         }
     }
     @Test fun deterministicOrderingStableIdsAndIndependentUuidsExcludeLogicalDuplicates() {
@@ -161,7 +164,9 @@ class ReminderRulesTest {
     @Test fun calendarUnderflowAndOutOfRangeInstantDoNotReturnPartialPlans() {
         val min = input(id = 2,due = LocalDate.MIN,pay = setOf(7))
         val now = LocalDate.MIN.atStartOfDay(utc).toInstant()
-        assertThrows(ReminderCalculationException::class.java) { rules.plan(listOf(input(),min),nine,now,utc) }
+        val projection = rules.currentCandidates(listOf(min),nine,LocalDate.MIN)
+        assertTrue(projection.events.isEmpty())
+        assertEquals(setOf(min.subscription.id),projection.failedSubscriptions)
         assertThrows(ReminderCalculationException::class.java) { plan(now = Instant.MAX) }
     }
     @Test fun delayedReasonsCrossLocalMidnightAndYearWithoutResurrectingHandledKeys() {

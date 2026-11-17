@@ -19,6 +19,9 @@ import com.glebskorobogatov.subscriptiontracker.domain.subscription.*
 import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.*
 import com.glebskorobogatov.subscriptiontracker.domain.model.*
 import com.glebskorobogatov.subscriptiontracker.domain.reminders.ReminderRules
+import com.glebskorobogatov.subscriptiontracker.domain.reminders.ReminderMessage
+import com.glebskorobogatov.subscriptiontracker.domain.reminders.PlannedReminder
+import com.glebskorobogatov.subscriptiontracker.domain.reminders.CurrentReminderReason
 import java.time.*
 import java.util.UUID
 import java.io.File
@@ -222,4 +225,37 @@ class NotificationPublisherTest {
         assertEquals(sub,db.subscriptions().find(sub.id))
     }
 
+
+    @Test fun fifteenRecoveredKeysRemainInNativeMetadataAndReconciliationAcceptsThem() = runBlocking {
+        db.subscriptions().update(sub.copy(intervalUnit = FrequencyUnit.DAY,anchorDay = 1))
+        lease.repository.update { it.copy(renewalOffsets = setOf(7,3,1,0)) }
+        val run = runtime()
+        for (day in 1..7) {
+            instant = LocalDate.of(2027,1,day).atStartOfDay().toInstant(ZoneOffset.UTC)
+            run.reconcile()
+        }
+        instant = Instant.parse("2027-01-08T09:00:00Z"); run.reconcile()
+        val task = scheduler.tasks.single { it.subscription == sub.id }
+        assertEquals(PublicationResult.PUBLISHED,run.process(dataset,sub.id,task.fingerprint))
+        await { child() != null }
+        val metadata = child()!!.notification.extras.getStringArray("tracker.reminder.events")!!
+        assertEquals(15,metadata.size); assertEquals(15,metadata.toSet().size)
+        assertEquals(8,child()!!.notification.extras.getCharSequence(Notification.EXTRA_BIG_TEXT).toString().lines().size)
+        assertEquals(15,db.deliveries().all().count { it.state == DeliveryState.DELIVERED })
+        run.reconcile(); await { child() != null }
+        publisher.dismiss(NotificationRoute(dataset,sub.id)); await { child() == null }
+        run.reconcile(); assertNull(child()) // No new basis: handled keys cannot resurrect dismissal.
+    }
+    @Test fun oversizedOccurrenceMetadataIsExplicitlyRejectedRatherThanTruncated() = runBlocking {
+        val id = com.glebskorobogatov.subscriptiontracker.domain.model.SubscriptionId(sub.id)
+        val today = LocalDate.of(2027,1,1)
+        val events = (0L..15L).map { n -> PlannedReminder(id,
+            com.glebskorobogatov.subscriptiontracker.domain.reminders.ReminderEventType.RENEWAL,
+            today.plusDays(n),0,today.plusDays(n).atTime(9,0)) }
+        val message = ReminderMessage(id,today,events.map {
+            CurrentReminderReason(it.eventType,it.targetDate,java.time.temporal.ChronoUnit.DAYS.between(today,it.targetDate),listOf(it)) })
+        assertEquals(PublicationResult.PERMANENT_SKIP,publisher.publish(NotificationIdentity(ReminderScheduling.identity(dataset,sub.id)),
+            message,ReminderPresentation(sub.name,Money(sub.priceMinor,CurrencyCode.of("RUB")))))
+        assertNull(child()); assertTrue(db.deliveries().all().isEmpty())
+    }
 }

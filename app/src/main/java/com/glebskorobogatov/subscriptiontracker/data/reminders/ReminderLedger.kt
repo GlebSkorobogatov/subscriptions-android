@@ -15,7 +15,26 @@ class ReminderLedger(private val db: TrackerDatabase, val generation: UUID) {
     private val rules = ReminderRules()
     private fun <T> transaction(block: () -> T): T = db.runInTransaction(Callable { block() })
     private fun inputs(settings: Settings) = reminderInputs(db.subscriptions().all(), settings)
-    private fun rows() = db.deliveries().all().filter { it.generation == generation }
+    private fun rows(now: Instant, zone: ZoneId): List<NotificationDeliveryEntity> {
+        val today = now.atZone(zone).toLocalDate()
+        return db.deliveries().inWindow(generation,today,today.plusDays(ReminderRules.HORIZON_DAYS + 7))
+    }
+    companion object { const val CLEANUP_BATCH = 256 }
+
+    /** Retain logical tombstones indefinitely: rolling the system date back must not redeliver.
+     * Expired non-live attempts become SKIPPED (not DELIVERED); terminal retry/claim metadata is
+     * compacted. No deletion can be proven safe without a durable watermark/tombstone schema.
+     * One bounded batch per reconciliation; never infer no publication from an expired lease. */
+    fun cleanup(now: Instant, zone: ZoneId): Int = transaction {
+        val batch = db.deliveries().cleanupBatch(generation,now.atZone(zone).toLocalDate(),now,CLEANUP_BATCH)
+        // ISO text filtering is only a coarse SQL prefilter (fractional seconds vary).
+        val expired = batch.filter { it.leaseUntil == null || it.leaseUntil <= now }
+        expired.forEach { old ->
+            db.deliveries().update(old.copy(state = if (old.complete()) old.state else DeliveryState.SKIPPED,
+                claimToken = null,leaseUntil = null,failureCount = 0,notBefore = null))
+        }
+        expired.size
+    }
     private fun NotificationDeliveryEntity.event(): PlannedReminder {
         require(payloadVersion == ReminderScheduling.VERSION) { "Unsupported reminder payload" }
         val time = LocalTime.parse(requireNotNull(plannedLocalTime))
@@ -38,16 +57,20 @@ class ReminderLedger(private val db: TrackerDatabase, val generation: UUID) {
             db.subscriptions().all().associate { it.id to ReminderPresentation(it.name,
                 com.glebskorobogatov.subscriptiontracker.domain.model.Money(it.priceMinor, com.glebskorobogatov.subscriptiontracker.domain.model.CurrencyCode.of("RUB"))) },
             settings.reminderLocalTime, now, zone))
-        val horizon = now.atZone(zone).toLocalDate().plusDays(7).atStartOfDay()
-        val fresh = rules.plan(source, settings.reminderLocalTime, now, zone)
-            .filter { it.plannedLocalDateTime < horizon }.associateBy { it.key }
+        cleanup(now,zone)
+        val current = rules.currentCandidates(source,settings.reminderLocalTime,now.atZone(zone).toLocalDate())
+        val validEvents = current.events.toHashSet()
+        // Calendar errors are scoped to a series. No raw exception or private data is logged.
+        val horizon = now.atZone(zone).toLocalDate().plusDays(ReminderRules.HORIZON_DAYS).atStartOfDay()
+        val fresh = current.events.filter { it.plannedLocalDateTime < horizon &&
+            rules.resolveLocal(it.plannedLocalDateTime,zone).toInstant() >= now }.associateBy { it.key }
         val remaining = fresh.toMutableMap()
-        rows().forEach { old ->
+        rows(now,zone).forEach { old ->
             val key = ReminderKey(SubscriptionId(old.subscriptionId), DomainEvent.RENEWAL, old.eventDate, old.offsetDays)
             if (old.complete()) remaining.remove(key)
             else {
                 val event = old.event() // Invalid current payloads remain explicit errors.
-                val valid = rules.matchesCurrentSchedule(event, source, settings.reminderLocalTime, now, zone)
+                val valid = event in validEvents
                 val replacement = remaining[key]
                 if (!old.live(now)) {
                     when {
@@ -65,16 +88,16 @@ class ReminderLedger(private val db: TrackerDatabase, val generation: UUID) {
             }
         }
         remaining.values.forEach { db.deliveries().insert(row(it)) }
-        rows().filter { it.eventType == ReminderEventType.RENEWAL && !it.complete() &&
-            (it.live(now) || rules.matchesCurrentSchedule(it.event(),source,settings.reminderLocalTime,now,zone)) }
+        rows(now,zone).filter { it.eventType == ReminderEventType.RENEWAL && !it.complete() &&
+            (it.live(now) || it.event() in validEvents) }
     }
 
     fun events(rows: List<NotificationDeliveryEntity>) = rows.map { it.event() }
     data class Claim(val token: UUID, val message: ReminderMessage)
 
     fun claim(subscription: UUID, settings: Settings, now: Instant, zone: ZoneId): Claim? = transaction {
-        val all = rows().filter { it.subscriptionId == subscription && it.eventType == ReminderEventType.RENEWAL }
-        if (all.any { it.live(now) }) return@transaction null
+        val all = rows(now,zone).filter { it.subscriptionId == subscription && it.eventType == ReminderEventType.RENEWAL }
+        if (db.deliveries().processing(generation,subscription).any { it.live(now) }) return@transaction null
         val candidates = all.filter { !it.complete() && it.failureCount < ReminderScheduling.MAX_FAILURES &&
             (it.notBefore == null || it.notBefore <= now) }
         val message = rules.dueMessages(inputs(settings), settings.reminderLocalTime, events(candidates), now, zone)
@@ -91,7 +114,7 @@ class ReminderLedger(private val db: TrackerDatabase, val generation: UUID) {
      * Fresh Room transaction also fences deletion/schedule changes through another connection. */
     fun publish(claim: Claim, settings: Settings, now: Instant, zone: ZoneId,
         publisher: ReminderPublisher): PublicationResult? = transaction {
-        val owned = rows().filter { it.claimToken == claim.token && it.state == DeliveryState.PROCESSING }
+        val owned = db.deliveries().claimed(claim.token).filter { it.generation == generation && it.state == DeliveryState.PROCESSING }
         if (owned.isEmpty() || owned.any { !it.live(now) }) return@transaction null
         val current = rules.dueMessages(inputs(settings), settings.reminderLocalTime, events(owned), now, zone).singleOrNull()
         if (current == null) {
@@ -119,11 +142,23 @@ class ReminderLedger(private val db: TrackerDatabase, val generation: UUID) {
                     notBefore = if (result == PublicationResult.RETRYABLE_FAILURE) now.plusSeconds(30L shl (failures - 1)) else null))
             }
         }
+        if (result == PublicationResult.PUBLISHED) {
+            // A successful recovery settles this backlog. Keys held back by retry metadata or
+            // exhausted attempts are NOT falsely acknowledged as delivered, nor allowed to form
+            // a later catch-up chain. Future occurrences and disabled offsets are untouched.
+            val backlog = rows(now,zone).filter { it.subscriptionId == current.subscriptionId.value &&
+                !it.complete() && it.claimToken == null }
+            val suppressed = rules.dueMessages(inputs(settings),settings.reminderLocalTime,events(backlog),now,zone)
+                .flatMap { it.coveredKeys }.toSet()
+            backlog.filter { it.event().key in suppressed }.forEach {
+                db.deliveries().update(it.copy(state = DeliveryState.SKIPPED,notBefore = null))
+            }
+        }
         result
     }
 
     fun release(token: UUID) = transaction {
-        rows().filter { it.claimToken == token }.forEach {
+        db.deliveries().claimed(token).filter { it.generation == generation }.forEach {
             db.deliveries().update(it.copy(state = DeliveryState.PENDING, claimToken = null, leaseUntil = null))
         }
     }
