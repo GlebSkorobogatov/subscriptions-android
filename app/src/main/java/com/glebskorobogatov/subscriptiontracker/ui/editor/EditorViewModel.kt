@@ -27,7 +27,7 @@ class EditorViewModel(private val saved: SavedStateHandle, private val owner: Su
     private val id: UUID?) : ViewModel() {
     init {
         if (saved.get<Int>("draftVersion") != 5) {
-            listOf("fields", "expected", "pendingImage", "imageRemoved", "catalogChoice", "generation").forEach { saved.remove<Any>(it) }
+            listOf("fields", "scheduleDraft", "expected", "pendingImage", "imageRemoved", "catalogChoice", "generation").forEach { saved.remove<Any>(it) }
             saved["draftVersion"] = 5
         }
     }
@@ -45,7 +45,17 @@ class EditorViewModel(private val saved: SavedStateHandle, private val owner: Su
         if (state.value.saving || key !in FIELD_KEYS) return
         if (state.value.fields[key] == value) return
         var fields = state.value.fields + (key to value)
-        if (key in setOf("date", "unit", "count")) fields = fields - setOf("anchorDay", "start", "periodDue")
+        if (key in setOf("date", "unit", "count")) {
+            val before = saved.get<HashMap<String,String>>("scheduleDraft")
+                ?: HashMap(state.value.fields).also { saved["scheduleDraft"] = it }
+            fields = fields - setOf("anchorDay", "start", "periodDue")
+            // Keep refinements with their draft series. A temporary edit followed by a return
+            // restores them, including an explicit clear, without changing other edited fields.
+            if (listOf("date", "unit", "count").all { fields[it] == before[it] }) {
+                fields = fields + before.filterKeys { it in setOf("anchorDay", "start", "periodDue") }
+                saved.remove<HashMap<String,String>>("scheduleDraft")
+            }
+        }
         if (key == "start") fields = if (value.isBlank()) fields - "periodDue"
             else fields + ("periodDue" to fields.getValue("date"))
         saved["fields"] = HashMap(fields)
@@ -53,6 +63,7 @@ class EditorViewModel(private val saved: SavedStateHandle, private val owner: Su
     }
     fun selectImage(uri: android.net.Uri) {
         if (state.value.saving || state.value.importingImage) return
+        saved["fields"] = HashMap(state.value.fields)
         val epoch = ++imageEpoch
         mutable.value = state.value.copy(importingImage = true, dirty = true, error = null)
         viewModelScope.launch {
@@ -71,6 +82,7 @@ class EditorViewModel(private val saved: SavedStateHandle, private val owner: Su
     }
     fun removeImage() {
         if (state.value.saving || state.value.importingImage) return
+        saved["fields"] = HashMap(state.value.fields)
         val previous = pendingImage
         pendingImage = null; saved.remove<String>("pendingImage")
         catalogChoice = null; saved.remove<String>("catalogChoice")
@@ -80,6 +92,7 @@ class EditorViewModel(private val saved: SavedStateHandle, private val owner: Su
     }
     fun selectCatalog(catalogId: String) {
         if (state.value.saving || state.value.importingImage || OfflineIconCatalog.find(catalogId) == null) return
+        saved["fields"] = HashMap(state.value.fields)
         imageEpoch++
         val previous = pendingImage
         pendingImage = null; saved.remove<String>("pendingImage")
@@ -113,13 +126,14 @@ class EditorViewModel(private val saved: SavedStateHandle, private val owner: Su
             val restored = oldDraft?.filterKeys { it in FIELD_KEYS }
             restored?.let { saved["fields"] = HashMap(it) }
             val fingerprint = expected.toString()
-            val stale = restored != null && (saved.get<String>("expected")?.let { it != fingerprint } == true ||
+            val hasDraft = !discard && (restored != null || pendingImage != null || imageRemoved || catalogChoice != null)
+            val stale = hasDraft && (saved.get<String>("expected")?.let { it != fingerprint } == true ||
                 saved.get<String>("generation")?.let { it != owner.activeDatasetId()?.toString() } == true)
             if (!stale) {
                 saved["expected"] = fingerprint
                 owner.activeDatasetId()?.let { saved["generation"] = it.toString() }
             }
-            if (discard) discardImageDraft()
+            if (discard) { discardImageDraft(); saved.remove<HashMap<String,String>>("scheduleDraft") }
             mutable.value = EditorState(restored ?: fields, loading = false, dirty = restored != null || pendingImage != null || imageRemoved || catalogChoice != null,
                 errors = emptyMap(), scheduleEditable = expected?.state?.let { it == SubscriptionState.ACTIVE } ?: true,
                 conflict = stale, error = if (stale) R.string.editor_conflict else null,
@@ -159,6 +173,7 @@ class EditorViewModel(private val saved: SavedStateHandle, private val owner: Su
                     }
                 }
                 saved.remove<HashMap<String,String>>("fields")
+                saved.remove<HashMap<String,String>>("scheduleDraft")
                 pendingImage = null; catalogChoice = null
                 saved.remove<String>("pendingImage"); saved.remove<Boolean>("imageRemoved"); saved.remove<String>("catalogChoice")
                 mutable.value = state.value.copy(saving = false, dirty = false, done = true)

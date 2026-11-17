@@ -106,7 +106,7 @@ internal fun ReviewViewport(scene: ReviewScene,theme: Theme = Theme.SYSTEM,fontS
     val state = original.copy(action = action,data = original.data!!.copy(subscription = original.data.subscription.copy(
         state = if(archived) SubscriptionState.ARCHIVED else if(issue) SubscriptionState.CANCELLED else SubscriptionState.ACTIVE),
         period = if(archived) SubscriptionPeriod(null,null,null) else original.data.period),
-        fields = mapOf("date" to "2027-04-16","amount" to "799,00","currency" to "RUB","count" to "1","unit" to "MONTH","mode" to "AUTO","end" to "2027-03-31","reanchor" to "false"))
+        fields = mapOf("date" to "2027-04-16","amount" to "799,00","count" to "1","unit" to "MONTH","end" to "2027-03-31"))
     TrackerTheme(theme) { DetailsActionDialog(state,{_,_ ->},{},{},{}) }
 }
 @Preview(name = "Аудит • настройки 320 ×2",widthDp = 320,heightDp = 720,fontScale = 2f)
