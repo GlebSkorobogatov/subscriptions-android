@@ -144,7 +144,7 @@
     <string name="settings_version">Версия %1$s</string>
     <string name="settings_version_unknown">Версия недоступна</string>
     <string name="settings_local_note">Локальный трекер подписок. Без аккаунта, банковских подключений и синхронизации с сервером.</string>
-    <string name="settings_offsets_immediate">Изменения интервалов сохраняются сразу. Индивидуальные настройки подписок сохраняют свои значения.</string>
+    <string name="settings_offsets_immediate">Изменения сохраняются сразу и применяются ко всем активным подпискам.</string>
     <string name="settings_done">Готово</string>
     <string name="editor_pick_date_for">Выбрать дату: %1$s</string>
     <string name="finance_explanation">Прогноз ожидаемых списаний. Это расчёт будущих платежей, а не фактические расходы.</string>

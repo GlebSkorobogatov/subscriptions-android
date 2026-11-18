@@ -5,6 +5,9 @@ import android.content.Context
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.provider.Settings
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -126,6 +129,8 @@ class SettingsRedesignUiTest {
         compose.onNodeWithTag("settings_time_value",useUnmergedTree = true).assertTextEquals("09:00")
         compose.onNodeWithTag("settings_time_dialog").assertDoesNotExist()
         compose.openSettingsOffsets()
+        compose.onNodeWithText("Изменения сохраняются сразу и применяются ко всем активным подпискам.").assertExists()
+        compose.onAllNodes(hasText("Индивидуальные",substring = true)).assertCountEquals(0)
         compose.onNodeWithTag("settings_payment_7").performScrollTo().performClick()
         compose.waitUntil(5_000) { offsetReady("settings_payment_7",true) }
         for(day in listOf(7,3,1)) {
@@ -199,5 +204,97 @@ class SettingsRedesignUiTest {
         assertEquals(0f,scale,0.001f)
         assertEquals(0,com.glebskorobogatov.subscriptiontracker.ui.design.TrackerMotion.durationMillis(true,scale))
         assertEquals(0,com.glebskorobogatov.subscriptiontracker.ui.design.TrackerMotion.durationMillis(false,scale))
+    }
+    @Test fun enabledDataStoreAnimationsHideAndCrossfadeInstantlyWhenSystemScaleIsZero() {
+        try {
+            shell("settings put global animator_duration_scale 0")
+            val scale = Settings.Global.getFloat(compose.activity.contentResolver,Settings.Global.ANIMATOR_DURATION_SCALE)
+            assertEquals(0f,scale,0.001f)
+            compose.activityRule.scenario.recreate()
+            compose.waitUntil(5_000) { compose.onAllNodesWithTag("bottom_navigation").fetchSemanticsNodes().isNotEmpty() }
+            compose.waitForIdle()
+            compose.onNodeWithTag("tab_settings").performClick()
+            compose.onNodeWithTag("settings_animations").assertIsOn()
+            compose.onNodeWithText("Включены").assertIsDisplayed()
+            compose.onNodeWithTag("tab_subscriptions").performClick()
+            compose.onNodeWithTag("tab_subscriptions").assertIsSelected()
+            compose.mainClock.autoAdvance = false
+            val content = compose.onNodeWithText("Добавить подписку").fetchSemanticsNode().boundsInRoot
+            val home = meanIn(content)
+            compose.onNodeWithTag("tab_settings").performTouchInput {
+                down(center)
+                advanceEventTime(16)
+                up()
+            }
+            var elapsed = 0
+            while(compose.onAllNodesWithTag("settings_screen").fetchSemanticsNodes().isEmpty()) {
+                compose.mainClock.advanceTimeByFrame()
+                elapsed += 16
+                if(elapsed > 1_000) fail("settings did not open after ${elapsed}ms, home=$home")
+            }
+            // The new screen is composed before its first painted frame. Two frames is the draw,
+            // not a 220 ms fade: a real fade would still be far from the settled pixels.
+            repeat(2) { compose.mainClock.advanceTimeByFrame() }
+            val entering = meanIn(content)
+            compose.mainClock.advanceTimeBy(400)
+            val entered = meanIn(content)
+            assertInstant("root crossfade at ${elapsed}ms",home,entering,entered)
+            compose.onNodeWithTag("settings_animations").assertIsOn()
+            val range = compose.onNodeWithTag("settings_screen").fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange]
+            assertTrue("settings content scrolls",range.maxValue() > range.value())
+            val island = compose.onNodeWithTag("bottom_navigation").fetchSemanticsNode().boundsInRoot
+            val header = compose.onNodeWithTag("root_header").fetchSemanticsNode().boundsInRoot
+            val islandShown = meanIn(island)
+            val headerShown = meanIn(header)
+            compose.onNodeWithTag("settings_screen").performTouchInput {
+                swipe(Offset(centerX,height * 0.75f),Offset(centerX,height * 0.22f),32)
+            }
+            repeat(2) { compose.mainClock.advanceTimeByFrame() }
+            val islandHiding = meanIn(island)
+            val headerHiding = meanIn(header)
+            compose.mainClock.advanceTimeBy(280)
+            val islandHidden = meanIn(island)
+            val headerHidden = meanIn(header)
+            assertInstant("island hide",islandShown,islandHiding,islandHidden)
+            assertInstant("header hide",headerShown,headerHiding,headerHidden)
+            compose.onNodeWithTag("settings_screen").performTouchInput {
+                swipe(Offset(centerX,height * 0.22f),Offset(centerX,height * 0.75f),32)
+            }
+            repeat(2) { compose.mainClock.advanceTimeByFrame() }
+            val islandShowing = meanIn(island)
+            val headerShowing = meanIn(header)
+            compose.mainClock.advanceTimeBy(280)
+            assertInstant("island show",islandHidden,islandShowing,meanIn(island))
+            assertInstant("header show",headerHidden,headerShowing,meanIn(header))
+        } finally {
+            compose.mainClock.autoAdvance = true
+            shell("settings put global animator_duration_scale 1")
+            try {
+                if(compose.onAllNodesWithTag("settings_screen").fetchSemanticsNodes().isNotEmpty()) revealSettings()
+            } catch(_: Throwable) {
+                // Cleanup must not replace the assertion that already failed.
+            }
+        }
+    }
+    private fun meanIn(bounds: Rect): Float {
+        val pixels = compose.onRoot().captureToImage().toPixelMap()
+        val x0 = bounds.left.toInt().coerceIn(0,pixels.width - 1)
+        val x1 = (bounds.right.toInt() - 1).coerceIn(0,pixels.width - 1)
+        val y0 = bounds.top.toInt().coerceIn(0,pixels.height - 1)
+        val y1 = (bounds.bottom.toInt() - 1).coerceIn(0,pixels.height - 1)
+        var sum = 0.0
+        var count = 0
+        for(y in y0..y1 step 3) for(x in x0..x1 step 3) {
+            val color = pixels[x,y]
+            sum += (color.red + color.green + color.blue) / 3.0
+            count++
+        }
+        return if(count == 0) 0f else (sum / count).toFloat()
+    }
+    private fun assertInstant(name: String,before: Float,early: Float,late: Float) {
+        val moved = kotlin.math.abs(before - late)
+        val residual = kotlin.math.abs(early - late)
+        assertTrue("$name pixels did not change: before=$before early=$early late=$late",moved > 0.02f)
+        assertTrue("$name was still moving after the first frames: before=$before early=$early late=$late",residual <= 0.012f && residual <= moved * 0.25f)
     }
 }

@@ -1,6 +1,11 @@
 package com.glebskorobogatov.subscriptiontracker.ui.design
 
+import android.content.ContentResolver
 import android.content.Context
+import android.database.ContentObserver
+import android.os.Handler
+import android.os.Looper
+import android.provider.Settings
 import android.view.accessibility.AccessibilityManager
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -86,11 +91,25 @@ internal val LocalRootContentPadding = staticCompositionLocalOf<PaddingValues> {
 }
 
 @Composable internal fun trackerMotionDuration(animationsEnabled: Boolean = true): Int {
+    val resolver = LocalContext.current.contentResolver
     val scope = rememberCoroutineScope()
-    // Android's window recomposer supplies an observable MotionDurationScale, including zero.
-    val scale = scope.coroutineContext[MotionDurationScale]?.scaleFactor ?: 1f
+    // The window recomposer publishes this scale. A test recomposer omits it, and a positive
+    // value must not hide animator_duration_scale = 0, so the global setting is read as well.
+    val composed = scope.coroutineContext[MotionDurationScale]?.scaleFactor
+    var stored by remember(resolver) { mutableFloatStateOf(animatorDurationScale(resolver)) }
+    DisposableEffect(resolver) {
+        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) { stored = animatorDurationScale(resolver) }
+        }
+        resolver.registerContentObserver(Settings.Global.getUriFor(Settings.Global.ANIMATOR_DURATION_SCALE),false,observer)
+        stored = animatorDurationScale(resolver)
+        onDispose { resolver.unregisterContentObserver(observer) }
+    }
+    val scale = if(!stored.isFinite() || stored <= 0f) stored else composed ?: stored
     return TrackerMotion.durationMillis(animationsEnabled,scale)
 }
+private fun animatorDurationScale(resolver: ContentResolver): Float =
+    Settings.Global.getFloat(resolver,Settings.Global.ANIMATOR_DURATION_SCALE,1f)
 @Composable private fun touchExplorationEnabled(): Boolean {
     val context = LocalContext.current
     val manager = remember(context) { context.getSystemService(Context.ACCESSIBILITY_SERVICE) as? AccessibilityManager }
