@@ -8,8 +8,11 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import android.provider.MediaStore
 import android.view.KeyEvent
+import androidx.compose.material3.Text
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
@@ -24,6 +27,8 @@ import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
 import com.glebskorobogatov.subscriptiontracker.R
 import com.glebskorobogatov.subscriptiontracker.app.IsolatedMainActivity
+import com.glebskorobogatov.subscriptiontracker.ui.design.LocalTrackerAnimations
+import com.glebskorobogatov.subscriptiontracker.ui.design.TrackerBottomSheet
 import com.glebskorobogatov.subscriptiontracker.ui.design.TrackerTheme
 import com.glebskorobogatov.subscriptiontracker.ui.editor.EditorForm
 import com.glebskorobogatov.subscriptiontracker.ui.preview.DetailsEditorPreviewData
@@ -48,11 +53,13 @@ class R5aEditorUiTest {
 
     @Before fun ready() {
         shell("settings put system font_scale 1")
+        shell("settings put global animator_duration_scale 1")
         compose.waitUntil(5_000) { compose.onAllNodesWithTag("bottom_navigation").fetchSemanticsNodes().isNotEmpty() }
     }
 
     @After fun restore() {
         shell("settings put system font_scale 1")
+        shell("settings put global animator_duration_scale 1")
         runCatching { compose.activityRule.scenario.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT } }
     }
 
@@ -102,6 +109,10 @@ class R5aEditorUiTest {
         compose.onNodeWithTag("catalog_generic-video").performScrollTo().performClick()
         compose.onNodeWithTag("field_name").assertTextContains("Не менять")
         compose.onNodeWithText("Убрать оформление").assertIsDisplayed()
+        compose.onNodeWithTag("editor_choose_catalog").performClick()
+        compose.onNodeWithTag("catalog_generic-video").performScrollTo().assertIsSelected()
+        compose.onNodeWithTag("catalog_selected_mark", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithTag("catalog_generic-other").performScrollTo().assertIsNotSelected()
     }
 
     @Test fun presetsCustomCalendarAndValidation() {
@@ -132,11 +143,14 @@ class R5aEditorUiTest {
         compose.onNodeWithTag("date_picker_date").performScrollTo().performClick()
         compose.waitUntil(5_000) { compose.onAllNodesWithTag("editor_date_sheet").fetchSemanticsNodes().isNotEmpty() }
         val next = LocalDate.now().plusMonths(1).withDayOfMonth(1)
-        val month = next.month.getDisplayName(TextStyle.FULL, Locale.getDefault())
-        compose.onNode(hasContentDescription("Change to next month", substring = true)).performClick()
-        val days = compose.onAllNodes(calendarDay(next.dayOfMonth, month))
+        val russian = Locale.forLanguageTag("ru")
+        val monthNames = listOf(TextStyle.FULL, TextStyle.FULL_STANDALONE).map { next.month.getDisplayName(it, russian) }
+        compose.onNode(hasContentDescription("Перейти к следующему месяцу", substring = true)).assertExists().performClick()
+        compose.onAllNodes(hasContentDescription("Change to next month", substring = true)).assertCountEquals(0)
+        val dayMatcher = calendarDay(next.dayOfMonth, monthNames)
+        val days = compose.onAllNodes(dayMatcher)
         if (days.fetchSemanticsNodes().isEmpty()) {
-            compose.onAllNodes(calendarDay(next.dayOfMonth, month), useUnmergedTree = true).onFirst().performClick()
+            compose.onAllNodes(dayMatcher, useUnmergedTree = true).onFirst().performClick()
         } else {
             days.onFirst().performClick()
         }
@@ -158,6 +172,58 @@ class R5aEditorUiTest {
         compose.onNodeWithTag("field_anchorDay").assertDoesNotExist()
         save()
         compose.onNodeWithTag("field_anchorDay").assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.Error))
+    }
+
+    @Test fun customModeKeepsPresetValuesUntilAnExplicitCapsuleAndSurvivesRotation() {
+        open()
+        compose.onNodeWithTag("frequency_custom").performClick().assertIsSelected()
+        compose.onNodeWithTag("field_count").performScrollTo().assertTextContains("1")
+        compose.onNodeWithTag("frequency_unit_DAY").assertIsSelected()
+        compose.onNodeWithTag("frequency_unit_MONTH").performScrollTo().performClick().assertIsSelected()
+        compose.onNodeWithTag("frequency_custom").assertIsSelected()
+        compose.onNodeWithTag("frequency_month").assertIsNotSelected()
+        compose.onNodeWithTag("field_count").assertIsDisplayed().performTextReplacement("6")
+        compose.onNodeWithTag("frequency_custom").assertIsSelected()
+        compose.onNodeWithTag("frequency_custom").performClick()
+        compose.onNodeWithTag("field_count").assertTextContains("6")
+        compose.onNodeWithTag("frequency_unit_MONTH").assertIsSelected()
+        compose.onNodeWithTag("field_count").performTextReplacement("1")
+        compose.onNodeWithTag("frequency_unit_WEEK").performScrollTo().performClick()
+        compose.onNodeWithTag("frequency_custom").assertIsSelected()
+        compose.onNodeWithTag("frequency_week").assertIsNotSelected()
+        compose.onNodeWithTag("field_count").performTextReplacement("3")
+        compose.onNodeWithTag("frequency_unit_MONTH").performClick()
+        compose.onNodeWithTag("frequency_custom").assertIsSelected()
+        compose.onNodeWithTag("frequency_quarter").assertIsNotSelected()
+        compose.onNodeWithTag("field_count").performTextReplacement("1")
+        compose.onNodeWithTag("frequency_unit_YEAR").performScrollTo().performClick()
+        compose.onNodeWithTag("frequency_custom").assertIsSelected()
+        compose.onNodeWithTag("frequency_year").assertIsNotSelected()
+        orient(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE, Configuration.ORIENTATION_LANDSCAPE)
+        compose.waitUntil(8_000) { compose.onAllNodesWithTag("field_count").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("frequency_custom").performScrollTo().assertIsSelected()
+        compose.onNodeWithTag("frequency_unit_YEAR").performScrollTo().assertIsSelected()
+        compose.onNodeWithTag("field_count").assertTextContains("1")
+        orient(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT, Configuration.ORIENTATION_PORTRAIT)
+        compose.activityRule.scenario.recreate()
+        compose.waitUntil(8_000) { compose.onAllNodesWithTag("field_count").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("frequency_custom").performScrollTo().assertIsSelected()
+        compose.onNodeWithTag("field_count").assertTextContains("1")
+        compose.onNodeWithTag("frequency_month").performScrollTo().performClick().assertIsSelected()
+        compose.onNodeWithTag("field_count").assertDoesNotExist()
+    }
+
+    @Test fun calendarStaysRussianWhenAnimatorScaleIsZero() {
+        shell("settings put global animator_duration_scale 0")
+        try {
+            open()
+            compose.onNodeWithTag("date_picker_date").performScrollTo().performClick()
+            compose.onNodeWithTag("editor_date_sheet").assertIsDisplayed()
+            compose.onNode(hasContentDescription("Перейти к следующему месяцу", substring = true)).assertExists()
+            compose.onAllNodes(hasContentDescription("Change to next month", substring = true)).assertCountEquals(0)
+        } finally {
+            shell("settings put global animator_duration_scale 1")
+        }
     }
 
     @Test fun pinnedSaveStaysAvailableWithImeScrollFontAndLandscape() {
@@ -334,14 +400,15 @@ class R5aEditorUiTest {
         return false
     }
 
-    private fun calendarDay(day: Int, month: String? = null) = SemanticsMatcher("calendar day $day") { node ->
+    private fun calendarDay(day: Int, months: List<String> = emptyList()) = SemanticsMatcher("calendar day $day") { node ->
         if (!node.config.contains(SemanticsActions.OnClick)) return@SemanticsMatcher false
         val label = buildString {
             node.config.getOrNull(SemanticsProperties.Text)?.forEach { append(it.text).append(' ') }
             node.config.getOrNull(SemanticsProperties.ContentDescription)?.forEach { append(it).append(' ') }
             node.config.getOrNull(SemanticsProperties.EditableText)?.let { append(it) }
         }
-        Regex("\\b$day\\b").containsMatchIn(label) && (month == null || label.contains(month, ignoreCase = true))
+        Regex("\\b$day\\b").containsMatchIn(label) &&
+            (months.isEmpty() || months.any { name -> label.contains(name, ignoreCase = true) || name.length > 3 && label.contains(name.dropLast(1), ignoreCase = true) })
     }
 
     private fun waitForPackageChange(own: String): Boolean {
@@ -455,5 +522,17 @@ class R5aEditorStateUiTest {
         }
         compose.onNodeWithTag("field_anchorDay").assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.Error))
         compose.onNodeWithTag("editor_save").assertIsDisplayed()
+    }
+
+    @Test fun disabledAnimationsStillShowTheSheet() {
+        compose.setContent {
+            CompositionLocalProvider(LocalTrackerAnimations provides false) {
+                TrackerTheme {
+                    TrackerBottomSheet({}, Modifier.testTag("motion_sheet")) { Text("Лист без анимации") }
+                }
+            }
+        }
+        compose.onNodeWithTag("motion_sheet").assertIsDisplayed()
+        compose.onNodeWithText("Лист без анимации").assertIsDisplayed()
     }
 }

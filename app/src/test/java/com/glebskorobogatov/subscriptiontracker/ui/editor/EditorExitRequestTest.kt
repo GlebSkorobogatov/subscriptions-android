@@ -20,4 +20,23 @@ class EditorExitRequestTest {
     @Test fun acceptedExitIsNotAskedAgain() {
         assertEquals(EditorExitResolution.AlreadyHandled, resolveEditorExit(exitRequest = 2, lastExit = 2, saving = false, done = false))
     }
+
+    @Test fun userBackClosesOnlyAnOpenSheet() {
+        assertEquals(listOf(EditorBackEffect.CloseSheet), editorBackEffects(sheetOpen = true, external = false, saving = false, dirty = true))
+        assertEquals(listOf(EditorBackEffect.CloseSheet), editorBackEffects(sheetOpen = true, external = false, saving = false, dirty = false))
+    }
+
+    @Test fun externalExitClosesTheSheetAndContinues() {
+        assertEquals(listOf(EditorBackEffect.CloseSheet, EditorBackEffect.ConfirmDirty),
+            editorBackEffects(sheetOpen = true, external = true, saving = false, dirty = true))
+        assertEquals(listOf(EditorBackEffect.CloseSheet, EditorBackEffect.Leave),
+            editorBackEffects(sheetOpen = true, external = true, saving = false, dirty = false))
+        assertEquals(listOf(EditorBackEffect.ConfirmDirty), editorBackEffects(sheetOpen = false, external = true, saving = false, dirty = true))
+        assertEquals(listOf(EditorBackEffect.Leave), editorBackEffects(sheetOpen = false, external = true, saving = false, dirty = false))
+    }
+
+    @Test fun savingBackDoesNotCloseTheSheetOrTheEditor() {
+        assertEquals(listOf(EditorBackEffect.Ignore), editorBackEffects(sheetOpen = true, external = true, saving = true, dirty = true))
+        assertEquals(listOf(EditorBackEffect.Ignore), editorBackEffects(sheetOpen = false, external = false, saving = true, dirty = true))
+    }
 }

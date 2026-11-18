@@ -19,6 +19,14 @@ internal fun editorPeriodPreset(unit: String?, count: String?): EditorPeriodPres
     else -> EditorPeriodPreset.CUSTOM
 }
 
+/**
+ * Custom editing is a presentation mode, not a schedule type.
+ * While it is on, MONTH/1 and the other presets stay inside «Другая» until that capsule is tapped.
+ * A null mode derives the capsule from unit/count, so an existing six-month series still opens as custom.
+ */
+internal fun editorFrequencySelection(unit: String?, count: String?, customMode: Boolean?): EditorPeriodPreset =
+    if (customMode == true) EditorPeriodPreset.CUSTOM else editorPeriodPreset(unit, count)
+
 /** A hidden anchor or period-start error stays reachable without an extra tap. */
 internal fun editorExtraVisible(expanded: Boolean, errors: Map<String, *>): Boolean =
     expanded || "anchorDay" in errors || "start" in errors

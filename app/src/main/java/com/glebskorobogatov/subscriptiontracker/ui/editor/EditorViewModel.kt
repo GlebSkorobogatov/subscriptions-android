@@ -21,18 +21,21 @@ data class EditorState(val fields: Map<String,String> = emptyMap(), val loading:
     val errors: Map<String,Int> = emptyMap(), val error: Int? = null, val conflict: Boolean = false,
     val loadFailure: Boolean = false, val notFound: Boolean = false,
     val logoAssetId: UUID? = null, val pendingImageId: UUID? = null, val imageRemoved: Boolean = false,
-    val importingImage: Boolean = false, val catalogLogoId: String? = null, val scheduleEditable: Boolean = true)
+    val importingImage: Boolean = false, val catalogLogoId: String? = null, val scheduleEditable: Boolean = true,
+    /** Null derives the capsule from unit/count. True keeps «Другая» even when the pair matches a preset. */
+    val customFrequency: Boolean? = null)
 
 class EditorViewModel(private val saved: SavedStateHandle, private val owner: SubscriptionsViewModel,
     private val id: UUID?) : ViewModel() {
     init {
         if (saved.get<Int>("draftVersion") != 5) {
-            listOf("fields", "scheduleDraft", "expected", "pendingImage", "imageRemoved", "catalogChoice", "generation").forEach { saved.remove<Any>(it) }
+            listOf("fields", "scheduleDraft", "expected", "pendingImage", "imageRemoved", "catalogChoice", "generation", "frequencyCustom").forEach { saved.remove<Any>(it) }
             saved["draftVersion"] = 5
         }
     }
     private var expected: SubscriptionEntity? = null
-    private val mutable = MutableStateFlow(EditorState(fields = saved.get<HashMap<String,String>>("fields") ?: emptyMap(),dirty = saved.contains("fields")))
+    private val mutable = MutableStateFlow(EditorState(fields = saved.get<HashMap<String,String>>("fields") ?: emptyMap(),
+        dirty = saved.contains("fields"), customFrequency = saved.get<Boolean>("frequencyCustom")))
     val state = mutable.asStateFlow()
     private val newId = UUID.fromString(saved.get<String>("newId") ?: UUID.randomUUID().toString().also { saved["newId"] = it })
     private var pendingImage = saved.get<String>("pendingImage")?.let(UUID::fromString)
@@ -59,6 +62,13 @@ class EditorViewModel(private val saved: SavedStateHandle, private val owner: Su
         val current = state.value.fields
         if (current["unit"] == unit && current["count"] == canonical) return
         publish(reconcileSchedule(current + ("unit" to unit) + ("count" to canonical)))
+    }
+    /** Presentation only. The stored schedule remains unit and count; this flag is not a frequency type. */
+    fun setFrequencyMode(custom: Boolean) {
+        if (state.value.saving) return
+        if (saved.get<Boolean>("frequencyCustom") == custom && state.value.customFrequency == custom) return
+        saved["frequencyCustom"] = custom
+        mutable.value = state.value.copy(customFrequency = custom)
     }
     private fun reconcileSchedule(fields: Map<String,String>): Map<String,String> {
         val before = saved.get<HashMap<String,String>>("scheduleDraft")
@@ -150,12 +160,15 @@ class EditorViewModel(private val saved: SavedStateHandle, private val owner: Su
                 saved["expected"] = fingerprint
                 owner.activeDatasetId()?.let { saved["generation"] = it.toString() }
             }
-            if (discard) { discardImageDraft(); saved.remove<HashMap<String,String>>("scheduleDraft") }
+            if (discard) {
+                discardImageDraft(); saved.remove<HashMap<String,String>>("scheduleDraft"); saved.remove<Boolean>("frequencyCustom")
+            }
             mutable.value = EditorState(restored ?: fields, loading = false, dirty = restored != null || pendingImage != null || imageRemoved || catalogChoice != null,
                 errors = emptyMap(), scheduleEditable = expected?.state?.let { it == SubscriptionState.ACTIVE } ?: true,
                 conflict = stale, error = if (stale) R.string.editor_conflict else null,
                 logoAssetId = expected?.logoAssetId, pendingImageId = pendingImage, imageRemoved = imageRemoved,
-                catalogLogoId = catalogChoice ?: if (imageRemoved || pendingImage != null) null else expected?.catalogLogoId)
+                catalogLogoId = catalogChoice ?: if (imageRemoved || pendingImage != null) null else expected?.catalogLogoId,
+                customFrequency = if (discard) null else saved.get<Boolean>("frequencyCustom"))
             if (discard) saved.remove<HashMap<String,String>>("fields")
         } catch (e: CancellationException) { throw e }
         catch (_: Exception) { mutable.value = state.value.copy(loading = false, error = R.string.editor_load_error, conflict = false, loadFailure = true) }

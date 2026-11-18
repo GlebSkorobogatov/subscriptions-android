@@ -1,5 +1,7 @@
 package com.glebskorobogatov.subscriptiontracker.ui.editor
 
+import android.annotation.SuppressLint
+import android.content.res.Configuration
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -13,6 +15,9 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -28,10 +33,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.glebskorobogatov.subscriptiontracker.R
 import com.glebskorobogatov.subscriptiontracker.ui.design.*
 import java.time.LocalDate
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun EditorScreen(vm: EditorViewModel, exitRequest: Int, onSaved: (java.util.UUID) -> Unit = {}, onExitCancelled: () -> Unit = {}, onBack: () -> Unit) {
+fun EditorScreen(vm: EditorViewModel, exitRequest: Int, userBackRequest: Int = 0,
+    onSaved: (java.util.UUID) -> Unit = {}, onExitCancelled: () -> Unit = {}, onBack: () -> Unit) {
     val state by vm.state.collectAsStateWithLifecycle()
     var confirm by rememberSaveable { mutableStateOf(false) }
     var picker by rememberSaveable { mutableStateOf<String?>(null) }
@@ -39,21 +46,32 @@ fun EditorScreen(vm: EditorViewModel, exitRequest: Int, onSaved: (java.util.UUID
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) vm.selectImage(uri)
     }
-    fun leave() {
-        when {
-            picker != null -> picker = null
-            catalogOpen -> catalogOpen = false
-            !state.saving && state.dirty -> confirm = true
-            !state.saving -> onBack()
+    fun applyBack(effects: List<EditorBackEffect>) {
+        for (effect in effects) when (effect) {
+            EditorBackEffect.CloseSheet -> { picker = null; catalogOpen = false }
+            EditorBackEffect.ConfirmDirty -> confirm = true
+            EditorBackEffect.Leave -> onBack()
+            EditorBackEffect.Ignore -> Unit
         }
     }
-    BackHandler(enabled = picker == null && !catalogOpen) { leave() }
+    fun backEffects(external: Boolean) = editorBackEffects(
+        sheetOpen = picker != null || catalogOpen, external = external, saving = state.saving, dirty = state.dirty)
+    BackHandler(enabled = picker == null && !catalogOpen) { applyBack(backEffects(external = false)) }
+    var lastUserBack by remember { mutableIntStateOf(userBackRequest) }
+    LaunchedEffect(userBackRequest) {
+        if (lastUserBack == userBackRequest) return@LaunchedEffect
+        lastUserBack = userBackRequest
+        applyBack(backEffects(external = false))
+    }
     var lastExit by remember { mutableIntStateOf(exitRequest) }
     LaunchedEffect(exitRequest, state.saving, state.done) {
         when (resolveEditorExit(exitRequest, lastExit, state.saving, state.done)) {
             EditorExitResolution.AlreadyHandled, EditorExitResolution.Pending -> Unit
             EditorExitResolution.SavedOwnsExit -> lastExit = exitRequest
-            EditorExitResolution.Leave -> { lastExit = exitRequest; leave() }
+            EditorExitResolution.Leave -> {
+                lastExit = exitRequest
+                applyBack(backEffects(external = true))
+            }
         }
     }
     LaunchedEffect(state.done) { if (state.done) { onSaved(vm.savedSubscriptionId); onBack() } }
@@ -61,8 +79,9 @@ fun EditorScreen(vm: EditorViewModel, exitRequest: Int, onSaved: (java.util.UUID
         title = stringResource(R.string.editor_unsaved), message = stringResource(R.string.editor_unsaved_explanation),
         confirmText = stringResource(R.string.editor_discard), dismissText = stringResource(R.string.editor_continue),
         onConfirm = { vm.discardImageDraft(); onBack() }, onDismiss = { confirm = false; onExitCancelled() })
-    EditorForm(state, vm::change, vm::save, { vm.reload(false) }, { vm.reload() }, { leave() }, { picker = it },
-        onRemoveImage = vm::removeImage, onPickCatalog = { catalogOpen = true }, onChangeFrequency = vm::changeFrequency)
+    EditorForm(state, vm::change, vm::save, { vm.reload(false) }, { vm.reload() }, { applyBack(backEffects(external = false)) }, { picker = it },
+        onRemoveImage = vm::removeImage, onPickCatalog = { catalogOpen = true }, onChangeFrequency = vm::changeFrequency,
+        onFrequencyMode = vm::setFrequencyMode)
     if (catalogOpen) CatalogPickerDialog(state.catalogLogoId, { catalogOpen = false }, { catalogId ->
         vm.selectCatalog(catalogId)
         catalogOpen = false
@@ -78,19 +97,50 @@ fun EditorScreen(vm: EditorViewModel, exitRequest: Int, onSaved: (java.util.UUID
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
+@SuppressLint("AppBundleLocaleChanges")
 @Composable
 internal fun EditorDateSheet(initialMillis: Long?, onDismiss: () -> Unit, onConfirm: (Long) -> Unit) {
-    val dateState = rememberDatePickerState(initialSelectedDateMillis = initialMillis)
+    EditorDatePicker(initialMillis, onDismiss, onConfirm)
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@SuppressLint("AppBundleLocaleChanges")
+@Composable
+private fun EditorDatePicker(initialMillis: Long?, onDismiss: () -> Unit, onConfirm: (Long) -> Unit) {
+    // The sheet window replaces context and configuration locals. Apply Russian inside that content,
+    // after the window locals, so Material strings and the date model both follow the app language.
+    // The process and device locales stay unchanged. Russian resources are already in the base module.
+    val base = LocalContext.current
+    val current = LocalConfiguration.current
+    val locale = Locale.forLanguageTag("ru")
+    fun russianConfiguration() = Configuration(current).apply {
+        setLocale(locale)
+        setLayoutDirection(locale)
+    }
+    val russian = remember(base, current.fontScale, current.densityDpi, current.orientation, current.uiMode) {
+        base.createConfigurationContext(russianConfiguration())
+    }
+    val configuration = remember(current.fontScale, current.densityDpi, current.orientation, current.uiMode) {
+        russianConfiguration()
+    }
     val colors = TrackerDesign.colors
+    val pickerState = remember { mutableStateOf<DatePickerState?>(null) }
     TrackerBottomSheet(onDismiss, Modifier.testTag("editor_date_sheet"), skipPartiallyExpanded = true, footer = {
         TrackerPrimaryButton(stringResource(R.string.editor_choose), {
-            dateState.selectedDateMillis?.let(onConfirm)
+            pickerState.value?.selectedDateMillis?.let(onConfirm)
             onDismiss()
         }, Modifier.fillMaxWidth().testTag("editor_date_confirm"))
     }) {
-        Text(stringResource(R.string.editor_pick_date), style = MaterialTheme.typography.titleLarge,
-            modifier = Modifier.semantics { heading() })
-        DatePicker(dateState, title = null, colors = DatePickerDefaults.colors(
+        CompositionLocalProvider(
+            LocalContext provides russian,
+            LocalResources provides russian.resources,
+            LocalConfiguration provides configuration,
+        ) {
+            val dateState = rememberDatePickerState(initialSelectedDateMillis = initialMillis)
+            SideEffect { pickerState.value = dateState }
+            Text(stringResource(R.string.editor_pick_date), style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.semantics { heading() })
+            DatePicker(dateState, title = null, colors = DatePickerDefaults.colors(
             containerColor = colors.surfaceRaised,
             titleContentColor = colors.textPrimary,
             headlineContentColor = colors.textPrimary,
@@ -115,7 +165,8 @@ internal fun EditorDateSheet(initialMillis: Long?, onDismiss: () -> Unit, onConf
             dayInSelectionRangeContentColor = colors.textPrimary,
             dayInSelectionRangeContainerColor = colors.surfaceSubtle,
             dividerColor = colors.divider,
-        ))
+            ))
+        }
     }
 }
 
@@ -131,7 +182,8 @@ internal fun epochDayDate(millis: Long): LocalDate = LocalDate.ofEpochDay(Math.f
 internal fun EditorForm(state: EditorState, onChange: (String, String) -> Unit, onSave: () -> Unit,
     onRetry: () -> Unit, onReload: () -> Unit, onExit: () -> Unit, onPickDate: (String) -> Unit,
     onRemoveImage: () -> Unit = {}, onPickCatalog: () -> Unit = {},
-    onChangeFrequency: (String, String) -> Unit = { unit, count -> onChange("unit", unit); onChange("count", count) }) {
+    onChangeFrequency: (String, String) -> Unit = { unit, count -> onChange("unit", unit); onChange("count", count) },
+    onFrequencyMode: (Boolean) -> Unit = {}) {
     val horizontal = trackerPageHorizontalPadding()
     val blocked = state.saving || state.importingImage || state.loading || state.conflict ||
         state.loadFailure || state.notFound || state.done
@@ -192,26 +244,40 @@ internal fun EditorForm(state: EditorState, onChange: (String, String) -> Unit, 
                         field("label", R.string.editor_label)
                         field("amount", R.string.editor_amount)
                         Text(stringResource(R.string.editor_frequency), style = MaterialTheme.typography.labelLarge)
-                        val preset = editorPeriodPreset(value("unit"), value("count"))
+                        val preset = editorFrequencySelection(value("unit"), value("count"), state.customFrequency)
                         val scheduleEnabled = enabled && state.scheduleEditable
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(TrackerDimensions.itemSpacing),
                             verticalArrangement = Arrangement.spacedBy(TrackerDimensions.itemSpacing)) {
                             EditorPeriodPreset.entries.forEach { choice ->
                                 TrackerSelectedCapsule(stringResource(choice.label), preset == choice, {
                                     if (choice == EditorPeriodPreset.CUSTOM) {
-                                        if (preset != EditorPeriodPreset.CUSTOM) onChangeFrequency(choice.unit, choice.count)
-                                    } else onChangeFrequency(choice.unit, choice.count)
+                                        if (preset != EditorPeriodPreset.CUSTOM) {
+                                            onFrequencyMode(true)
+                                            onChangeFrequency(choice.unit, choice.count)
+                                        }
+                                    } else {
+                                        onFrequencyMode(false)
+                                        onChangeFrequency(choice.unit, choice.count)
+                                    }
                                 }, Modifier.testTag(choice.tag), enabled = scheduleEnabled)
                             }
                         }
                         if (preset == EditorPeriodPreset.CUSTOM) {
-                            field("count", R.string.editor_custom_count)
+                            TrackerTextField(value("count"), {
+                                onFrequencyMode(true)
+                                onChange("count", it)
+                            }, stringResource(R.string.editor_custom_count), enabled = editable("count"),
+                                errorMessage = state.errors["count"]?.let { stringResource(it) },
+                                inputModifier = Modifier.testTag("field_count"),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(TrackerDimensions.itemSpacing),
                                 verticalArrangement = Arrangement.spacedBy(TrackerDimensions.itemSpacing)) {
                                 listOf("DAY" to R.string.editor_unit_day, "WEEK" to R.string.editor_unit_week,
                                     "MONTH" to R.string.editor_unit_month, "YEAR" to R.string.editor_unit_year).forEach { (unit, label) ->
-                                    TrackerSelectedCapsule(stringResource(label), value("unit") == unit, { onChange("unit", unit) },
-                                        Modifier.testTag("frequency_unit_$unit"), enabled = scheduleEnabled)
+                                    TrackerSelectedCapsule(stringResource(label), value("unit") == unit, {
+                                        onFrequencyMode(true)
+                                        onChange("unit", unit)
+                                    }, Modifier.testTag("frequency_unit_$unit"), enabled = scheduleEnabled)
                                 }
                             }
                         }

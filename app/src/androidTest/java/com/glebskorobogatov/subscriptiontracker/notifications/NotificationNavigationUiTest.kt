@@ -186,4 +186,81 @@ class NotificationNavigationUiTest {
             }
         }
     }
+
+    @Test fun notificationWithOpenCalendarAsksBeforeLeavingAndCancelKeepsTheDraft() {
+        ActivityScenario.launch<IsolatedMainActivity>(intent().setAction(Intent.ACTION_MAIN).setData(null)).whileAlive { scenario ->
+            openEditor()
+            compose.onNodeWithTag("field_name").performTextInput("Черновик над календарём")
+            compose.onNodeWithTag("date_picker_date").performScrollTo().performClick()
+            compose.onNodeWithTag("editor_date_sheet").assertIsDisplayed()
+            deliver(scenario)
+            compose.waitUntil(5_000) { compose.onAllNodesWithText("Продолжить редактирование").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("editor_date_sheet").assertDoesNotExist()
+            compose.onNodeWithText("Продолжить редактирование").performClick()
+            compose.onNodeWithTag("field_name").assertTextContains("Черновик над календарём")
+            compose.onNodeWithTag("details_${sub.id}").assertDoesNotExist()
+            compose.onNodeWithTag("bottom_navigation").assertDoesNotExist()
+        }
+    }
+
+    @Test fun notificationWithOpenCatalogContinuesToDetailsAfterDiscard() {
+        ActivityScenario.launch<IsolatedMainActivity>(intent().setAction(Intent.ACTION_MAIN).setData(null)).whileAlive { scenario ->
+            openEditor()
+            compose.onNodeWithTag("field_name").performTextInput("Черновик над каталогом")
+            compose.onNodeWithTag("editor_choose_catalog").performClick()
+            compose.onNodeWithTag("catalog_sheet").assertIsDisplayed()
+            deliver(scenario)
+            compose.waitUntil(5_000) { compose.onAllNodesWithText("Выйти без сохранения").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("catalog_sheet").assertDoesNotExist()
+            compose.onNodeWithText("Выйти без сохранения").performClick()
+            details()
+            runBlocking(Dispatchers.IO) {
+                val db = TrackerDatabaseFactory.open(context, dataset)
+                try { assertEquals(listOf(sub), db.subscriptions().all()) } finally { db.close() }
+            }
+        }
+    }
+
+    @Test fun cleanEditorWithOpenCalendarFollowsTheNotificationWithoutConfirmation() {
+        ActivityScenario.launch<IsolatedMainActivity>(intent().setAction(Intent.ACTION_MAIN).setData(null)).whileAlive { scenario ->
+            openEditor()
+            compose.onNodeWithTag("date_picker_date").performScrollTo().performClick()
+            compose.onNodeWithTag("editor_date_sheet").assertIsDisplayed()
+            deliver(scenario)
+            details()
+            compose.onNodeWithText("Выйти без сохранения").assertDoesNotExist()
+        }
+    }
+
+    @Test fun openCatalogNotificationSurvivesRecreationAndDeletedTargetReturnsHome() {
+        ActivityScenario.launch<IsolatedMainActivity>(intent().setAction(Intent.ACTION_MAIN).setData(null)).whileAlive { scenario ->
+            openEditor()
+            compose.onNodeWithTag("field_name").performTextInput("Черновик перед удалением")
+            compose.onNodeWithTag("editor_choose_catalog").performClick()
+            compose.onNodeWithTag("catalog_sheet").assertIsDisplayed()
+            deliver(scenario)
+            compose.waitUntil(5_000) { compose.onAllNodesWithText("Выйти без сохранения").fetchSemanticsNodes().isNotEmpty() }
+            recreateForegroundActivity()
+            compose.waitUntil(5_000) { compose.onAllNodesWithText("Выйти без сохранения").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("field_name").assertTextContains("Черновик перед удалением")
+            runBlocking(Dispatchers.IO) {
+                val db = TrackerDatabaseFactory.open(context, dataset)
+                try { db.subscriptions().delete(sub.id) } finally { db.close() }
+            }
+            compose.onNodeWithText("Выйти без сохранения").performClick()
+            home()
+            compose.onNodeWithTag("details_${sub.id}").assertDoesNotExist()
+        }
+    }
+
+    private fun openEditor() {
+        home()
+        compose.onNodeWithContentDescription("Добавить подписку").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("field_name").fetchSemanticsNodes().isNotEmpty() }
+    }
+
+    private fun deliver(scenario: ActivityScenario<IsolatedMainActivity>) {
+        scenario.onActivity { it.startActivity(intent().addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)) }
+        scenario.followActivityIntent()
+    }
 }

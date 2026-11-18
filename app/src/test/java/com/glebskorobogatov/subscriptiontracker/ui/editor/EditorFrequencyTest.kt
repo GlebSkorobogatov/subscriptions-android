@@ -170,6 +170,64 @@ class EditorFrequencyTest {
         assertEquals("Черновик", saved.get<HashMap<String, String>>("fields")?.get("name"))
     }
 
+    @Test fun customModeKeepsEveryPresetPairUntilTheCapsuleIsChosen() {
+        assertEquals(EditorPeriodPreset.CUSTOM, editorFrequencySelection("MONTH", "1", true))
+        assertEquals(EditorPeriodPreset.CUSTOM, editorFrequencySelection("WEEK", "1", true))
+        assertEquals(EditorPeriodPreset.CUSTOM, editorFrequencySelection("MONTH", "3", true))
+        assertEquals(EditorPeriodPreset.CUSTOM, editorFrequencySelection("YEAR", "1", true))
+        assertEquals(EditorPeriodPreset.MONTH, editorFrequencySelection("MONTH", "1", false))
+        assertEquals(EditorPeriodPreset.WEEK, editorFrequencySelection("WEEK", "1", null))
+        assertEquals(EditorPeriodPreset.QUARTER, editorFrequencySelection("MONTH", "3", null))
+        assertEquals(EditorPeriodPreset.YEAR, editorFrequencySelection("YEAR", "1", false))
+        assertEquals(EditorPeriodPreset.CUSTOM, editorFrequencySelection("MONTH", "6", null))
+    }
+
+    @Test fun sequentialCustomEditsKeepTheModeAndRestoreTheLoadedSeries() = runTest(dispatcher) {
+        val (vm, fields) = loaded()
+        vm.setFrequencyMode(true)
+        assertEquals("31", vm.state.value.fields["anchorDay"])
+        vm.change("unit", "MONTH")
+        assertEquals("MONTH", vm.state.value.fields["unit"])
+        assertEquals("1", vm.state.value.fields["count"])
+        assertEquals(true, vm.state.value.customFrequency)
+        vm.change("unit", "WEEK")
+        assertFalse("anchorDay" in vm.state.value.fields)
+        vm.change("count", "1")
+        vm.change("unit", "MONTH")
+        assertEquals("31", vm.state.value.fields["anchorDay"])
+        assertEquals(fields["start"], vm.state.value.fields["start"])
+        assertEquals(true, vm.state.value.customFrequency)
+        vm.setFrequencyMode(true)
+        assertEquals("MONTH", vm.state.value.fields["unit"])
+        assertEquals("1", vm.state.value.fields["count"])
+        vm.change("count", "3")
+        assertEquals("3", vm.state.value.fields["count"])
+        assertEquals(true, vm.state.value.customFrequency)
+        vm.change("count", "1")
+        vm.change("unit", "YEAR")
+        assertEquals("YEAR", vm.state.value.fields["unit"])
+        assertEquals(true, vm.state.value.customFrequency)
+    }
+
+    @Test fun customModeSurvivesANewViewModelOnTheSameHandle() = runTest(dispatcher) {
+        val saved = SavedStateHandle()
+        val vm = model(saved)
+        runCurrent()
+        vm.setFrequencyMode(true)
+        vm.change("unit", "WEEK")
+        vm.change("count", "1")
+        vm.change("unit", "YEAR")
+        assertEquals(5, saved.get<Int>("draftVersion"))
+        assertEquals(true, saved.get<Boolean>("frequencyCustom"))
+        val restored = model(saved)
+        runCurrent()
+        assertEquals(true, restored.state.value.customFrequency)
+        assertEquals("YEAR", restored.state.value.fields["unit"])
+        assertEquals("1", restored.state.value.fields["count"])
+        assertEquals(EditorPeriodPreset.CUSTOM, editorFrequencySelection(
+            restored.state.value.fields["unit"], restored.state.value.fields["count"], restored.state.value.customFrequency))
+    }
+
     @Test fun frequencyChangeKeepsDraftVersionAndHandle() = runTest(dispatcher) {
         val saved = SavedStateHandle()
         val vm = model(saved)

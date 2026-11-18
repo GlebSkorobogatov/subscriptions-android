@@ -177,3 +177,84 @@ TalkBack на устройстве: **NOT RUN**. Семантика Compose за
 Капсулы при крупном шрифте переносятся; длинный заголовок на 320 dp и font scale 2 переносится на две строки и остаётся читаемым.
 Повторные падения восьми методов выше существуют на принятом R4b и в этот этап не исправлялись: они относятся к главному экрану, настройкам, статистике и диалогам деталей.
 Остановиться до независимой приёмки. Следующий этап не начат.
+
+## R5a-fix
+
+Исходный SHA: `2d7f1fb237fa6d2082fa68558e3f02b774ed38d6`.
+Итоговый SHA — коммит, который добавляет этот раздел, на ветке `codex/r5a-editor`. Его значение записано в описании Draft PR #12. Самоссылка в файле не используется, как и SHA отчёта в разделе «База и границы».
+База PR по-прежнему `codex/r4b-settings`, принятый SHA `36d6f84f4ea310d75e0bffb50cb85b52ccadd8f1`. PR #11 не менялся. R5b не начат. PERSONAL-READY не объявляется.
+
+### Произвольная периодичность
+
+На исходном SHA капсула выбиралась только через `editorPeriodPreset(unit, count)`. «Другая» открывалась как DAY/1. Следующий выбор MONTH давал MONTH/1, и та же функция возвращала пресет «Месяц»: поле количества исчезало. `presetsCustomCalendarAndValidation` вводил 6 до смены единицы, поэтому промежуточное MONTH/1 не проверял.
+
+Режим «Другая» — только представление. `EditorState.customFrequency` и ключ `frequencyCustom` в SavedStateHandle не входят в расписание. `editorFrequencySelection` при `true` оставляет «Другая» даже для WEEK/1, MONTH/1, MONTH/3 и YEAR/1. `null` по-прежнему выводит капсулу из unit/count, поэтому MONTH/6 открывается как «Другая». Явная капсула пресета ставит флаг в false и вызывает прежний `changeFrequency`. Повторное нажатие «Другая» ничего не пишет. `setFrequencyMode` не помечает черновик грязным, не чистит ошибки и не трогает `scheduleDraft`. Версия черновика остаётся 5. Отдельный тип расписания не добавлен.
+
+Новый Android-тест вводит единицу до числа, держит MONTH/1, WEEK/1, MONTH/3 и YEAR/1 внутри «Другая», не сбрасывает повторным нажатием и сохраняет режим после landscape и `recreate`. Затем явная капсула «Месяц» скрывает поле количества.
+
+### Выход по уведомлению при открытом листе
+
+На исходном SHA `leave()` при открытом календаре или каталоге только закрывал лист и возвращался. `LaunchedEffect` при `EditorExitResolution.Leave` сначала записывал `lastExit = exitRequest`, затем вызывал `leave()`. Запрос уведомления после закрытия листа считался обработанным и до подтверждения или перехода не доходил.
+
+Обычный Back и внешний запрос теперь разделены. Стрелка шапки увеличивает `userBackRequest`. Уведомление по-прежнему увеличивает `exitRequest` через `confirmExit`. `editorBackEffects`: при сохранении — Ignore; пользовательский Back при открытом листе — только CloseSheet; внешний запрос закрывает лист и затем спрашивает подтверждение грязного черновика либо выходит из чистого. `lastExit` не сохраняется. После пересоздания Activity необработанная последовательность уведомления приходит снова. `NotificationNavigationResolver` и `NotificationNavigationSession` не менялись. Отмена по-прежнему вызывает `onExitCancelled` и снимает текущую последовательность. Новая последовательность не потребляется отменой старой. Идущее сохранение не прерывается.
+
+Четыре Android-проверки: грязный календарь и отмена с сохранением черновика; грязный каталог и подтверждение с открытием подписки; чистый календарь без лишнего подтверждения; каталог, пересоздание и удалённая цель с возвратом на главный экран.
+
+### Русский календарь
+
+R-BASE-02 требует русский интерфейс. На английском эмуляторе API 31 Material показывал английские месяц, дни и описания: новое окно листа подменяло context и configuration. Процесс и устройство не переключались.
+
+Русская конфигурация собирается из `LocalConfiguration.current` с `Locale.forLanguageTag("ru")` и даётся через `CompositionLocalProvider` внутри содержимого листа, после локалей окна. `rememberDatePickerState` создаётся там же. Подтверждение читает `selectedDateMillis` в момент нажатия. Epoch-day не менялся. Строки Material берутся из values-ru базового модуля. `@SuppressLint("AppBundleLocaleChanges")` стоит потому, что ресурсы уже в базовом модуле, а не в языковых сплитах.
+
+Кадр эмулятора: заголовок «18 нояб. 2026 г.», месяц «Ноябрь 2026 г.», дни «П В С Ч П С В», кнопка «Выбрать». Проверка описания «Перейти к следующему месяцу» проходит, английское «Change to next month» отсутствует. Файл кадра в Git не входит: `/opt/cursor/artifacts/r5a-fix/russian-calendar.png`.
+
+Первый общий gate остановился на lint `LocalContextConfigurationRead`: конфигурация читалась через `LocalContext.current.resources`. Чтение заменено на `LocalConfiguration.current`. Повторный gate этот дефект не содержит.
+
+### Значок и анимации листов
+
+Выбранная ячейка каталога получает фон `selectedTabBg`, контрастную метку с галочкой и `stateDescription` «Выбрано». Метка проверяется в unmerged-дереве: `selectable` сливает потомков.
+
+`MotionScheme` в Material3 1.4 внутренний, и `ModalBottomSheet` не принимает длительность приложения. При `trackerMotionDuration == 0` лист — фокусируемый `Popup` без оконной анимации, с затемнением и семантикой dialog. Ненулевая длительность остаётся на `ModalBottomSheet`. Ноль даёт и выключенная пользователем анимация, и `animator_duration_scale` 0. Системный Photo Picker не оборачивается.
+
+### Восемь прежних падений
+
+Повтор на текущем дереве, API 31, один прогон, 8 тестов, 8 failures. Тесты не удалялись и не ослаблялись. Сообщения совпадают с разделом «FAIL, воспроизведены на принятом SHA без R5a». Это не дефекты редактора R5a. Исправление статистики, главного экрана, настроек и деталей не начиналось.
+
+| Метод | Ожидание и источник | Класс | Серьёзность | Этап |
+|---|---|---|---|---|
+| `SubscriptionsUiTest.financialOverflowLeavesLibraryDetailsAndEditorAvailableUntilUserRepairsPrice` | R-STAT-06 и T-STAT-06: смена цены пересчитывает прогноз, ошибка не выглядит успешным нулём. Строка 230 находит `finance_error`, строка 240 видит цену 123. Строка 246 пять секунд не видит `finance_30_total`. Этот тег есть только вне фаз Loading и Error. Error — это `forecast == null` после `calculationOrNull`. | Дефект продукта, статистика | Средняя | R4a |
+| `KeyboardRotationUiTest.landscapeGlobalOffsetsRecreationPreservesOriginTabAndFixedTime` | R-UI-01 и решение №78: на архиве островка нет. Первый `openArchive` в методе проходит. Второй, строка 88, после landscape, диалога смещений и `recreate`, находит `bottom_navigation`. Архивный маршрут ставит `root = null` и островок не рисует, значит назначение осталось корневым. | Дефект продукта, навигация после пересоздания | Средняя | R4b |
+| `CrossScreenDesignUiTest.longAmountsKeepZeroTwoAndThreeFractionDigitsAcrossWidthsAndFonts` | UI_DESIGN_SPEC: осмысленную сумму не обрезать. При 320/1.0 строка `92 233 720 368 547 758,07 ₽` имеет widthOverflow: размер 601×53, абзац 608×53. Ряд при шрифте ниже 1.5 ограничивает цену 45% ширины. | Дефект продукта, строка списка | Низкая | R4a |
+| `CrossScreenDesignUiTest.landscapeRootIslandAndEmptyActionStaySeparatedAtLargeFont` | UI_DESIGN_SPEC: landscape не перекрывает кнопки, пустой экран оставляет CTA «Добавить подписку». После прокрутки при font 2 низ кнопки ниже верха островка: «CTA stays above island». | Дефект продукта, пустой список | Средняя | R4a |
+| `CrossScreenDesignUiTest.timeRowWidthFontAndThemeMatrixKeepsHorizontalWordsAndCurrentValue` | UI_DESIGN_SPEC: время одной строкой, перенос только при большом шрифте. При font 1 и ширине 320 `value.left >= label.right` ложно: внутренний порог 240 dp складывает ряд уже на обычном шрифте. | Дефект продукта, строка времени | Низкая | R4b |
+| `LargeFontWindowUiTest.landscapeDialogsKeepConfirmationAndCancelReachableAtLargeFont` | Подтверждение и отмена находятся. Дальше тест ищет `details_field_date` для `EditEndDialog`. `DetailsScreen` для EditEnd и Disable пишет `details_field_end`; `details_field_date` относится к возобновлению. Поля и кнопок нет в недостатке. | Устаревший тест | Только тест | R5b, сверка тега |
+| `AccessibilityUiTest.enlargedFontKeepsFormsDialogsHistoryArchiveAndReminderActionsReachable` | R-UI-07 и решение №93: вертикальная прокрутка скрывает панели и снимает их семантику. После прокрутки к `settings_time` нет `tab_subscriptions`. Возврат вверх спецификация сохраняет. Тест возврат не делает. | Устаревший тест относительно принятого скрытия | Средняя | R4a |
+| `FinanceNavigationTest.lastChartMonthSurvivesThemeTabReturnRecreationAndActualRotation` | Тот же R-UI-07. После landscape `chartSelected` прокручивает список к графику, затем строка 86 не находит `tab_finance`. Горизонтальный график сам скрытие не запускает; вертикальная прокрутка списка к графику запускает. | Устаревший тест относительно принятого скрытия | Средняя | R4a |
+
+Точная причина, почему исправленная цена 123 не показывает `finance_30_total` за 5 секунд, дальше конвейера `calculationOrNull` → `ForecastState.Error` → фаза Error не сводилась. Точная причина, почему второй `openArchive` не уходит с корня, тоже не сводилась к одной строке. Оба вопроса остаются для отдельного решения.
+
+### Проверки
+
+Среда ENV-01: JDK 21.0.13, Android SDK `/opt/android-sdk`, Build Tools 35.0.0, Gradle 8.13, эмулятор `emulator-5554`, API 31, `sdk_gphone64_x86_64`.
+
+`git diff --check`: PASS, вывод пустой.
+
+Первая команда `./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug :app:compileDebugAndroidTestKotlin --no-daemon --max-workers=2 --console=plain`: **FAIL**. Unit-тесты к этому моменту прошли, 390 тестов, 0 failures, 0 errors, 0 skipped, 46 файлов. Lint остановил сборку: 1 ошибка `LocalContextConfigurationRead`, 19 предупреждений. Ошибка исправлена чтением `LocalConfiguration.current`.
+
+Повтор той же команды после исправления: **PASS**, BUILD SUCCESSFUL in 1m, 61 actionable task: 18 executed, 43 up-to-date. Unit-тесты снова 390 / 0 / 0 / 0. К прежним 384 добавлены 6: три в `EditorFrequencyTest` (`customModeKeepsEveryPresetPairUntilTheCapsuleIsChosen`, `sequentialCustomEditsKeepTheModeAndRestoreTheLoadedSeries`, `customModeSurvivesANewViewModelOnTheSameHandle`) и три в `EditorExitRequestTest` (`userBackClosesOnlyAnOpenSheet`, `externalExitClosesTheSheetAndContinues`, `savingBackDoesNotCloseTheSheetOrTheEditor`). Lint: 0 ошибок, 19 прежних предупреждений (GradleDependency, NewerVersionAvailable, AndroidGradlePluginVersion, ObsoleteSdkInt, UnusedResources). assembleDebug и compileDebugAndroidTestKotlin: PASS.
+
+API 31, пакет редактора, календаря, ассетов и навигации уведомлений, 77 тестов: **76 PASS, 1 FAIL**. Единственное падение — `R5aEditorUiTest.pinnedSaveStaysAvailableWithImeScrollFontAndLandscape`, `ComposeTimeoutException` 8000 ms на `field_name` после `font_scale 2` и `recreate`, строка 254. Лист даты этот метод не открывает. Отдельный повтор только этого метода: **PASS**, BUILD SUCCESSFUL in 23s. Первое падение не стирается повтором. В том же пакете прошли `R5aEditorUiTest` кроме этого метода, `R5aEditorStateUiTest` 3/3, `R5aGalleryUiTest` 1/1, `EditorUiTest` 8/8, `EditorScheduleIntegrationTest` 25/25, `NotificationNavigationUiTest` 18/18, `NotificationNavigationRaceUiTest` 7/7, `AssetStoreTest` 4/4 и `KeyboardRotationUiTest.realKeyboardRotationCalendarAndUnsavedBackPreserveDraftAndRoot`.
+
+После правки lint заново прогнаны `presetsCustomCalendarAndValidation` и `calendarStaysRussianWhenAnimatorScaleIsZero`: 2/2 PASS, BUILD SUCCESSFUL in 34s.
+
+Восемь прежних методов показаны выше отдельно: 8/8 FAIL, BUILD FAILED in 49s. Повтор для получения зелёного результата не запускался.
+
+Полный накопленный набор Android: **NOT RUN**. TalkBack на устройстве: **NOT RUN**. Photo Picker API 33: **NOT RUN**. GitHub Actions вручную не запускались.
+
+### Изменённые файлы
+
+`EditorPeriod.kt`, `EditorExitRequest.kt`, `EditorViewModel.kt`, `EditorScreen.kt`, `TrackerApp.kt`, `TrackerRootChrome.kt`, `TrackerControls.kt`, `CatalogPickerDialog.kt`, `EditorFrequencyTest.kt`, `EditorExitRequestTest.kt`, `R5aEditorUiTest.kt`, `NotificationNavigationUiTest.kt`, `docs/reports/R5a.md`.
+
+Не менялись Room v5, доменные и календарные алгоритмы, деньги, ReminderRules, WorkManager, AssetStore, DataStore, Manifest, applicationId, Gradle и зависимости. `changeFrequency` и восстановление `scheduleDraft` сохранены.
+
+Остановиться до независимой приёмки. Следующий этап не начат.

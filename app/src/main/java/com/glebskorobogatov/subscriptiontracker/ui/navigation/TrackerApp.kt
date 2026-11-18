@@ -73,6 +73,7 @@ fun TrackerApp(state: SubscriptionsUiState,onRetry: () -> Unit,owner: Subscripti
         else -> null
     }
     var exitRequest by remember { mutableIntStateOf(0) }
+    var userBackRequest by remember { mutableIntStateOf(0) }
     val navigationScope = rememberCoroutineScope()
     val navigationSession = remember { NotificationNavigationSession() }
     val hostLifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
@@ -137,11 +138,11 @@ fun TrackerApp(state: SubscriptionsUiState,onRetry: () -> Unit,owner: Subscripti
     // A fade still installs an alpha animation; None keeps alpha at 1, so a zero duration has no transition.
     val enter = if(duration == 0) EnterTransition.None else fadeIn(tween(duration))
     val exit = if(duration == 0) ExitTransition.None else fadeOut(tween(duration))
-    CompositionLocalProvider(LocalSubscriptionAssets provides owner) {
+    CompositionLocalProvider(LocalSubscriptionAssets provides owner, LocalTrackerAnimations provides animationsEnabled) {
         Scaffold(contentWindowInsets = if(root != null) WindowInsets(0,0,0,0) else WindowInsets.safeDrawing,
             topBar = {
                 if(editor) com.glebskorobogatov.subscriptiontracker.ui.editor.EditorHeader(stringResource(
-                    if(entry?.toRoute<SubscriptionEditor>()?.subscriptionId != null) R.string.editor_edit_title else R.string.editor_title)) { exitRequest++ }
+                    if(entry?.toRoute<SubscriptionEditor>()?.subscriptionId != null) R.string.editor_edit_title else R.string.editor_title)) { userBackRequest++ }
                 else if(archive) TrackerPageHeader(stringResource(R.string.archive),onBack = { nav.popBackStack() })
             }) { padding ->
             TrackerRootChrome(root,::select,{ nav.navigate(SubscriptionEditor()) { launchSingleTop = true } },
@@ -158,7 +159,7 @@ fun TrackerApp(state: SubscriptionsUiState,onRetry: () -> Unit,owner: Subscripti
                             viewModelStoreOwner = backEntry,factory = viewModelFactory { initializer {
                                 com.glebskorobogatov.subscriptiontracker.ui.editor.EditorViewModel(createSavedStateHandle(),owner,id)
                             } })
-                        com.glebskorobogatov.subscriptiontracker.ui.editor.EditorScreen(model,exitRequest,
+                        com.glebskorobogatov.subscriptiontracker.ui.editor.EditorScreen(model,exitRequest,userBackRequest,
                             onSaved = { notifications?.afterSaved(it) },
                             onExitCancelled = { notificationState?.navigation?.let { notifications?.consumed(it.sequence) } }) { nav.popBackStack() }
                     }

@@ -70,6 +70,8 @@ internal class RootPanelController(val tab: TrackerTab) {
 }
 
 internal val LocalRootPanels = staticCompositionLocalOf<RootPanelController?> { null }
+/** User preference from settings. System animator scale is read separately by trackerMotionDuration. */
+internal val LocalTrackerAnimations = staticCompositionLocalOf { true }
 internal val LocalRootContentPadding = staticCompositionLocalOf<PaddingValues> { PaddingValues(0.dp) }
 
 @Composable internal fun BindRootList(tab: TrackerTab,state: LazyListState,canHide: Boolean = true) {
