@@ -119,6 +119,35 @@ class NotificationNavigationUiTest {
         scenario.followActivityIntent()
         compose.waitUntil(5000) { compose.onAllNodesWithText("Продолжить редактирование").fetchSemanticsNodes().isNotEmpty() }
     }
+    @Test fun cancellingAnOlderExitDoesNotDropANewerNotification() {
+        val date = LocalDate.now().plusDays(4)
+        val other = sub.copy(id = UUID.randomUUID(), name = "Вторая цель уведомления", accountLabel = null,
+            anchorYear = date.year, anchorMonth = date.monthValue, anchorDay = date.dayOfMonth)
+        runBlocking(Dispatchers.IO) {
+            val db = TrackerDatabaseFactory.open(context, dataset)
+            try { db.subscriptions().insert(other) } finally { db.close() }
+        }
+        ActivityScenario.launch<IsolatedMainActivity>(intent().setAction(Intent.ACTION_MAIN).setData(null)).whileAlive { scenario ->
+            draft(scenario)
+            scenario.onActivity {
+                it.startActivity(intent(NotificationRoute(dataset, other.id).identity)
+                    .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP))
+            }
+            scenario.followActivityIntent()
+            compose.waitForIdle()
+            compose.onNodeWithText("Продолжить редактирование").performClick()
+            compose.waitUntil(5_000) {
+                compose.onAllNodesWithText("Выйти без сохранения").fetchSemanticsNodes().isNotEmpty() ||
+                    compose.onAllNodesWithTag("details_${other.id}").fetchSemanticsNodes().isNotEmpty()
+            }
+            if(compose.onAllNodesWithText("Выйти без сохранения").fetchSemanticsNodes().isNotEmpty()) {
+                compose.onNodeWithText("Выйти без сохранения").performClick()
+            }
+            compose.waitUntil(5_000) { compose.onAllNodesWithTag("details_${other.id}").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("details_${sub.id}").assertDoesNotExist()
+        }
+    }
+
     @Test fun notificationDuringEditorRequiresDiscardAndKeepCancelsPendingNavigation() {
         ActivityScenario.launch<IsolatedMainActivity>(intent().setAction(Intent.ACTION_MAIN).setData(null)).whileAlive { scenario ->
             draft(scenario)

@@ -64,6 +64,7 @@ class SubscriptionsUiTest {
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
             vm = SubscriptionsViewModel(object : SubscriptionsSource {
                 override fun settings() = use.settings
+                override fun finance() = use.forecasts
                 override fun today() = use.date.today.value
                 override fun details(id: UUID) = use.details(id)
                 override fun observe(refreshes: Flow<Unit>) = subscriptionStates(use)

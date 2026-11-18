@@ -78,6 +78,11 @@ class CrossScreenDesignUiTest {
             val value = compose.onNodeWithTag("settings_time_value",useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
             if(font == 1f) assertTrue("Time on right $width",value.left >= label.right)
             targets(density,"time $width/$font/$theme")
+            // Scrolling to the row hides the island. R-UI-07 shows it again at the top.
+            val settings = compose.onNodeWithTag("settings_screen")
+            val offset = settings.fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange].value()
+            if(offset > 1f) settings.performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, -offset) }
+            compose.waitForIdle()
             compose.onNodeWithTag("bottom_navigation").assertIsDisplayed()
         }
     }
@@ -97,12 +102,17 @@ class CrossScreenDesignUiTest {
             }
             compose.onNodeWithTag("subscriptions_screen").performScrollToNode(hasTestTag("subscription_${ReviewData.longRow.id}"))
             noOverflow(compose.onNodeWithText(ReviewData.longName,useUnmergedTree = true),"subscription name $width/$font/$theme")
+            // Vertical travel hides the island. Measure it at the top, where R-UI-07 shows it.
+            val screen = compose.onNodeWithTag("subscriptions_screen")
+            val offset = screen.fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange].value()
+            if(offset > 1f) screen.performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, -offset) }
+            compose.waitForIdle()
             val island = compose.onNodeWithTag("bottom_navigation").fetchSemanticsNode().boundsInRoot
-            val list = compose.onNodeWithTag("subscriptions_screen").fetchSemanticsNode().boundsInRoot
+            val list = screen.fetchSemanticsNode().boundsInRoot
             assertTrue("Viewport extends behind island",list.bottom > island.top)
-            compose.onNodeWithTag("subscriptions_screen").performScrollToIndex(ReviewData.longContent.active.lastIndex)
+            screen.performScrollToIndex(ReviewData.longContent.active.lastIndex)
             val last = compose.onNodeWithTag("subscription_${ReviewData.longContent.active.last().id}").fetchSemanticsNode().boundsInRoot
-            assertTrue("Last row remains above island",last.bottom <= island.top)
+            assertTrue("Last row remains above the island resting place",last.bottom <= island.top)
             compose.runOnIdle { case.value = Case(width,font,theme,ReviewScene.DetailsLong) }
             val price = compose.onNodeWithText("92233720368547758,07 RUB",useUnmergedTree = true)
             price.performScrollTo();noOverflow(price,"details money $width/$font/$theme")

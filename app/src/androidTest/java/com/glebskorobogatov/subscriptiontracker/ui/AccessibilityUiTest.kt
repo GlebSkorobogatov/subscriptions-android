@@ -124,6 +124,10 @@ class AccessibilityUiTest {
         compose.onNodeWithText("Готово").performClick()
         compose.onNodeWithTag("settings_time").performScrollTo().assertIsDisplayed()
         compose.onNodeWithTag("settings_time").assert(SemanticsMatcher.keyNotDefined(SemanticsActions.OnClick))
+        val settings = compose.onNodeWithTag("settings_screen")
+        val offset = settings.fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange].value()
+        if (offset > 1f) settings.performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, -offset) }
+        compose.waitForIdle()
         compose.onNodeWithTag("tab_subscriptions").performClick()
         compose.onNodeWithTag("subscriptions_screen").performScrollToNode(hasText(row.name))
         compose.onNodeWithText(row.name).performClick()

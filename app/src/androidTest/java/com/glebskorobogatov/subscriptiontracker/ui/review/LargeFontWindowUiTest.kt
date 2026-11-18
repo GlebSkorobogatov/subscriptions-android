@@ -52,7 +52,7 @@ class LargeFontWindowUiTest {
                 compose.onNodeWithText(cancel).assertIsDisplayed().assertHasClickAction()
                 val field = when(s) {
                     ReviewScene.ReactivateDialog -> "details_field_amount"
-                    ReviewScene.EditEndDialog -> "details_field_date"
+                    ReviewScene.EditEndDialog -> "details_field_end"
                     ReviewScene.DisableDialog -> "details_field_end"
                     else -> null
                 }

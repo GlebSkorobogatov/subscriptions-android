@@ -226,6 +226,80 @@ class R5aEditorUiTest {
         }
     }
 
+    @Test fun sheetsStayUsableWhenMotionIsZeroAndWhenItIsEnabled() {
+        compose.onNodeWithTag("tab_settings").performClick()
+        compose.onNodeWithTag("settings_animations").performScrollTo().performClick()
+        compose.onNodeWithTag("settings_animations").assertIsOff()
+        compose.onNodeWithTag("tab_subscriptions").performClick()
+        exerciseSheets()
+        compose.onNodeWithTag("tab_settings").performClick()
+        compose.onNodeWithTag("settings_animations").performScrollTo().performClick()
+        compose.onNodeWithTag("settings_animations").assertIsOn()
+        shell("settings put global animator_duration_scale 0")
+        try {
+            compose.onNodeWithTag("tab_subscriptions").performClick()
+            compose.waitUntil(5_000) { compose.onAllNodesWithText("Добавить подписку").fetchSemanticsNodes().isNotEmpty() }
+            exerciseSheets()
+            shell("settings put system font_scale 2")
+            compose.waitUntil(8_000) {
+                var ready = false
+                runCatching {
+                    compose.activityRule.scenario.onActivity { activity ->
+                        ready = activity.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED) &&
+                            kotlin.math.abs(activity.resources.configuration.fontScale - 2f) < 0.05f
+                    }
+                }
+                ready
+            }
+            orient(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE, Configuration.ORIENTATION_LANDSCAPE)
+            compose.waitUntil(8_000) { compose.onAllNodesWithText("Добавить подписку").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithText("Добавить подписку").performScrollTo()
+            open()
+            compose.onNodeWithTag("editor_choose_catalog").performScrollTo().performClick()
+            val pick = compose.onNodeWithTag("catalog_pick_image").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+            val root = compose.onAllNodes(isRoot()).fetchSemanticsNodes().first().boundsInRoot
+            assertTrue("Catalog action stays inside the landscape window: $pick vs $root", pick.top >= root.top && pick.bottom <= root.bottom + 1f)
+            back()
+            compose.onNodeWithTag("catalog_sheet").assertDoesNotExist()
+            compose.onNodeWithTag("date_picker_date").performScrollTo().performClick()
+            val confirm = compose.onNodeWithTag("editor_date_confirm").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+            assertTrue("Date confirmation stays inside the landscape window: $confirm vs $root", confirm.top >= root.top && confirm.bottom <= root.bottom + 1f)
+        } finally {
+            shell("settings put global animator_duration_scale 1")
+            shell("settings put system font_scale 1")
+            orient(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT, Configuration.ORIENTATION_PORTRAIT)
+        }
+    }
+
+    private fun exerciseSheets() {
+        open()
+        compose.onNodeWithTag("field_name").performTextInput("Черновик листа")
+        compose.onNodeWithTag("date_picker_date").performScrollTo().performClick()
+        compose.onNodeWithTag("editor_date_sheet").assertIsDisplayed()
+        compose.onNode(hasContentDescription("Перейти к следующему месяцу", substring = true)).assertExists()
+        compose.onNodeWithTag("editor_date_confirm").assertIsDisplayed()
+        val covered = runCatching { compose.onNodeWithTag("field_name").performClick() }
+        compose.onNodeWithTag("field_name").assertTextContains("Черновик листа")
+        if(covered.isSuccess) compose.onNodeWithTag("subscription_editor").assertExists()
+        if(compose.onAllNodesWithTag("editor_date_sheet").fetchSemanticsNodes().isNotEmpty()) back()
+        compose.onNodeWithTag("editor_date_sheet").assertDoesNotExist()
+        compose.onNodeWithTag("field_name").assertTextContains("Черновик листа")
+        compose.onNodeWithTag("editor_choose_catalog").performScrollTo().performClick()
+        compose.onNodeWithTag("catalog_sheet").assertIsDisplayed()
+        compose.onNodeWithTag("catalog_generic-other").performScrollTo().performClick()
+        compose.onNodeWithTag("catalog_sheet").assertDoesNotExist()
+        compose.onNodeWithTag("field_name").assertTextContains("Черновик листа")
+        compose.onNodeWithTag("editor_choose_catalog").performScrollTo().performClick()
+        compose.onNodeWithTag("catalog_sheet").assertIsDisplayed()
+        back()
+        compose.onNodeWithTag("catalog_sheet").assertDoesNotExist()
+        compose.onNodeWithText("Есть несохранённые изменения").assertDoesNotExist()
+        compose.onNodeWithTag("field_name").assertTextContains("Черновик листа")
+        compose.onNodeWithContentDescription("Назад").performClick()
+        compose.onNodeWithText("Выйти без сохранения").performClick()
+        compose.onNodeWithTag("bottom_navigation").assertExists()
+    }
+
     @Test fun pinnedSaveStaysAvailableWithImeScrollFontAndLandscape() {
         open()
         compose.onNodeWithTag("field_name").performClick().performTextInput("Клавиатура")
@@ -249,6 +323,18 @@ class R5aEditorUiTest {
             shot("landscape")
         } finally { orient(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT, Configuration.ORIENTATION_PORTRAIT) }
         shell("settings put system font_scale 2")
+        // The system recreates the activity for the new font scale. Wait until that instance is
+        // resumed, then recreate once more so restoration is not racing the configuration change.
+        compose.waitUntil(8_000) {
+            var ready = false
+            runCatching {
+                compose.activityRule.scenario.onActivity { activity ->
+                    ready = activity.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED) &&
+                        kotlin.math.abs(activity.resources.configuration.fontScale - 2f) < 0.05f
+                }
+            }
+            ready
+        }
         compose.activityRule.scenario.recreate()
         try {
             compose.waitUntil(8_000) { compose.onAllNodesWithTag("field_name").fetchSemanticsNodes().isNotEmpty() }
