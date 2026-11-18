@@ -131,7 +131,7 @@ class AccessibilityUiTest {
         compose.onNodeWithTag("tab_subscriptions").performClick()
         compose.onNodeWithTag("subscriptions_screen").performScrollToNode(hasText(row.name))
         compose.onNodeWithText(row.name).performClick()
-        compose.onNodeWithText("Изменить").assertIsDisplayed().performClick()
+        compose.onNodeWithText("Редактировать").assertIsDisplayed().performClick()
         awaitStep("editor_initial_fields") { compose.onAllNodesWithTag("field_name").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("field_name").performScrollTo().performTextReplacement("Изменённое учебное название")
         compose.onNodeWithText("Сохранить").performScrollToIfScrollable().assertIsDisplayed()

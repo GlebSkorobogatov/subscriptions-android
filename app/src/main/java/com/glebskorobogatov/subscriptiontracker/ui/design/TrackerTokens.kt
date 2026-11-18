@@ -49,6 +49,8 @@ object TrackerDimensions {
     val minimumTouchTarget = 48.dp
     val buttonHeight = 52.dp
     val logoSize = 54.dp
+    // Details hero only. List rows and the editor keep logoSize at 54 dp.
+    val detailsLogoSize = 72.dp
     val progressHeight = 4.dp
     val cardRadius = 22.dp
     val fieldRadius = 16.dp

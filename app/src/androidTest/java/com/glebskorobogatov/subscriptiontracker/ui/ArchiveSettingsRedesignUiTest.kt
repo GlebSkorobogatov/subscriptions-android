@@ -37,8 +37,8 @@ class ArchiveSettingsRedesignUiTest {
         val opened = mutableListOf<UUID>()
         compose.setContent { ArchiveDemo(onOpen = { opened += it }) }
         compose.onAllNodesWithText("Видеосервис").assertCountEquals(2)
-        compose.onNodeWithTag("archive_${data.personal.id}").assert(hasText("Личный")).assert(hasText("799,00 RUB")).performClick()
-        compose.onNodeWithTag("archive_${data.family.id}").assert(hasText("Семейный")).assert(hasText("12,99 RUB")).performClick()
+        compose.onNodeWithTag("archive_${data.personal.id}").assert(hasText("Личный")).assert(hasText("799 ₽")).performClick()
+        compose.onNodeWithTag("archive_${data.family.id}").assert(hasText("Семейный")).assert(hasText("12,99 ₽")).performClick()
         compose.runOnIdle { assertEquals(listOf(data.personal.id,data.family.id),opened) }
     }
     @Test fun emptyArchiveIsMinimalAndIslandKeepsArchiveSelected() {
@@ -63,8 +63,8 @@ class ArchiveSettingsRedesignUiTest {
     @Test fun archiveShowsOnlyKnownAccessAndNoForecastOrRowReactivation() {
         compose.setContent { ArchiveDemo() }
         compose.onNodeWithText("В архиве с 2027-02-28").assertExists()
-        compose.onNodeWithText("Дата архивирования неизвестна").assertExists()
-        compose.onNodeWithText("Возобновить подписку").assertDoesNotExist()
+        compose.onNodeWithText("Дата архивирования неизвестна").assertDoesNotExist()
+        compose.onNodeWithText("Восстановить").assertDoesNotExist()
         compose.onNodeWithText("Прогноз на 30 дней").assertDoesNotExist()
         compose.onNodeWithTag("subscription_progress").assertDoesNotExist()
     }

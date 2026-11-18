@@ -233,7 +233,7 @@ class SubscriptionsUiTest {
         compose.onNodeWithTag("tab_subscriptions").performClick()
         show(row.id); compose.onNodeWithTag("subscription_${row.id}").performClick()
         compose.onNodeWithTag("details_${row.id}").assertIsDisplayed()
-        compose.onNodeWithText(context.getString(com.glebskorobogatov.subscriptiontracker.R.string.editor_edit)).performClick()
+        compose.onNodeWithText(context.getString(com.glebskorobogatov.subscriptiontracker.R.string.details_primary_edit)).performClick()
         compose.waitUntil(5000) { compose.onAllNodesWithTag("field_amount").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("field_amount").performScrollTo().performTextClearance()
         compose.onNodeWithTag("field_amount").performTextInput("1,23")

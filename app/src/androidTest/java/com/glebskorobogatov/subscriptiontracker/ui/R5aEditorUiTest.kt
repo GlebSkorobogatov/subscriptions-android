@@ -77,8 +77,8 @@ class R5aEditorUiTest {
         compose.waitUntil(8_000) { compose.onAllNodesWithTag("subscription_editor").fetchSemanticsNodes().isEmpty() }
         compose.onNodeWithTag("subscriptions_screen").performScrollToNode(hasText("Учебный R5a"))
         compose.onNodeWithText("Учебный R5a").performClick()
-        compose.onNodeWithText("299,50 RUB").assertExists()
-        compose.onNodeWithText("Изменить").assertIsDisplayed().performClick()
+        compose.onNodeWithText("299,50 ₽").assertExists()
+        compose.onNodeWithText("Редактировать").assertIsDisplayed().performClick()
         compose.waitUntil(5_000) { compose.onAllNodesWithText("Редактирование подписки").fetchSemanticsNodes().isNotEmpty() }
         shot("edit-existing")
         compose.onNodeWithTag("field_name").performTextReplacement("Учебный R5a изменён")
@@ -379,10 +379,11 @@ class R5aEditorUiTest {
         compose.waitUntil(8_000) { compose.onAllNodesWithTag("subscription_editor").fetchSemanticsNodes().isEmpty() }
         compose.onNodeWithText("Отменённая R5a").performClick()
         compose.openDetailsManagement()
-        compose.onNodeWithText("Отменить подписку").performScrollTo().performClick()
+        compose.onNodeWithText("Отметить отмену").performClick()
         compose.onNodeWithText("Подтвердить").performClick()
         compose.waitUntil(8_000) { compose.onAllNodesWithText("Отменена").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithText("Изменить").performClick()
+        compose.openDetailsManagement()
+        compose.onNodeWithTag("details_action_edit").performClick()
         compose.waitUntil(5_000) { compose.onAllNodesWithTag("frequency_month").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("frequency_month").assertIsNotEnabled()
         compose.onNodeWithTag("frequency_custom").assertIsNotEnabled()

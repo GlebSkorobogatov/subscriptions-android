@@ -54,9 +54,8 @@ class ArchiveSettingsUiTest {
         compose.waitUntil(5000) { compose.onAllNodesWithText("Подтвердить").fetchSemanticsNodes().isEmpty() }
     }
     private fun archiveAndReturn() {
-        compose.onNodeWithText("Архивировать").performScrollTo().performClick(); confirm()
-        compose.waitUntil(5000) { compose.onAllNodesWithText("Возобновить подписку").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithContentDescription("Назад").performClick()
+        compose.onNodeWithText("Архивировать").performClick(); confirm()
+        compose.waitUntil(5000) { compose.onAllNodesWithTag("subscriptions_screen").fetchSemanticsNodes().isNotEmpty() }
     }
     @Test fun emptyArchiveAndSettingsReturnToOriginWithoutFourthTab() {
         compose.openArchive()
@@ -77,16 +76,15 @@ class ArchiveSettingsUiTest {
         val id = tag.removePrefix("archive_")
         compose.onNodeWithTag(tag).performClick()
         compose.onNodeWithTag("details_$id").assertExists()
-        compose.openDetailsManagement()
-        compose.onNodeWithText("Возобновить подписку").performScrollTo().performClick()
+        compose.onNodeWithText("Восстановить").performClick()
         compose.onNodeWithText("Отмена").performClick()
-        compose.onNodeWithText("Возобновить подписку").performScrollTo().performClick()
+        compose.onNodeWithText("Восстановить").performClick()
         compose.onNodeWithTag("details_field_date").performScrollTo().performTextReplacement(LocalDate.now().plusDays(2).toString())
         compose.onNodeWithTag("details_field_amount").performScrollTo().performTextReplacement("599")
-        compose.onNodeWithTag("details_field_count").performScrollTo().performTextReplacement("3")
-        confirm()
-        compose.waitUntil(5000) { compose.onAllNodesWithText("Возобновить подписку").fetchSemanticsNodes().isEmpty() }
-        compose.onNodeWithText("599,00 RUB").assertExists()
+        compose.onNodeWithTag("frequency_quarter").performScrollTo().performClick()
+        compose.onNodeWithText("Сохранить").performClick()
+        compose.waitUntil(5000) { compose.onAllNodesWithText("Сохранить").fetchSemanticsNodes().isEmpty() }
+        compose.onNodeWithText("599 ₽").assertExists()
         compose.onAllNodes(hasText("Оплата ",substring = true)).assertCountEquals(0)
         compose.onNodeWithContentDescription("Назад").performClick()
         compose.waitUntil(5000) { compose.onAllNodesWithText("В архиве пока пусто").fetchSemanticsNodes().isNotEmpty() }

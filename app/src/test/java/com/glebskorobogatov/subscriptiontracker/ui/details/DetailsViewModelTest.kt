@@ -3,6 +3,7 @@ package com.glebskorobogatov.subscriptiontracker.ui.details
 import androidx.lifecycle.*
 import com.glebskorobogatov.subscriptiontracker.data.integration.*
 import com.glebskorobogatov.subscriptiontracker.data.mapping.SubscriptionSnapshot
+import com.glebskorobogatov.subscriptiontracker.domain.model.FrequencyUnit
 import com.glebskorobogatov.subscriptiontracker.domain.subscription.*
 import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.*
 import com.glebskorobogatov.subscriptiontracker.ui.subscriptions.*
@@ -111,6 +112,37 @@ class DetailsViewModelTest {
             vm.open(DetailsAction.EditEnd)
             assertEquals(if (status==SubscriptionState.CANCELLED) DetailsAction.EditEnd else null,vm.state.value.action)
         }
+    }
+    @Test fun customFrequencySurvivesRecreationAndDoesNotCollapseAPresetMatch() = runTest(dispatcher) {
+        val row = detailsRow().copy(state = SubscriptionState.ARCHIVED, intervalUnit = FrequencyUnit.MONTH, intervalCount = 6)
+        val vm = model(values = flowOf(detail.copy(subscription = row))); runCurrent()
+        vm.open(DetailsAction.Reactivate)
+        assertNull(vm.state.value.customFrequency)
+        assertEquals("6", vm.state.value.fields["count"])
+        vm.setFrequencyMode(true)
+        vm.changeFrequency("MONTH", "1")
+        assertEquals(true, vm.state.value.customFrequency)
+        assertEquals("1", vm.state.value.fields["count"])
+        assertEquals("MONTH", vm.state.value.fields["unit"])
+        val saved = SavedStateHandle(mapOf(
+            "action" to "Reactivate",
+            "fields" to HashMap(vm.state.value.fields),
+            "snapshot" to SubscriptionSnapshot.snapshot(row),
+            "frequencyCustom" to true,
+            "sent" to false))
+        val restored = model(saved, values = flowOf(detail.copy(subscription = row))); runCurrent()
+        assertEquals(true, restored.state.value.customFrequency)
+        assertEquals("MONTH", restored.state.value.fields["unit"])
+        assertEquals("1", restored.state.value.fields["count"])
+        restored.setFrequencyMode(false)
+        restored.changeFrequency("MONTH", "3")
+        assertEquals(false, restored.state.value.customFrequency)
+        assertEquals("3", restored.state.value.fields["count"])
+    }
+    @Test fun dismissKeepsArchivedFlagClearAndBlocksFrozenMutation() = runTest(dispatcher) {
+        val vm = model(); runCurrent()
+        vm.open(DetailsAction.Archive); vm.dismiss(); runCurrent()
+        assertFalse(vm.state.value.archived); assertNull(vm.state.value.action)
     }
     @Test fun cancellationDoesNotBecomeUnknownOutcomeErrorOrTriggerRetry() = runTest(dispatcher) {
         var calls = 0

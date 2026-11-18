@@ -22,7 +22,6 @@ class DetailsUiTest {
         compose.waitUntil(5000) { compose.onAllNodesWithTag("subscription_editor").fetchSemanticsNodes().isEmpty() }
         compose.onNodeWithTag("subscriptions_screen").performScrollToNode(hasText("Сервис D03"))
         compose.onNodeWithText("Сервис D03").performClick()
-        compose.waitUntil(5000) { compose.onAllNodesWithTag("details_management").fetchSemanticsNodes().isNotEmpty() }
         compose.openDetailsManagement()
     }
     private fun confirm() {
@@ -33,50 +32,52 @@ class DetailsUiTest {
         createAndOpen()
         compose.onNodeWithText("Подтвердить оплату").assertDoesNotExist()
         compose.onNodeWithText("История платежей и возвратов").assertDoesNotExist()
-        compose.onNodeWithText("499,00 RUB").assertExists()
-        compose.onAllNodesWithText("Изменить").onFirst().assertHasClickAction()
+        compose.onNodeWithText("499 ₽").assertExists()
+        compose.onNodeWithText("Редактировать").assertHasClickAction()
         compose.openDetailsManagement()
         compose.onNodeWithText("Проблема с оплатой").assertDoesNotExist()
     }
     @Test fun cancelledDeleteKeepsSubscriptionAndConfirmedDeleteReturnsHome() {
         createAndOpen()
-        compose.onNodeWithText("Удалить подписку").performScrollTo().performClick()
+        compose.onNodeWithText("Удалить подписку").performClick()
         compose.onNodeWithText("Отмена").performClick()
         compose.onNodeWithText("Сервис D03").assertExists()
-        compose.onNodeWithText("Удалить подписку").performScrollTo().performClick()
-        confirm()
+        compose.openDetailsManagement()
+        compose.onNodeWithText("Удалить подписку").performClick()
+        compose.onNodeWithText("Удалить").performClick()
+        compose.waitUntil(5000) { compose.onAllNodesWithText("Удалить").fetchSemanticsNodes().isEmpty() }
         compose.waitUntil(5000) { compose.onAllNodesWithTag("tab_subscriptions").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("tab_subscriptions").assertIsSelected()
         compose.onNodeWithText("Подписок пока нет").assertIsDisplayed()
     }
     @Test fun archiveProvidesMinimalPathBackToDetailsAndReactivation() {
         createAndOpen()
-        compose.onNodeWithText("Архивировать").performScrollTo().performClick()
+        compose.onNodeWithText("Архивировать").performClick()
         confirm()
-        compose.waitUntil(5000) { compose.onAllNodesWithText("Возобновить подписку").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithContentDescription("Назад").performClick()
+        compose.waitUntil(5000) { compose.onAllNodesWithTag("subscriptions_screen").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Сервис D03").assertDoesNotExist()
         compose.openArchive()
         compose.waitUntil(5000) { compose.onAllNodesWithText("Сервис D03").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Сервис D03").performScrollTo().performClick()
-        compose.openDetailsManagement()
-        compose.waitUntil(5000) { compose.onAllNodesWithText("Возобновить подписку").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithText("Возобновить подписку").performScrollTo().performClick()
-        confirm()
-        compose.waitUntil(5000) { compose.onAllNodesWithTag("details_management").fetchSemanticsNodes().isNotEmpty() }
-        compose.openDetailsManagement()
+        compose.onNodeWithText("Восстановить").assertHasClickAction().performClick()
+        compose.onNodeWithText("Сохранить").performClick()
+        compose.waitUntil(5000) { compose.onAllNodesWithText("Активна").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Редактировать").assertHasClickAction()
     }
     @Test fun cancellationDefaultsToNearestExclusiveEndAndHidesProgressOnEndDay() {
         createAndOpen()
-        compose.onNodeWithText("Отменить подписку").performScrollTo().performClick()
+        compose.onNodeWithText("Отметить отмену").performClick()
+        compose.onNodeWithText("Отметь отмену у поставщика. Приложение не отменяет подписку за тебя. Будущие ожидаемые платежи и напоминания будут исключены.").assertIsDisplayed()
         compose.onNodeWithTag("details_field_end").assertTextContains(java.time.LocalDate.now().toString())
         confirm()
         compose.waitUntil(5000) { compose.onAllNodesWithText("Отменена").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("details_progress").assertDoesNotExist()
-        compose.onNodeWithText("Изменить дату окончания доступа").performScrollTo().assertHasClickAction()
+        compose.openDetailsManagement()
+        compose.onNodeWithText("Изменить окончание доступа").assertHasClickAction()
     }
     @Test fun knownAccessUsesDomainRemainingFraction() {
         createAndOpen(periodStart = true)
-        compose.onNodeWithText("Отменить подписку").performScrollTo().performClick()
+        compose.onNodeWithText("Отметить отмену").performClick()
         compose.onNodeWithTag("details_field_end").performTextReplacement(java.time.LocalDate.now().plusDays(3).toString())
         confirm()
         compose.waitUntil(5000) { compose.onAllNodesWithTag("details_progress").fetchSemanticsNodes().any {

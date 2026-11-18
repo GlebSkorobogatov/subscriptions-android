@@ -185,7 +185,8 @@ fun TrackerApp(state: SubscriptionsUiState,onRetry: () -> Unit,owner: Subscripti
                             } })
                         com.glebskorobogatov.subscriptiontracker.ui.details.DetailsScreen(model,id,0,
                             onBack = { nav.popBackStack() },onEdit = { nav.navigate(SubscriptionEditor(id.toString())) },
-                            onDeleted = { if(!nav.popBackStack()) nav.navigate(Subscriptions) { launchSingleTop = true } })
+                            onDeleted = { if(!nav.popBackStack()) nav.navigate(Subscriptions) { launchSingleTop = true } },
+                            onArchived = { if(!nav.popBackStack()) nav.navigate(Subscriptions) { launchSingleTop = true } })
                     }
                     composable<Finance> { backEntry ->
                         val model: com.glebskorobogatov.subscriptiontracker.ui.finance.FinanceViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
