@@ -1,5 +1,7 @@
 package com.glebskorobogatov.subscriptiontracker.ui.editor
 
+import androidx.compose.runtime.saveable.listSaver
+
 internal enum class EditorExitResolution {
     /** This exit was already accepted. */
     AlreadyHandled,
@@ -43,6 +45,26 @@ internal data class ExitBinding(val armed: Boolean = false, val requested: Long?
     fun arm(live: Long?): ExitBinding = if (armed) this else copy(armed = true, sequence = requested ?: live, requested = null)
     fun finish(): ExitBinding = ExitBinding()
 }
+
+/** Activity recreation keeps the dialog's first id. A null sequence stays null and is not a request. */
+internal val ExitBindingSaver = listSaver<ExitBinding, Long>(
+    save = {
+        listOf(
+            if (it.armed) 1L else 0L,
+            if (it.requested != null) 1L else 0L,
+            it.requested ?: 0L,
+            if (it.sequence != null) 1L else 0L,
+            it.sequence ?: 0L,
+        )
+    },
+    restore = {
+        ExitBinding(
+            armed = it[0] == 1L,
+            requested = if (it[1] == 1L) it[2] else null,
+            sequence = if (it[3] == 1L) it[4] else null,
+        )
+    },
+)
 
 internal fun editorBackEffects(sheetOpen: Boolean, external: Boolean, saving: Boolean, dirty: Boolean): List<EditorBackEffect> {
     if (saving) return listOf(EditorBackEffect.Ignore)

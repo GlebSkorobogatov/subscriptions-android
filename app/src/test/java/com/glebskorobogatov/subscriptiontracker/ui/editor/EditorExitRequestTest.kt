@@ -1,7 +1,9 @@
 package com.glebskorobogatov.subscriptiontracker.ui.editor
 
+import androidx.compose.runtime.saveable.SaverScope
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class EditorExitRequestTest {
@@ -53,6 +55,25 @@ class EditorExitRequestTest {
         val user = ExitBinding().arm(live = null)
         assertNull(user.confirmExit(4L).sequence)
         assertNull(user.finish().sequence)
+    }
+
+    @Test fun restoredDialogKeepsTheFirstIdAndAUserDialogStaysUnbound() {
+        val restored = roundTrip(ExitBinding(armed = true, sequence = 11L))
+        assertEquals(11L, restored.sequence)
+        assertTrue(restored.armed)
+        assertEquals(11L, restored.confirmExit(12L).sequence)
+        val restoredUser = roundTrip(ExitBinding(armed = true))
+        assertNull(restoredUser.sequence)
+        assertNull(restoredUser.confirmExit(4L).sequence)
+        val cleared = roundTrip(restored.finish())
+        assertNull(cleared.sequence)
+        assertEquals(false, cleared.armed)
+    }
+
+    private fun roundTrip(value: ExitBinding): ExitBinding {
+        val scope = object : SaverScope { override fun canBeSaved(value: Any) = true }
+        val saved = with(ExitBindingSaver) { with(scope) { requireNotNull(save(value)) } }
+        return requireNotNull(ExitBindingSaver.restore(saved))
     }
 
     @Test fun savingBackDoesNotCloseTheSheetOrTheEditor() {

@@ -6,8 +6,9 @@ import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStoreFile
 import java.util.UUID
 import kotlinx.coroutines.*
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 interface SettingsRepository {
     val settings: Flow<Settings>
@@ -38,54 +39,25 @@ internal object SettingsCodec {
 }
 
 /**
- * One collector's first DataStore read can observe a version that is already used by an overlapping
- * write. DataStore then drops that write from this collector (`version <= start`). A later collector
- * still reads the file. Publications are applied in order and a stale store value cannot replace one.
+ * DataStore 1.1.7 can drop a write from a collector whose first read already captured that version.
+ * After a commit, every collector starts a new read. The store stays the only source: a missed
+ * confirmation cannot suppress a later value, and a read failure is not replaced by a remembered one.
  */
-internal class SettingsPublication {
-    private var pending: Settings? = null
-    fun published(value: Settings): Settings {
-        pending = value
-        return value
-    }
-    fun stored(value: Settings): Settings? {
-        val expected = pending
-        if (expected != null && value != expected) return null
-        pending = null
-        return value
-    }
-}
-
-private sealed interface SettingsEvent {
-    data class Published(val value: Settings) : SettingsEvent
-    data class Stored(val value: Settings) : SettingsEvent
-}
-
 internal class PreferencesSettingsRepository(private val store: DataStore<Preferences>) : SettingsRepository {
-    private val published = MutableSharedFlow<Settings>(replay = 1, extraBufferCapacity = 1)
-    override val settings: Flow<Settings> = channelFlow {
-        val publication = SettingsPublication()
-        val downstream = this
-        coroutineScope {
-            val inbox = Channel<SettingsEvent>(Channel.UNLIMITED)
-            launch { published.collect { inbox.send(SettingsEvent.Published(it)) } }
-            launch { store.data.map(SettingsCodec::read).collect { inbox.send(SettingsEvent.Stored(it)) } }
-            for (event in inbox) {
-                val next = when (event) {
-                    is SettingsEvent.Published -> publication.published(event.value)
-                    is SettingsEvent.Stored -> publication.stored(event.value)
+    private val generation = MutableStateFlow(0)
+    private val writes = Mutex()
+    override val settings: Flow<Settings> =
+        generation.flatMapLatest { store.data.map(SettingsCodec::read) }.distinctUntilChanged()
+    override suspend fun update(transform: (Settings) -> Settings) {
+        writes.withLock {
+            try {
+                store.edit { preferences ->
+                    SettingsCodec.write(preferences, transform(SettingsCodec.read(preferences)))
                 }
-                if (next != null) downstream.send(next)
+            } finally {
+                withContext(NonCancellable) { generation.value = generation.value + 1 }
             }
         }
-    }.distinctUntilChanged()
-    override suspend fun update(transform: (Settings) -> Settings) {
-        lateinit var written: Settings
-        store.edit { preferences ->
-            written = transform(SettingsCodec.read(preferences))
-            SettingsCodec.write(preferences, written)
-        }
-        published.emit(written)
     }
 }
 

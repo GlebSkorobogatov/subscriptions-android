@@ -340,11 +340,19 @@ class StorageOpeningTest {
         it.execSQL("PRAGMA writable_schema=OFF")
     }
 
+    /** Android rejects this PRAGMA in execSQL because it returns the previous threshold. */
+    private fun SQLiteDatabase.keepCommittedWal() {
+        beginTransaction()
+        try {
+            rawQuery("PRAGMA wal_autocheckpoint=0", null).use { cursor -> check(cursor.moveToFirst()) }
+            setTransactionSuccessful()
+        } finally { endTransaction() }
+    }
     @Test fun committedWalSchemaIsInspectedAndNotIgnoredOrCheckpointedOnRejection() {
         fixtureDatabase(5)
         SQLiteDatabase.openOrCreateDatabase(dbFile, null).use { writer ->
             assertTrue(writer.enableWriteAheadLogging())
-            writer.execSQL("PRAGMA wal_autocheckpoint=0")
+            writer.keepCommittedWal()
             writer.execSQL("UPDATE subscriptions SET priceMinor=777")
             writer.execSQL("ALTER TABLE subscriptions ADD COLUMN wal_only_extra TEXT")
             val wal = File(dbFile.path + "-wal"); val shm = File(dbFile.path + "-shm")
@@ -362,7 +370,7 @@ class StorageOpeningTest {
     @Test fun compatibleWalCommittedRowsSurvivePreflightAndRoomOpen() {
         fixtureDatabase(5)
         SQLiteDatabase.openOrCreateDatabase(dbFile, null).use { writer ->
-            assertTrue(writer.enableWriteAheadLogging()); writer.execSQL("PRAGMA wal_autocheckpoint=0")
+            assertTrue(writer.enableWriteAheadLogging()); writer.keepCommittedWal()
             writer.execSQL("UPDATE subscriptions SET priceMinor=888")
             val wal = File(dbFile.path + "-wal"); assertTrue(wal.length() > 0)
             val db = TrackerDatabaseFactory.open(context, id)

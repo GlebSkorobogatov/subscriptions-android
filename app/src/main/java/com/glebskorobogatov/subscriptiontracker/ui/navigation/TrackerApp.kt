@@ -9,6 +9,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.navigation.NavDestination.Companion.hasRoute
@@ -73,7 +74,9 @@ fun TrackerApp(state: SubscriptionsUiState,onRetry: () -> Unit,owner: Subscripti
         else -> null
     }
     var exitRequest by remember { mutableIntStateOf(0) }
-    var exitBinding by remember { mutableStateOf(com.glebskorobogatov.subscriptiontracker.ui.editor.ExitBinding()) }
+    var exitBinding by rememberSaveable(stateSaver = com.glebskorobogatov.subscriptiontracker.ui.editor.ExitBindingSaver) {
+        mutableStateOf(com.glebskorobogatov.subscriptiontracker.ui.editor.ExitBinding())
+    }
     var userBackRequest by remember { mutableIntStateOf(0) }
     val navigationScope = rememberCoroutineScope()
     val navigationSession = remember { NotificationNavigationSession() }

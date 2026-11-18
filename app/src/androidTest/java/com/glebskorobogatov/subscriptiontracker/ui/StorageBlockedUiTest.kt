@@ -8,6 +8,7 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import com.glebskorobogatov.subscriptiontracker.app.StorageFailureTestActivity
 import com.glebskorobogatov.subscriptiontracker.notifications.NotificationRoute
+import com.glebskorobogatov.subscriptiontracker.notifications.followActivityIntent
 import com.glebskorobogatov.subscriptiontracker.R
 import java.util.UUID
 import org.junit.Rule
@@ -35,6 +36,8 @@ class StorageBlockedUiTest {
                 activity.startActivity(intent().addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
                     .setAction(NotificationRoute.OPEN).setData(android.net.Uri.parse(NotificationRoute(UUID(0, 1), UUID(0, 2)).identity)))
             }
+            // onNewIntent replaces the intent. ActivityScenario then ignores later transitions, so close stays PAUSED.
+            scenario.followActivityIntent()
             blocked()
         }
     }

@@ -83,7 +83,12 @@ class ReminderSystemRegressionTest {
         val run = runtime(); run.reconcile(); val task = scheduler.tasks.single()
         now = Instant.parse("2027-01-06T10:00:00Z")
         assertNull(run.process(id,sub.id,task.fingerprint)); assertNull(child())
-        assertTrue(db.deliveries().all().all { it.state == DeliveryState.PENDING }); assertTrue(scheduler.tasks.isEmpty())
+        // The renewal date is already past. R-NOT-03 does not send that expired event, and the ledger
+        // keeps a SKIPPED tombstone so a later pass cannot turn it into a catch-up notification.
+        val rows = db.deliveries().all()
+        assertEquals(setOf(DeliveryState.SKIPPED), rows.map { it.state }.toSet())
+        assertTrue(rows.isNotEmpty())
+        assertTrue(scheduler.tasks.isEmpty())
     }
     @Test fun nameChangeRemovesStaleNativeCopy(): Unit = runBlocking {
         published(); db.subscriptions().update(sub.copy(name = "Другое имя")); runtime().reconcile()

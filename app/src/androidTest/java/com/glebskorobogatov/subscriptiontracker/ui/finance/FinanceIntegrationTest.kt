@@ -54,7 +54,7 @@ class FinanceIntegrationTest {
         db.close(); lease.close(); reopen()
         assertEquals(actual,withTimeout(5000) { financeSnapshots(use).first() })
     }
-    @Test fun livePriceDateAndLifecycleChangesRecomputeOnlyActiveForecasts() = runBlocking {
+    @Test fun livePriceDateAndLifecycleChangesRecomputeOnlyActiveForecasts(): Unit = runBlocking {
         val a=create("Личный"); val b=create("Семейный")
         val updates=Channel<FinanceSnapshot>(Channel.UNLIMITED)
         val reader=launch { financeSnapshots(use).collect { updates.send(it) } }
@@ -68,6 +68,7 @@ class FinanceIntegrationTest {
             use.changeLifecycle(b,LifecycleCommand.Archive,now.plusSeconds(3))
             await { it.forecast!!.charges.isEmpty() }
         } finally { reader.cancelAndJoin(); updates.close() }
+        Unit
     }
     @Test fun concurrentEditsCannotMixPriceLabelsEligibilityAndForecastSnapshots() = runBlocking {
         val row=create("Первый")

@@ -80,7 +80,7 @@ fun EditorScreen(vm: EditorViewModel, exitRequest: Int, userBackRequest: Int = 0
             }
         }
     }
-    LaunchedEffect(state.done) { if (state.done) { onSaved(vm.savedSubscriptionId); onBack() } }
+    LaunchedEffect(state.done) { if (state.done) { onSaved(vm.savedSubscriptionId); onExitAbandoned(); onBack() } }
     if (confirm) TrackerConfirmationDialog(
         title = stringResource(R.string.editor_unsaved), message = stringResource(R.string.editor_unsaved_explanation),
         confirmText = stringResource(R.string.editor_discard), dismissText = stringResource(R.string.editor_continue),
