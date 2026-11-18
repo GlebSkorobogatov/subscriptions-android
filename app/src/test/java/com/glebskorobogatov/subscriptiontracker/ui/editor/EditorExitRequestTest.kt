@@ -1,6 +1,7 @@
 package com.glebskorobogatov.subscriptiontracker.ui.editor
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class EditorExitRequestTest {
@@ -33,6 +34,25 @@ class EditorExitRequestTest {
             editorBackEffects(sheetOpen = true, external = true, saving = false, dirty = false))
         assertEquals(listOf(EditorBackEffect.ConfirmDirty), editorBackEffects(sheetOpen = false, external = true, saving = false, dirty = true))
         assertEquals(listOf(EditorBackEffect.Leave), editorBackEffects(sheetOpen = false, external = true, saving = false, dirty = false))
+    }
+
+    @Test fun openDialogKeepsTheFirstRequestId() {
+        val opened = ExitBinding().confirmExit(11L).arm(live = 11L)
+        val duringNewer = opened.confirmExit(12L)
+        assertEquals(11L, duringNewer.sequence)
+        assertEquals(11L, duringNewer.finish().let { opened.sequence })
+        assertNull(duringNewer.finish().sequence)
+    }
+
+    @Test fun secondRequestBeforeTheDialogComposesDoesNotReplaceTheFirst() {
+        val requested = ExitBinding().confirmExit(11L).confirmExit(12L)
+        assertEquals(11L, requested.arm(live = 12L).sequence)
+    }
+
+    @Test fun dialogOpenedWithoutANotificationDoesNotAdoptALaterRequest() {
+        val user = ExitBinding().arm(live = null)
+        assertNull(user.confirmExit(4L).sequence)
+        assertNull(user.finish().sequence)
     }
 
     @Test fun savingBackDoesNotCloseTheSheetOrTheEditor() {

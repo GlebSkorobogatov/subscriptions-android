@@ -38,7 +38,9 @@ import java.util.Locale
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EditorScreen(vm: EditorViewModel, exitRequest: Int, userBackRequest: Int = 0,
-    onSaved: (java.util.UUID) -> Unit = {}, onExitCancelled: () -> Unit = {}, onBack: () -> Unit) {
+    liveNotificationSequence: Long? = null, boundExitSequence: Long? = null,
+    onSaved: (java.util.UUID) -> Unit = {}, onExitArmed: (Long?) -> Unit = {},
+    onExitCancelled: () -> Unit = {}, onExitAbandoned: () -> Unit = {}, onBack: () -> Unit) {
     val state by vm.state.collectAsStateWithLifecycle()
     var confirm by rememberSaveable { mutableStateOf(false) }
     var picker by rememberSaveable { mutableStateOf<String?>(null) }
@@ -49,8 +51,12 @@ fun EditorScreen(vm: EditorViewModel, exitRequest: Int, userBackRequest: Int = 0
     fun applyBack(effects: List<EditorBackEffect>) {
         for (effect in effects) when (effect) {
             EditorBackEffect.CloseSheet -> { picker = null; catalogOpen = false }
-            EditorBackEffect.ConfirmDirty -> confirm = true
-            EditorBackEffect.Leave -> onBack()
+            EditorBackEffect.ConfirmDirty -> {
+                // Arm once, with the sequence captured when the exit was requested.
+                if (!confirm) onExitArmed(liveNotificationSequence)
+                confirm = true
+            }
+            EditorBackEffect.Leave -> { onExitAbandoned(); onBack() }
             EditorBackEffect.Ignore -> Unit
         }
     }
@@ -78,7 +84,9 @@ fun EditorScreen(vm: EditorViewModel, exitRequest: Int, userBackRequest: Int = 0
     if (confirm) TrackerConfirmationDialog(
         title = stringResource(R.string.editor_unsaved), message = stringResource(R.string.editor_unsaved_explanation),
         confirmText = stringResource(R.string.editor_discard), dismissText = stringResource(R.string.editor_continue),
-        onConfirm = { vm.discardImageDraft(); onBack() }, onDismiss = { confirm = false; onExitCancelled() })
+        onConfirm = { vm.discardImageDraft(); onExitAbandoned(); onBack() },
+        onDismiss = { confirm = false; onExitCancelled() },
+        tag = "editor_exit_${boundExitSequence?.toString() ?: "unbound"}_live_${liveNotificationSequence?.toString() ?: "none"}")
     EditorForm(state, vm::change, vm::save, { vm.reload(false) }, { vm.reload() }, { applyBack(backEffects(external = false)) }, { picker = it },
         onRemoveImage = vm::removeImage, onPickCatalog = { catalogOpen = true }, onChangeFrequency = vm::changeFrequency,
         onFrequencyMode = vm::setFrequencyMode)

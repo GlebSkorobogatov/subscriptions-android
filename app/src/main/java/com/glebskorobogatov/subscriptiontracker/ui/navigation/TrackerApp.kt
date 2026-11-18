@@ -73,6 +73,7 @@ fun TrackerApp(state: SubscriptionsUiState,onRetry: () -> Unit,owner: Subscripti
         else -> null
     }
     var exitRequest by remember { mutableIntStateOf(0) }
+    var exitBinding by remember { mutableStateOf(com.glebskorobogatov.subscriptiontracker.ui.editor.ExitBinding()) }
     var userBackRequest by remember { mutableIntStateOf(0) }
     val navigationScope = rememberCoroutineScope()
     val navigationSession = remember { NotificationNavigationSession() }
@@ -114,7 +115,10 @@ fun TrackerApp(state: SubscriptionsUiState,onRetry: () -> Unit,owner: Subscripti
                     latestSequence = { model.state.value.navigation?.sequence },
                     navigateHome = { openRoot(Subscriptions) },
                     navigateDetails = { id -> nav.navigate(SubscriptionDetails(id.toString())) { launchSingleTop = true } },
-                    confirmExit = { exitRequest++ },
+                    confirmExit = {
+                        exitBinding = exitBinding.confirmExit(request.sequence)
+                        exitRequest++
+                    },
                     consume = { model.consumed(it) },
                 )
             }
@@ -160,8 +164,15 @@ fun TrackerApp(state: SubscriptionsUiState,onRetry: () -> Unit,owner: Subscripti
                                 com.glebskorobogatov.subscriptiontracker.ui.editor.EditorViewModel(createSavedStateHandle(),owner,id)
                             } })
                         com.glebskorobogatov.subscriptiontracker.ui.editor.EditorScreen(model,exitRequest,userBackRequest,
+                            liveNotificationSequence = notificationState?.navigation?.sequence,
+                            boundExitSequence = exitBinding.sequence,
                             onSaved = { notifications?.afterSaved(it) },
-                            onExitCancelled = { notificationState?.navigation?.let { notifications?.consumed(it.sequence) } }) { nav.popBackStack() }
+                            onExitArmed = { live -> exitBinding = exitBinding.arm(live) },
+                            onExitCancelled = {
+                                exitBinding.sequence?.let { notifications?.consumed(it) }
+                                exitBinding = exitBinding.finish()
+                            },
+                            onExitAbandoned = { exitBinding = exitBinding.finish() }) { nav.popBackStack() }
                     }
                     composable<SubscriptionDetails> { backEntry ->
                         val id = UUID.fromString(backEntry.toRoute<SubscriptionDetails>().subscriptionId)

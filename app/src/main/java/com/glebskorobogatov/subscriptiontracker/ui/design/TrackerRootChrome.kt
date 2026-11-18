@@ -76,6 +76,26 @@ internal val LocalRootPanels = staticCompositionLocalOf<RootPanelController?> { 
 /** User preference from settings. System animator scale is read separately by trackerMotionDuration. */
 internal val LocalTrackerAnimations = staticCompositionLocalOf { true }
 internal val LocalRootContentPadding = staticCompositionLocalOf<PaddingValues> { PaddingValues(0.dp) }
+/** Spec that was current before the island inset. Horizontal containers restore it. */
+internal val LocalVerticalSafeBringIntoViewParent = staticCompositionLocalOf<BringIntoViewSpec?> { null }
+
+internal fun verticalSafeBringIntoViewDistance(parentDistance: Float, offset: Float, size: Float, containerSize: Float, inset: Float): Float {
+    if (inset <= 0f) return parentDistance
+    val safeEnd = (containerSize - inset).coerceAtLeast(0f)
+    val newOffset = offset - parentDistance
+    val newEnd = newOffset + size
+    val extra = if (size <= safeEnd && newEnd > safeEnd) newEnd - safeEnd else 0f
+    return parentDistance + extra
+}
+
+/** The island inset is vertical. A nested horizontal scroller must keep the spec from outside the chrome. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+internal fun WithoutVerticalSafeBringIntoView(content: @Composable () -> Unit) {
+    val parent = LocalVerticalSafeBringIntoViewParent.current
+    if (parent == null) content()
+    else CompositionLocalProvider(LocalBringIntoViewSpec provides parent, content = content)
+}
 
 @Composable internal fun BindRootList(tab: TrackerTab,state: LazyListState,canHide: Boolean = true) {
     BindRootViewport(tab,canHide) { RootViewport(state.canScrollBackward || state.canScrollForward,!state.canScrollBackward) }
@@ -167,18 +187,14 @@ internal fun TrackerRootChrome(selected: TrackerTab?,onSelect: (TrackerTab) -> U
             val safeBringIntoView = remember(bottom,parentBringIntoView) {
                 object : BringIntoViewSpec {
                     override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
-                        val base = parentBringIntoView.calculateScrollDistance(offset,size,containerSize)
-                        if(bottom <= 0) return base
-                        val safeEnd = (containerSize - bottom).coerceAtLeast(0f)
-                        val newOffset = offset - base
-                        val newEnd = newOffset + size
-                        val extra = if(size <= safeEnd && newEnd > safeEnd) newEnd - safeEnd else 0f
-                        return base + extra
+                        val base = parentBringIntoView.calculateScrollDistance(offset, size, containerSize)
+                        return verticalSafeBringIntoViewDistance(base, offset, size, containerSize, bottom.toFloat())
                     }
                 }
             }
-            CompositionLocalProvider(LocalRootPanels provides controller,LocalRootContentPadding provides insets,
-                LocalBringIntoViewSpec provides safeBringIntoView,content = content)
+            CompositionLocalProvider(LocalRootPanels provides controller, LocalRootContentPadding provides insets,
+                LocalBringIntoViewSpec provides safeBringIntoView,
+                LocalVerticalSafeBringIntoViewParent provides parentBringIntoView, content = content)
         }.map { it.measure(constraints) }
         layout(constraints.maxWidth,constraints.maxHeight) {
             body.forEach { it.placeRelative(0,0) }

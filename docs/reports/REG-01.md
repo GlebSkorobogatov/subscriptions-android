@@ -145,3 +145,75 @@ PR #11 не менялся. Merge, force push и ручной запуск Actio
 Новое падение `settingsReadErrorRetainsThemeAndRetryUsesStoredData` остаётся открытым и не должно считаться исправленным. Зависание `largeFontAndLandscapeKeepLabelsAndTheLastSection` тоже не снято.
 
 Остановиться до независимой приёмки. R5b не начинать.
+
+## REG-01-fix
+
+Исходный SHA: `d4bb6b0d35e85900d1c3fd0bc3443b52a6085416`. Среда ENV-01 не менялась. PR #11 не менялся. Новый PR не создавался. Merge, force push и ручной запуск Actions не выполнялись. R5b не начат. PERSONAL-READY не объявляется.
+
+### 1. Тема остаётся SYSTEM при уже записанном DARK
+
+Тест: `AccessibilityUiTest.settingsReadErrorRetainsThemeAndRetryUsesStoredData`.
+
+Это не сброс ViewModel и не потеря файла. `SettingsViewModel` уже собрал первый снимок `SYSTEM` и остался в `Content`. Новый коллектор `settings.first()` и отдельный коллектор, подписанный до записи, видели `DARK`. Повторная запись `LIGHT` в тот же уже работающий коллектор доходила. Значит, DataStore по-прежнему доставляет более новую версию, а теряется именно запись, чья версия не больше версии, захваченной первым `readState`.
+
+Механизм DataStore 1.1.7: поток `data` сразу отдаёт результат `readState`, затем отбрасывает состояния кэша с `version <= startState.version`. Запись `DARK`, пересекающаяся с этим первым чтением, получает версию не выше уже отданной. Уже запущенный коллектор её не видит. Коллектор, открытый после записи, читает кэш и получает `DARK`. Файл не очищается. `retryRead()` перед проверкой темы не вызывался.
+
+Исправление в производственном репозитории, не в тесте. `PreferencesSettingsRepository` после `edit` публикует записанный `Settings`. `SettingsPublication` отдаёт значения по порядку и не даёт устаревшему снимку хранилища заменить уже опубликованную запись. Поля по-прежнему меняются одним `edit`: тема, анимации и offsets не затирают друг друга.
+
+Сохранены проверки исходного теста: сохранённый `DARK` применяется до открытия экрана; ошибка чтения оставляет тему и не удаляет данные; повтор загружает сохранённое; после записи состояние обновляется без перезапуска. `systemThemeRespondsToConfigurationWhileExplicitChoicesRemainStable` в том же прогоне PASS.
+
+Файлы: `SettingsRepository.kt`, `SettingsUpdateTest.kt`. JVM-регрессия `staleStoreValueDoesNotReplaceAPublishedWrite`.
+
+### 2. Островок и горизонтальный график
+
+`BringIntoViewSpec.calculateScrollDistance` не знает ось. `verticalScroll` и `horizontalScroll` читают один `LocalBringIntoViewSpec`. Вычет высоты островка из `containerSize` на графике становится правым отступом: колонка, которая уже целиком видна у правого края, докручивается на высоту островка. Собственный `scrollTo` графика этот spec не использует, поэтому выбор месяца по `LaunchedEffect` не смещался. Смещение появляется у программного bring-into-view.
+
+`TrackerRootChrome` запоминает spec, который был до островка. `MonthlyForecastChart` возвращает его вокруг единственного `horizontalScroll`. Вертикальный доскролл по-прежнему поднимает ребёнка над островком. При `bottom == 0` формула не меняется.
+
+Файл: `TrackerRootChrome.kt`, `MonthlyForecastChart.kt`. Тест `HorizontalChartBringIntoViewTest.visibleChartColumnDoesNotScrollByTheIslandHeight`: колонка `2027-03` уже в окне 300 dp, inset 100 px, после `performScrollTo` горизонтальное смещение 0. PASS.
+
+### 3. Отмена старого диалога и новый запрос
+
+`consumed(sequence)` по-прежнему ничего не делает, если аргумент не равен текущей последовательности. Дефект был в вызове: `onExitCancelled` читал живой `notificationState` в момент нажатия. Если новая последовательность уже попала в композицию, отмена старого диалога вызывала `consumed` с новым id и снимала новый запрос.
+
+`ExitBinding` запоминает первую последовательность, которая открыла диалог. Повторный `confirmExit` её не подменяет. Диалог, открытый без уведомления, не принимает запрос, пришедший позже. «Продолжить редактирование» потребляет только связанный id. «Выйти без сохранения» связь снимает и запрос не потребляет: после выхода из редактора решение R4a открывает детали. `decide`, `applyNotificationNavigation` и контракт `consumed` не менялись.
+
+Детерминированные id: JVM `openDialogKeepsTheFirstRequestId` (11 остаётся при 12), `secondRequestBeforeTheDialogComposesDoesNotReplaceTheFirst`, `dialogOpenedWithoutANotificationDoesNotAdoptALaterRequest`. Инструментальный `olderExitDialogKeepsItsRequestIdWhenANewerNotificationIsPublished` ждёт, пока метка диалога сохраняет старый id, а живой id уже другой, затем продолжает редактирование и выходит. Открываются детали второй подписки.
+
+Прежний `cancellingAnOlderExitDoesNotDropANewerNotification` в первом прогоне после правки FAIL: диалог уже закрыт, детали сами не появляются, потому что редактор ещё открыт. Тест теперь выходит из редактора, если диалога нет. Повтор PASS. Первое падение не скрывается.
+
+Файлы: `EditorExitRequest.kt`, `EditorScreen.kt`, `TrackerApp.kt`, `TrackerComponents.kt`, `EditorExitRequestTest.kt`, `NotificationNavigationUiTest.kt`.
+
+### Проверки
+
+`git diff --check`: PASS, вывод пустой.
+
+`./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug :app:compileDebugAndroidTestKotlin --no-daemon --max-workers=2 --console=plain`: BUILD SUCCESSFUL in 49s. JVM: 394 теста, 46 файлов, 0 failures, 0 errors, 0 skipped. К прежним 390 добавлены четыре метода, названные выше. Lint пересобран в этом же запуске: 0 ошибок, 19 прежних предупреждений (`AndroidGradlePluginVersion` 2, `GradleDependency` 9, `NewerVersionAvailable` 6, `ObsoleteSdkInt` 1, `UnusedResources` 1).
+
+Полный Android-набор на API 31, `emulator-5554`. В исходниках 450 методов `@Test`: базовые 448 плюс `visibleChartColumnDoesNotScrollByTheIslandHeight` и `olderExitDialogKeepsItsRequestIdWhenANewerNotificationIsPublished`. Прогон 12m 35s. Зависаний не было: ни один метод не оставался текущим три минуты, дамп потоков не снимался.
+
+| | Количество |
+| --- | --- |
+| Методов `@Test` в исходниках | 450 |
+| Успешно | 437 |
+| Упало | 4 метода и отдельно `initializationError` класса |
+| Пропущено | 0 |
+| Не запускалось | 9 методов `FinanceIntegrationTest` |
+
+`FinanceIntegrationTest` не стартовал ни одним методом. JUnit отверг класс: `livePriceDateAndLifecycleChangesRecomputeOnlyActiveForecasts` не `void`, потому что `runBlocking` возвращает значение `await`. Это 9 методов. Раннер вместо них записал один `initializationError`. Файл в этом этапе не менялся.
+
+Четыре упавших метода и повторы, тем же сообщением:
+
+- `StorageBlockedUiTest.incompatibleFailureDrawsDespiteSettingsLoadingAndRemainsBlockedAfterRestoreAndNotification`. Тело проходит, `ActivityScenario.close` не дожидается `DESTROYED`, последнее состояние `PAUSED`. Изолированный повтор FAIL. Тот же FAIL на SHA `d4bb6b0` без правок REG-01-fix.
+- `ReminderSystemRegressionTest.expiredManualPaymentAndDeadlineNeverCreateCatchUpNotification`, строка 86, `assertTrue` без сообщения. Изолированный повтор FAIL. Тот же FAIL на `d4bb6b0`.
+- `StorageOpeningTest.committedWalSchemaIsInspectedAndNotIgnoredOrCheckpointedOnRejection` и `compatibleWalCommittedRowsSurvivePreflightAndRoomOpen`. Оба падают на `execSQL("PRAGMA wal_autocheckpoint=0")` до вызова `TrackerDatabaseFactory.open`: `SQLiteException`, code 0, запрос нельзя выполнить через `execSQL`. Изолированный повтор обоих FAIL. Код Room и эти тесты не менялись.
+
+Это прежние дефекты прогона, не регрессия REG-01-fix. В этом этапе они не исправлялись.
+
+API 33, TalkBack и process death: NOT RUN.
+
+### Что сохранено и граница
+
+Сохранены Room, денежная и календарная арифметика, AssetStore, Gradle, зависимости, контракт `consumed(sequence)` и вертикальный доскролл над островком. Восемь регрессий REG-01 не переоткрывались.
+
+Остановиться до независимой приёмки ChatGPT. R5b не начинать. PERSONAL-READY не объявлять.

@@ -136,16 +136,53 @@ class NotificationNavigationUiTest {
             scenario.followActivityIntent()
             compose.waitForIdle()
             compose.onNodeWithText("Продолжить редактирование").performClick()
-            compose.waitUntil(5_000) {
-                compose.onAllNodesWithText("Выйти без сохранения").fetchSemanticsNodes().isNotEmpty() ||
-                    compose.onAllNodesWithTag("details_${other.id}").fetchSemanticsNodes().isNotEmpty()
+            compose.waitForIdle()
+            // Continuing the older dialog leaves the editor open. The newer request stays pending until the user leaves.
+            if (compose.onAllNodesWithText("Выйти без сохранения").fetchSemanticsNodes().isEmpty()) {
+                compose.onNodeWithContentDescription("Назад").performClick()
             }
-            if(compose.onAllNodesWithText("Выйти без сохранения").fetchSemanticsNodes().isNotEmpty()) {
-                compose.onNodeWithText("Выйти без сохранения").performClick()
-            }
+            compose.onNodeWithText("Выйти без сохранения").performClick()
             compose.waitUntil(5_000) { compose.onAllNodesWithTag("details_${other.id}").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithTag("details_${sub.id}").assertDoesNotExist()
         }
+    }
+
+    @Test fun olderExitDialogKeepsItsRequestIdWhenANewerNotificationIsPublished() {
+        val date = LocalDate.now().plusDays(5)
+        val other = sub.copy(id = UUID.randomUUID(), name = "Третья цель уведомления", accountLabel = null,
+            anchorYear = date.year, anchorMonth = date.monthValue, anchorDay = date.dayOfMonth)
+        runBlocking(Dispatchers.IO) {
+            val db = TrackerDatabaseFactory.open(context, dataset)
+            try { db.subscriptions().insert(other) } finally { db.close() }
+        }
+        ActivityScenario.launch<IsolatedMainActivity>(intent().setAction(Intent.ACTION_MAIN).setData(null)).whileAlive { scenario ->
+            draft(scenario)
+            compose.waitUntil(5_000) { exitRequestTags().any { it.matches(Regex("editor_exit_\\d+_live_\\d+")) } }
+            val bound = Regex("editor_exit_(\\d+)_live_\\d+").find(exitRequestTags().single())!!.groupValues[1]
+            scenario.onActivity {
+                it.startActivity(intent(NotificationRoute(dataset, other.id).identity)
+                    .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP))
+            }
+            scenario.followActivityIntent()
+            compose.waitUntil(5_000) {
+                val tag = exitRequestTags().singleOrNull() ?: return@waitUntil false
+                tag.startsWith("editor_exit_${bound}_live_") && !tag.endsWith("_live_$bound") && !tag.endsWith("_live_none")
+            }
+            compose.onNodeWithText("Продолжить редактирование").performClick()
+            compose.waitForIdle()
+            if (compose.onAllNodesWithText("Выйти без сохранения").fetchSemanticsNodes().isEmpty()) {
+                compose.onNodeWithContentDescription("Назад").performClick()
+            }
+            compose.onNodeWithText("Выйти без сохранения").performClick()
+            compose.waitUntil(5_000) { compose.onAllNodesWithTag("details_${other.id}").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("details_${sub.id}").assertDoesNotExist()
+        }
+    }
+
+    private fun exitRequestTags(): List<String> = compose.onAllNodes(androidx.compose.ui.test.SemanticsMatcher("exit request tag") { node ->
+        node.config.getOrElse(androidx.compose.ui.semantics.SemanticsProperties.TestTag) { "" }.startsWith("editor_exit_")
+    }, useUnmergedTree = true).fetchSemanticsNodes().map {
+        it.config[androidx.compose.ui.semantics.SemanticsProperties.TestTag]
     }
 
     @Test fun notificationDuringEditorRequiresDiscardAndKeepCancelsPendingNavigation() {

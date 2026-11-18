@@ -34,6 +34,22 @@ class SettingsUpdateTest {
         assertTrue(settingsChangeReconcilesReminders(kept,kept.copy(renewalOffsets = setOf(0))))
     }
 
+    @Test fun staleStoreValueDoesNotReplaceAPublishedWrite() {
+        val publication = SettingsPublication()
+        val dark = Settings(theme = Theme.DARK, renewalOffsets = setOf(3, 1), animationsEnabled = true)
+        val light = dark.copy(theme = Theme.LIGHT, animationsEnabled = false)
+        assertEquals(Settings(), publication.stored(Settings()))
+        assertEquals(dark, publication.published(dark))
+        assertNull(publication.stored(Settings()))
+        assertEquals(dark, publication.stored(dark))
+        assertEquals(light, publication.published(light))
+        assertNull(publication.stored(dark))
+        val caughtUp = publication.stored(light)
+        assertEquals(Theme.LIGHT, caughtUp?.theme)
+        assertFalse(caughtUp!!.animationsEnabled)
+        assertEquals(setOf(3, 1), caughtUp.renewalOffsets)
+    }
+
     @Test fun trackerMotionIsInstantWhenDisabledOrSystemScaleIsZero() {
         assertEquals(220,TrackerMotion.durationMillis(true,1f))
         assertEquals(0,TrackerMotion.durationMillis(false,1f))

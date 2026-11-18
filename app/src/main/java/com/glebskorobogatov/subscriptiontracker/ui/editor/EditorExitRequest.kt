@@ -33,6 +33,17 @@ internal enum class EditorBackEffect {
  * Ordinary Back stops after closing a sheet.
  * An external exit, such as a notification, closes that sheet and then continues.
  */
+/**
+ * The exit dialog keeps the first sequence that armed it.
+ * A newer notification must not replace that id, and a dialog opened with no notification
+ * must not adopt one that arrives while it is showing.
+ */
+internal data class ExitBinding(val armed: Boolean = false, val requested: Long? = null, val sequence: Long? = null) {
+    fun confirmExit(incoming: Long): ExitBinding = if (armed || requested != null) this else copy(requested = incoming)
+    fun arm(live: Long?): ExitBinding = if (armed) this else copy(armed = true, sequence = requested ?: live, requested = null)
+    fun finish(): ExitBinding = ExitBinding()
+}
+
 internal fun editorBackEffects(sheetOpen: Boolean, external: Boolean, saving: Boolean, dirty: Boolean): List<EditorBackEffect> {
     if (saving) return listOf(EditorBackEffect.Ignore)
     if (!external && sheetOpen) return listOf(EditorBackEffect.CloseSheet)
