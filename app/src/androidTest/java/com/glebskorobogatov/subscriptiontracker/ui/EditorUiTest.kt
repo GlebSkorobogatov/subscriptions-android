@@ -10,7 +10,7 @@ class EditorUiTest {
     @get:Rule val compose = createAndroidComposeRule<IsolatedMainActivity>()
     @Test fun newSubscriptionOffersIconsAndPhotoPickerWithoutGalleryPermission() {
         open()
-        compose.onNodeWithText("Выбрать значок").assertIsDisplayed().performClick()
+        compose.onNodeWithText("Изменить значок").assertIsDisplayed().performClick()
         compose.onNodeWithTag("catalog_pick_image").assertIsDisplayed().assertHasClickAction()
         compose.onNodeWithText("Закрыть каталог").performClick()
         compose.onNodeWithText("Убрать оформление").assertDoesNotExist()
@@ -21,7 +21,7 @@ class EditorUiTest {
         compose.waitUntil(5000) { compose.onAllNodesWithTag("field_name").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Добавление подписки").assertIsDisplayed()
     }
-    private fun save() { compose.onNodeWithText("Сохранить").performScrollTo().performClick() }
+    private fun save() { compose.onNodeWithText("Сохранить").performScrollToIfScrollable().performClick() }
     @Test fun createAndOpenEditPreservingUuid() {
         open()
         compose.onNodeWithTag("field_name").performTextInput("Тестовый сервис")
@@ -45,7 +45,7 @@ class EditorUiTest {
         open()
         compose.onNodeWithTag("field_name").performTextInput("Одна запись")
         compose.onNodeWithTag("field_amount").performTextInput("100")
-        compose.onNodeWithText("Сохранить").performScrollTo().performTouchInput { doubleClick() }
+        compose.onNodeWithText("Сохранить").performScrollToIfScrollable().performTouchInput { doubleClick() }
         compose.waitUntil(5000) { compose.onAllNodesWithTag("subscription_editor").fetchSemanticsNodes().isEmpty() }
         compose.onNodeWithTag("subscriptions_screen").performScrollToNode(hasText("Одна запись"))
         compose.onAllNodesWithText("Одна запись").assertCountEquals(1)
@@ -53,7 +53,7 @@ class EditorUiTest {
     @Test fun emptyNameAndMoneyKeepEditorOpen() {
         open(); save()
         compose.onNodeWithTag("subscription_editor").assertExists()
-        compose.onNodeWithTag("field_name").performScrollTo().assertExists()
+        compose.onNodeWithTag("field_name").performScrollToIfScrollable().assertExists()
     }
     @Test fun dirtyFormWarnsOnBackAndCanContinue() {
         open(); compose.onNodeWithTag("field_name").performTextInput("Черновик")

@@ -11,6 +11,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.*
 import com.glebskorobogatov.subscriptiontracker.app.IsolatedMainActivity
+import com.glebskorobogatov.subscriptiontracker.ui.performScrollToIfScrollable
 import java.time.LocalDate
 import org.junit.*
 import org.junit.Assert.*
@@ -31,7 +32,7 @@ class NotificationPermissionUiTest {
             compose.onNodeWithTag("field_name").performTextInput("Проверка разрешения")
             compose.onNodeWithTag("field_amount").performTextInput("399")
             compose.onNodeWithTag("field_date").performScrollTo().performTextReplacement(LocalDate.now().plusDays(3).toString())
-            compose.onNodeWithText("Сохранить").performScrollTo().performClick()
+            compose.onNodeWithText("Сохранить").performScrollToIfScrollable().performClick()
             if (Build.VERSION.SDK_INT >= 33) {
                 assertEquals(PackageManager.PERMISSION_DENIED,context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS))
                 compose.waitUntil(5_000) { compose.onAllNodesWithText("Подписка сохранена.",substring=true).fetchSemanticsNodes().isNotEmpty() }

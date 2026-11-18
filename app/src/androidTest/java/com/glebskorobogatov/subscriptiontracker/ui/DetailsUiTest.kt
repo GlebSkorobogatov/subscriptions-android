@@ -18,7 +18,7 @@ class DetailsUiTest {
             compose.onNodeWithText("Дополнительно").performScrollTo().performClick()
             compose.onNodeWithTag("field_start").performScrollTo().performTextInput(java.time.LocalDate.now().minusDays(1).toString())
         }
-        compose.onNodeWithText("Сохранить").performScrollTo().performClick()
+        compose.onNodeWithText("Сохранить").performScrollToIfScrollable().performClick()
         compose.waitUntil(5000) { compose.onAllNodesWithTag("subscription_editor").fetchSemanticsNodes().isEmpty() }
         compose.onNodeWithTag("subscriptions_screen").performScrollToNode(hasText("Сервис D03"))
         compose.onNodeWithText("Сервис D03").performClick()

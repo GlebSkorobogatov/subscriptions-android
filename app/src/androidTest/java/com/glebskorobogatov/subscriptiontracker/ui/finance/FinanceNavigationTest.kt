@@ -1,6 +1,7 @@
 package com.glebskorobogatov.subscriptiontracker.ui.finance
 
 import com.glebskorobogatov.subscriptiontracker.ui.openArchive
+import com.glebskorobogatov.subscriptiontracker.ui.performScrollToIfScrollable
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import com.glebskorobogatov.subscriptiontracker.app.IsolatedMainActivity
@@ -26,7 +27,7 @@ class FinanceNavigationTest {
         compose.waitUntil(5000) { compose.onAllNodesWithTag("field_name").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("field_name").performTextInput("Учебная подписка")
         compose.onNodeWithTag("field_amount").performTextInput("499")
-        compose.onNodeWithText("Сохранить").performScrollTo().performClick()
+        compose.onNodeWithText("Сохранить").performScrollToIfScrollable().performClick()
         compose.waitUntil(5000) { compose.onAllNodesWithTag("subscription_editor").fetchSemanticsNodes().isEmpty() }
         compose.onNodeWithTag("tab_finance").performClick()
         forecastReady(); scrollTo("finance_total")
@@ -54,7 +55,7 @@ class FinanceNavigationTest {
         compose.waitUntil(5000) { compose.onAllNodesWithTag("field_name").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("field_name").performTextInput("График — учебный сервис")
         compose.onNodeWithTag("field_amount").performTextInput("100")
-        compose.onNodeWithText("Сохранить").performScrollTo().performClick()
+        compose.onNodeWithText("Сохранить").performScrollToIfScrollable().performClick()
         compose.waitUntil(5000) { compose.onAllNodesWithTag("subscription_editor").fetchSemanticsNodes().isEmpty() }
         compose.onNodeWithTag("tab_finance").performClick(); forecastReady()
         compose.onNodeWithTag("finance_horizon_12").assertDoesNotExist()

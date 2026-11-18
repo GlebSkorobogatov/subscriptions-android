@@ -45,19 +45,34 @@ class EditorViewModel(private val saved: SavedStateHandle, private val owner: Su
         if (state.value.saving || key !in FIELD_KEYS) return
         if (state.value.fields[key] == value) return
         var fields = state.value.fields + (key to value)
-        if (key in setOf("date", "unit", "count")) {
-            val before = saved.get<HashMap<String,String>>("scheduleDraft")
-                ?: HashMap(state.value.fields).also { saved["scheduleDraft"] = it }
-            fields = fields - setOf("anchorDay", "start", "periodDue")
-            // Keep refinements with their draft series. A temporary edit followed by a return
-            // restores them, including an explicit clear, without changing other edited fields.
-            if (listOf("date", "unit", "count").all { fields[it] == before[it] }) {
-                fields = fields + before.filterKeys { it in setOf("anchorDay", "start", "periodDue") }
-                saved.remove<HashMap<String,String>>("scheduleDraft")
-            }
-        }
+        if (key in setOf("date", "unit", "count")) fields = reconcileSchedule(fields)
         if (key == "start") fields = if (value.isBlank()) fields - "periodDue"
             else fields + ("periodDue" to fields.getValue("date"))
+        publish(fields)
+    }
+    /** One schedule observation for a preset or custom pair. Sequential unit-then-count would publish an intermediate series. */
+    fun changeFrequency(unit: String, count: String) {
+        if (state.value.saving || unit !in FREQUENCY_UNITS) return
+        val parsed = count.toIntOrNull() ?: return
+        if (parsed < 1) return
+        val canonical = parsed.toString()
+        val current = state.value.fields
+        if (current["unit"] == unit && current["count"] == canonical) return
+        publish(reconcileSchedule(current + ("unit" to unit) + ("count" to canonical)))
+    }
+    private fun reconcileSchedule(fields: Map<String,String>): Map<String,String> {
+        val before = saved.get<HashMap<String,String>>("scheduleDraft")
+            ?: HashMap(state.value.fields).also { saved["scheduleDraft"] = it }
+        var next = fields - setOf("anchorDay", "start", "periodDue")
+        // Keep refinements with their draft series. A temporary edit followed by a return
+        // restores them, including an explicit clear, without changing other edited fields.
+        if (listOf("date", "unit", "count").all { next[it] == before[it] }) {
+            next = next + before.filterKeys { it in setOf("anchorDay", "start", "periodDue") }
+            saved.remove<HashMap<String,String>>("scheduleDraft")
+        }
+        return next
+    }
+    private fun publish(fields: Map<String,String>) {
         saved["fields"] = HashMap(fields)
         mutable.value = state.value.copy(fields = fields, dirty = true, errors = emptyMap(), error = null)
     }
@@ -215,6 +230,7 @@ class EditorViewModel(private val saved: SavedStateHandle, private val owner: Su
     private class ScheduleFieldError(val field: String) : IllegalArgumentException()
     companion object {
         private val FIELD_KEYS = setOf("name", "label", "amount", "unit", "count", "date", "displayedDue", "anchorDay", "start", "periodDue")
+        private val FREQUENCY_UNITS = setOf("DAY", "WEEK", "MONTH", "YEAR")
         private inline fun <T> scheduleField(key: String, block: () -> T): T = try { block() }
             catch (error: CancellationException) { throw error }
             catch (_: Exception) { throw ScheduleFieldError(key) }

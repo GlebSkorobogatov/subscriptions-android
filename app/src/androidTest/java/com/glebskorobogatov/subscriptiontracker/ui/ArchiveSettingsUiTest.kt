@@ -42,7 +42,7 @@ class ArchiveSettingsUiTest {
         compose.onNodeWithTag("field_amount").performTextInput("499")
         compose.onNodeWithText("Дополнительно").performScrollTo().performClick()
         compose.onNodeWithTag("field_label").performScrollTo().performTextInput(label)
-        compose.onNodeWithText("Сохранить").performScrollTo().performClick()
+        compose.onNodeWithText("Сохранить").performScrollToIfScrollable().performClick()
         compose.waitUntil(5000) { compose.onAllNodesWithTag("subscription_editor").fetchSemanticsNodes().isEmpty() }
         compose.onNodeWithTag("subscriptions_screen").performScrollToNode(hasText("Архив D05"))
         compose.onNodeWithText("Архив D05").performClick()

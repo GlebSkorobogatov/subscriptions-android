@@ -6,6 +6,7 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.test.core.app.*
 import com.glebskorobogatov.subscriptiontracker.app.IsolatedMainActivity
+import com.glebskorobogatov.subscriptiontracker.ui.performScrollToIfScrollable
 import com.glebskorobogatov.subscriptiontracker.data.room.*
 import com.glebskorobogatov.subscriptiontracker.domain.subscription.*
 import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.*
@@ -174,7 +175,7 @@ class NotificationNavigationUiTest {
             compose.waitUntil(5_000) { compose.onAllNodesWithTag("field_name").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithTag("field_name").performTextInput("Сохранённая учебная")
             compose.onNodeWithTag("field_amount").performTextInput("150")
-            compose.onNodeWithText("Сохранить").performScrollTo().performClick()
+            compose.onNodeWithText("Сохранить").performScrollToIfScrollable().performClick()
             scenario.onActivity { it.startActivity(intent().addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)) }
             scenario.followActivityIntent()
             details()

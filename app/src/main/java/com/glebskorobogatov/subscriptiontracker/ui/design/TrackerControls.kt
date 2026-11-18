@@ -1,5 +1,6 @@
 package com.glebskorobogatov.subscriptiontracker.ui.design
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -81,9 +82,22 @@ fun TrackerSurface(modifier: Modifier = Modifier, role: TrackerSurfaceRole = Tra
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TrackerBottomSheet(onDismiss: () -> Unit, modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
-    ModalBottomSheet(onDismissRequest = onDismiss,modifier = modifier,containerColor = TrackerDesign.colors.surfaceRaised,
-        contentColor = TrackerDesign.colors.textPrimary,shape = TrackerShapes.card,tonalElevation = 0.dp) {
-        Column(Modifier.fillMaxWidth().imePadding().verticalScroll(rememberScrollState()).padding(TrackerDimensions.modalPadding),content = content)
+fun TrackerBottomSheet(onDismiss: () -> Unit, modifier: Modifier = Modifier, skipPartiallyExpanded: Boolean = false,
+    footer: (@Composable ColumnScope.() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = skipPartiallyExpanded)
+    ModalBottomSheet(onDismissRequest = onDismiss,modifier = modifier,sheetState = sheetState,
+        containerColor = TrackerDesign.colors.surfaceRaised,contentColor = TrackerDesign.colors.textPrimary,
+        shape = TrackerShapes.card,tonalElevation = 0.dp) {
+        if (footer == null) {
+            Column(Modifier.fillMaxWidth().imePadding().verticalScroll(rememberScrollState()).padding(TrackerDimensions.modalPadding),content = content)
+        } else {
+            Column(Modifier.fillMaxWidth().fillMaxHeight().imePadding()) {
+                Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(TrackerDimensions.modalPadding),content = content)
+                Column(Modifier.fillMaxWidth().background(TrackerDesign.colors.background)
+                    .padding(horizontal = TrackerDimensions.modalPadding)
+                    .padding(top = TrackerDimensions.itemSpacing, bottom = TrackerDimensions.modalPadding),
+                    verticalArrangement = Arrangement.spacedBy(TrackerDimensions.itemSpacing),content = footer)
+            }
+        }
     }
 }

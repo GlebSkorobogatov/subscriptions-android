@@ -13,6 +13,7 @@ import androidx.compose.ui.text.TextLayoutResult
 import androidx.core.graphics.ColorUtils
 import com.glebskorobogatov.subscriptiontracker.R
 import com.glebskorobogatov.subscriptiontracker.ui.openSettingsOffsets
+import com.glebskorobogatov.subscriptiontracker.ui.performScrollToIfScrollable
 import com.glebskorobogatov.subscriptiontracker.data.settings.Theme
 import com.glebskorobogatov.subscriptiontracker.ui.design.*
 import com.glebskorobogatov.subscriptiontracker.ui.editor.*
@@ -47,11 +48,11 @@ class CrossScreenDesignUiTest {
         val picked = mutableListOf<String>()
         compose.setContent { TrackerTheme { EditorForm(DetailsEditorPreviewData.editor,{_,_ ->},{},{},{},{},{ picked += it }) } }
         compose.onNodeWithTag("editor_extra").performScrollTo().performClick()
-        for((key,label) in listOf("date" to R.string.editor_date,"start" to R.string.editor_start,"end" to R.string.editor_end)) {
+        for((key,label) in listOf("date" to R.string.editor_date,"start" to R.string.editor_start)) {
             val description = compose.activity.getString(R.string.editor_pick_date_for,text(label))
             compose.onNodeWithTag("date_picker_$key").performScrollTo().assertContentDescriptionEquals(description).performClick()
         }
-        compose.runOnIdle { assertEquals(listOf("date","start","end"),picked) }
+        compose.runOnIdle { assertEquals(listOf("date","start"),picked) }
     }
     @Test fun independentOverrideControlsAnnounceEventAndDayWithoutChangingOtherSet() {
         val state = mutableStateOf(DetailsEditorPreviewData.editor)
@@ -118,7 +119,7 @@ class CrossScreenDesignUiTest {
             compose.runOnIdle { case.value = Case(width,font) }
             compose.onNodeWithTag("field_amount").performScrollTo().assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.Error))
             targets(density,"editor $width/$font")
-            compose.onNodeWithText("Сохранить").performScrollTo().assertIsDisplayed().assertHasClickAction()
+            compose.onNodeWithText("Сохранить").performScrollToIfScrollable().assertIsDisplayed().assertHasClickAction()
         }
     }
     @Test fun systemThemeChangesConfigurationWithoutChangingExplicitThemes() {

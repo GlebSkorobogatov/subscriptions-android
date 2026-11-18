@@ -32,14 +32,14 @@ class DetailsEditorRedesignUiTest {
         val detail = data.details.data!!.copy(subscription = row,period = SubscriptionPeriod(java.time.LocalDate.of(2027,3,31),15,0.5))
         compose.setContent { DetailsDemo(data.details.copy(data = detail)) }
         compose.onAllNodesWithText("Доступ до 2027-03-31 (не включая этот день)",useUnmergedTree = true).assertCountEquals(1)
-        compose.onNodeWithText("Доступ до 2027-03-31 (не включая этот день)").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Доступ до 2027-03-31 (не включая этот день)").performScrollToIfScrollable().assertIsDisplayed()
         compose.onNodeWithTag("bottom_navigation").assertDoesNotExist()
     }
     @Test fun unknownAccessDoesNotInventDateOrProgress() {
         val detail = data.details.data!!.copy(subscription = data.row.copy(state = SubscriptionState.CANCELLED),
             period = SubscriptionPeriod(null,null,null))
         compose.setContent { DetailsDemo(data.details.copy(data = detail),Theme.DARK) }
-        compose.onNodeWithText("Дата окончания доступа неизвестна").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Дата окончания доступа неизвестна").performScrollToIfScrollable().assertIsDisplayed()
         compose.onNodeWithTag("details_progress",useUnmergedTree = true).assertDoesNotExist()
     }
     @Test fun activeDetailsShowPlanAndUseSuppliedFraction() {
@@ -57,7 +57,7 @@ class DetailsEditorRedesignUiTest {
         compose.openDetailsManagement()
         for ((label,action) in listOf("Отменить подписку" to DetailsAction.Disable,
             "Архивировать" to DetailsAction.Archive,"Удалить подписку" to DetailsAction.Delete)) {
-            compose.onNodeWithText(label).performScrollTo().assertHasClickAction().performClick()
+            compose.onNodeWithText(label).performScrollToIfScrollable().assertHasClickAction().performClick()
             compose.runOnIdle { assertEquals(action,actions.last()) }
         }
     }
@@ -66,9 +66,9 @@ class DetailsEditorRedesignUiTest {
         val actions=mutableListOf<DetailsAction>()
         compose.setContent { DetailsDemo(state,onAction={ actions+=it }) }
         compose.openDetailsManagement()
-        compose.onNodeWithText("Изменить дату окончания доступа").performScrollTo().performClick()
+        compose.onNodeWithText("Изменить дату окончания доступа").performScrollToIfScrollable().performClick()
         compose.runOnIdle { assertEquals(listOf(DetailsAction.EditEnd),actions) }
-        compose.onNodeWithText("Возобновить подписку").performScrollTo().assertHasClickAction()
+        compose.onNodeWithText("Возобновить подписку").performScrollToIfScrollable().assertHasClickAction()
         compose.onNodeWithText("Проблема с оплатой").assertDoesNotExist()
         compose.onNodeWithText("Подтвердить оплату").assertDoesNotExist()
     }
@@ -77,7 +77,7 @@ class DetailsEditorRedesignUiTest {
             period = SubscriptionPeriod(null,null,null))
         compose.setContent { DetailsDemo(data.details.copy(data = detail)) }
         compose.openDetailsManagement()
-        compose.onNodeWithText("Возобновить подписку").performScrollTo().assertHasClickAction()
+        compose.onNodeWithText("Возобновить подписку").performScrollToIfScrollable().assertHasClickAction()
         compose.onNodeWithText("Подтвердить оплату").assertDoesNotExist()
     }
     @Test fun progressOperationBlocksBackEditAndPayment() {
@@ -92,18 +92,18 @@ class DetailsEditorRedesignUiTest {
         compose.setContent { DetailsDemo(state.value,onRefresh = { retries++ }) }
         compose.onNodeWithText("Подписка не найдена").assertDoesNotExist()
         compose.runOnIdle { state.value = state.value.copy(phase = DetailsPhase.Error) }
-        compose.onNodeWithText("Повторить загрузку").performScrollTo().performClick()
+        compose.onNodeWithText("Повторить загрузку").performScrollToIfScrollable().performClick()
         compose.runOnIdle { assertEquals(1,retries); state.value = state.value.copy(phase = DetailsPhase.NotFound) }
         compose.onNodeWithText("Подписка не найдена").assertIsDisplayed()
-        compose.onNodeWithText("Вернуться к подпискам").performScrollTo().assertHasClickAction()
+        compose.onNodeWithText("Вернуться к подпискам").performScrollToIfScrollable().assertHasClickAction()
     }
     @Test fun accountLabelVisibleAndReminderOverridesStayIndependent() {
         val state = mutableStateOf(data.editor)
         compose.setContent { EditorDemo(state.value,onChange = { key,value -> state.value = state.value.copy(fields = state.value.fields + (key to value)) }) }
-        compose.onNodeWithTag("field_label").performScrollTo().assertIsDisplayed().assertTextContains("Семейный")
+        compose.onNodeWithTag("field_label").performScrollToIfScrollable().assertIsDisplayed().assertTextContains("Семейный")
         compose.onNodeWithTag("field_anchorDay").assertDoesNotExist()
-        compose.onNodeWithTag("editor_extra").performScrollTo().performClick()
-        compose.onNodeWithTag("field_anchorDay").performScrollTo().assertTextContains("31")
+        compose.onNodeWithTag("editor_extra").performScrollToIfScrollable().performClick()
+        compose.onNodeWithTag("field_anchorDay").performScrollToIfScrollable().assertTextContains("31")
         compose.onNodeWithTag("editor_inherit_PAYMENT").assertDoesNotExist()
         compose.onNodeWithTag("field_currency").assertDoesNotExist()
         compose.onNodeWithTag("field_lead").assertDoesNotExist()
@@ -111,11 +111,11 @@ class DetailsEditorRedesignUiTest {
     @Test fun dateEditExplainsWholeSeriesAndAnchorValidationRemainsVisible() {
         val state=mutableStateOf(data.editor)
         compose.setContent { EditorDemo(state.value) }
-        compose.onNodeWithText("Изменение даты или периодичности обновит всю будущую серию.").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Изменение даты или периодичности обновит всю будущую серию.").performScrollToIfScrollable().assertIsDisplayed()
         compose.onNodeWithText("Изменить весь будущий график").assertDoesNotExist()
-        compose.onNodeWithTag("editor_extra").performScrollTo().performClick()
+        compose.onNodeWithTag("editor_extra").performScrollToIfScrollable().performClick()
         compose.runOnIdle { state.value=state.value.copy(errors=mapOf("anchorDay" to R.string.editor_invalid)) }
-        compose.onNodeWithTag("field_anchorDay").performScrollTo().assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.Error))
+        compose.onNodeWithTag("field_anchorDay").performScrollToIfScrollable().assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.Error))
     }
     @Test fun fieldErrorsAndSavingPreserveValuesAndDisableSubmission() {
         val state = mutableStateOf(data.editor.copy(errors = mapOf("name" to R.string.editor_invalid)))
@@ -123,7 +123,7 @@ class DetailsEditorRedesignUiTest {
         compose.onNodeWithTag("field_name").assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.Error)).assertTextContains("Видеосервис")
         compose.runOnIdle { state.value = state.value.copy(saving = true) }
         compose.onNodeWithTag("field_name").assertIsNotEnabled().assertTextContains("Видеосервис")
-        compose.onNodeWithText("Сохраняем…").performScrollTo().assertIsNotEnabled()
+        compose.onNodeWithText("Сохраняем…").performScrollToIfScrollable().assertIsNotEnabled()
     }
     @Test fun largeFontInputAndSaveRemainReachable() {
         val state = mutableStateOf(data.editor)
@@ -132,10 +132,10 @@ class DetailsEditorRedesignUiTest {
             EditorDemo(state.value,Theme.DARK,onChange = { key,value -> state.value = state.value.copy(fields = state.value.fields + (key to value)) },onSave = { saved++ })
         } }
         compose.onNodeWithText("Редактирование подписки").assertIsDisplayed()
-        compose.onNodeWithTag("field_name").performScrollTo().performClick()
+        compose.onNodeWithTag("field_name").performScrollToIfScrollable().performClick()
         compose.onNodeWithTag("field_name").performTextReplacement("Длинное название семейной подписки")
         compose.onNodeWithTag("field_name").assertIsFocused().assertTextContains("Длинное название семейной подписки")
-        compose.onNodeWithText("Сохранить").performScrollTo().assertIsDisplayed().performClick()
+        compose.onNodeWithText("Сохранить").performScrollToIfScrollable().assertIsDisplayed().performClick()
         compose.runOnIdle { assertEquals(1,saved) }
     }
     @Test fun captureLightDetailsAndEditor() = capture(Theme.LIGHT,"light")
@@ -159,9 +159,13 @@ class DetailsEditorRedesignUiTest {
         compose.setContent { EditorDemo(data.editor.copy(scheduleEditable=false)) }
         compose.onNodeWithTag("field_name").assertIsEnabled()
         compose.onNodeWithTag("field_amount").assertIsEnabled()
-        compose.onNodeWithTag("field_count").performScrollTo().assertIsNotEnabled()
-        compose.onNodeWithTag("field_date").performScrollTo().assertIsNotEnabled()
-        compose.onNodeWithTag("editor_extra").performScrollTo().performClick()
-        compose.onNodeWithTag("field_start").performScrollTo().assertIsNotEnabled()
+        compose.onNodeWithTag("frequency_month").assertIsNotEnabled()
+        compose.onNodeWithTag("frequency_custom").assertIsNotEnabled()
+        compose.onNodeWithTag("field_count").assertDoesNotExist()
+        compose.onNodeWithTag("field_date").performScrollToIfScrollable().assertIsNotEnabled()
+        compose.onNodeWithTag("date_picker_date").assertIsNotEnabled()
+        compose.onNodeWithTag("editor_extra").performScrollToIfScrollable().performClick()
+        compose.onNodeWithTag("field_start").performScrollToIfScrollable().assertIsNotEnabled()
+        compose.onNodeWithTag("field_anchorDay").assertIsNotEnabled()
     }
 }

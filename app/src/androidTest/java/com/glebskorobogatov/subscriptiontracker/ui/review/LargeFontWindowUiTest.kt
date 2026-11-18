@@ -85,8 +85,7 @@ class LargeFontWindowUiTest {
                     CatalogPickerDialog(selected, {}, { id -> selected = id })
                 }
             }
-            compose.onNodeWithTag("catalog_grid").performScrollToIndex(11)
-            val item = compose.onNodeWithTag("catalog_generic-other").assertIsDisplayed().assertHasClickAction()
+            val item = compose.onNodeWithTag("catalog_generic-other").performScrollTo().assertIsDisplayed().assertHasClickAction()
             assertTrue(item.fetchSemanticsNode().touchBoundsInRoot.width >= 48 * density - 1)
             assertTrue(item.fetchSemanticsNode().touchBoundsInRoot.height >= 48 * density - 1)
             item.performClick().assertIsSelected()

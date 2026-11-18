@@ -102,16 +102,18 @@ class SubscriptionsUiTest {
         compose.onNodeWithTag("subscription_editor").assertIsDisplayed()
         compose.onNodeWithText("Добавление подписки").assertIsDisplayed()
         compose.waitUntil(5000) { compose.onAllNodesWithTag("field_name").fetchSemanticsNodes().isNotEmpty() }
-        for (field in listOf("name", "amount", "count", "date")) {
+        for (field in listOf("name", "amount", "date")) {
             compose.onNodeWithTag("field_$field").performScrollTo().assertIsDisplayed().assertHasClickAction()
         }
+        compose.onNodeWithTag("field_count").assertDoesNotExist()
         compose.onNodeWithTag("field_currency").assertDoesNotExist()
-        for (label in listOf("Периодичность оплаты")) {
-            compose.onNodeWithText(label).performScrollTo().assertIsDisplayed().assertHasClickAction()
-        }
+        compose.onNodeWithText("Периодичность оплаты").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("frequency_month").assertIsSelected()
+        for (tag in listOf("frequency_week", "frequency_quarter", "frequency_year", "frequency_custom"))
+            compose.onNodeWithTag(tag).assertHasClickAction()
         compose.onNodeWithText("Автопродление").assertDoesNotExist()
         compose.onNodeWithText("Ручное продление").assertDoesNotExist()
-        compose.onNodeWithText("Сохранить").performScrollTo().assertIsDisplayed().assertHasClickAction()
+        compose.onNodeWithText("Сохранить").performScrollToIfScrollable().assertIsDisplayed().assertHasClickAction()
         compose.onNodeWithTag("bottom_navigation").assertDoesNotExist()
         compose.onNodeWithContentDescription("Назад").performClick()
         compose.onNodeWithTag("tab_subscriptions").assertIsSelected()
@@ -177,7 +179,7 @@ class SubscriptionsUiTest {
         start(fontScale = 2f)
         compose.onNodeWithTag("subscriptions_screen").performScrollToNode(hasText("Добавить подписку"))
         compose.onNodeWithText("Добавить подписку").assertIsDisplayed().performClick()
-        compose.onNodeWithText("Назад").performScrollTo().assertIsDisplayed().performClick()
+        compose.onNodeWithContentDescription("Назад").assertIsDisplayed().performClick()
         compose.onNodeWithTag("tab_subscriptions").assertIsSelected()
     }
     @Test fun detailsRouteRestoresWithSameUuidAndData() {
@@ -234,7 +236,7 @@ class SubscriptionsUiTest {
         compose.waitUntil(5000) { compose.onAllNodesWithTag("field_amount").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("field_amount").performScrollTo().performTextClearance()
         compose.onNodeWithTag("field_amount").performTextInput("1,23")
-        compose.onNodeWithText("Сохранить").performScrollTo().performClick()
+        compose.onNodeWithText("Сохранить").performScrollToIfScrollable().performClick()
         compose.waitUntil(5000) { (vm.state.value as? SubscriptionsUiState.Content)?.active?.singleOrNull()?.price?.amountMinor == 123L }
         compose.onNodeWithContentDescription("Назад").performClick()
         compose.onNodeWithTag("subscriptions_screen").performScrollToIndex(0)

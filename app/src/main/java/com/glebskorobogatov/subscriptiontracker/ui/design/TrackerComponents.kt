@@ -68,7 +68,8 @@ fun TrackerTextField(value: String, onValueChange: (String) -> Unit, label: Stri
     modifier: Modifier = Modifier, errorMessage: String? = null, enabled: Boolean = true,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default, inputModifier: Modifier = Modifier,
     readOnly: Boolean = false, supportingModifier: Modifier = Modifier,
-    supportingText: String? = null, keyboardActions: KeyboardActions = KeyboardActions.Default) {
+    supportingText: String? = null, keyboardActions: KeyboardActions = KeyboardActions.Default,
+    suffix: (@Composable () -> Unit)? = null) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(label, style = MaterialTheme.typography.labelLarge, modifier = Modifier.clearAndSetSemantics {})
         OutlinedTextField(value, onValueChange, modifier = Modifier.fillMaxWidth().then(inputModifier).semantics {
@@ -85,6 +86,7 @@ fun TrackerTextField(value: String, onValueChange: (String) -> Unit, label: Stri
                 errorSupportingTextColor = TrackerDesign.colors.error,unfocusedSupportingTextColor = TrackerDesign.colors.textSecondary,
                 disabledSupportingTextColor = TrackerDesign.colors.textSecondary),
             keyboardOptions = keyboardOptions, keyboardActions = keyboardActions, readOnly = readOnly,
+            suffix = suffix,
             supportingText = (errorMessage ?: supportingText)?.let { { Text(it, supportingModifier) } })
     }
 }

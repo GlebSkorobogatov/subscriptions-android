@@ -130,13 +130,13 @@ class AccessibilityUiTest {
         compose.onNodeWithText("Изменить").assertIsDisplayed().performClick()
         awaitStep("editor_initial_fields") { compose.onAllNodesWithTag("field_name").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("field_name").performScrollTo().performTextReplacement("Изменённое учебное название")
-        compose.onNodeWithText("Сохранить").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Сохранить").performScrollToIfScrollable().assertIsDisplayed()
         compose.onNodeWithContentDescription("Назад").performClick()
         restoration.emulateSavedInstanceStateRestore()
         compose.onNodeWithText("Продолжить редактирование").assertIsDisplayed().performClick()
         awaitStep("editor_restored_fields") { compose.onAllNodesWithTag("field_name").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("field_name").assertTextContains("Изменённое учебное название")
-        compose.onNodeWithText("Сохранить").performScrollTo().performClick()
+        compose.onNodeWithText("Сохранить").performScrollToIfScrollable().performClick()
         awaitStep("editor_save_completed") { compose.onAllNodesWithTag("subscription_editor").fetchSemanticsNodes().isEmpty() }
         compose.onNodeWithText("История платежей и возвратов").assertDoesNotExist()
         compose.onNodeWithContentDescription("Назад").performClick()
