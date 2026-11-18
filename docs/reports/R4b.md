@@ -177,6 +177,79 @@ git diff --check
 
 `SubscriptionUseCases.updateSettings` по-прежнему пишет через `ReminderChanges`. Изменился только предикат: сигнал есть лишь при смене offsets. Это покрыто `SettingsUpdateTest` и `productionUseCasesSignalLifecycleChangesButNotThemeOrChartSettings`.
 
+## R4b-fix
+
+Исходный SHA этой правки: `d1c92b7090c907dcb8dec90b06e81d7f701d90fb`. Ветка `codex/r4b-settings`, Draft PR #11, база `codex/r4a-navigation-home`. Новый PR не создавался.
+SHA реализации: **cdcfeb32d6cf87a0b1fdd747bb77d6e0c709d24c**. Documentation-only commit указан в Draft PR и итоговом сообщении; самоссылка его SHA в этом файле не используется.
+
+Требования: R-UI-07, R-UI-08, R-NOT-01, R-BASE-04. Тесты: T-UI-06, T-UI-07.
+Ограничение выше про фразу «Индивидуальные настройки подписок сохраняют свои значения» этой правкой снято. Исторический текст раздела не переписывался.
+
+### Фраза диалога
+
+`settings_offsets_immediate` заменена ровно на «Изменения сохраняются сразу и применяются ко всем активным подпискам.»
+В `app/src` других видимых «Индивидуальные» нет. `offsetsStayGlobalTimeStaysFixedAndArchiveReturns` проверяет эту фразу и что подстроки «Индивидуальные» на экране нет. Логика offsets, время 09:00 и напоминания не менялись.
+
+### Системный scale 0 при включённых анимациях
+
+Дефект был в проведении движения, не в DataStore. `animations_enabled` остаётся включённым.
+
+`trackerMotionDuration` по-прежнему читает `MotionDurationScale` window recomposer. Тестовый recomposer этот scale не ставит, а положительное значение не должно прятать `animator_duration_scale = 0`. Поэтому шкала ещё читается из `Settings.Global` и обновляется `ContentObserver`. Неположительная или неконечная записанная шкала побеждает.
+
+`fadeIn`/`fadeOut` даже с нулевой длительностью ставят alpha-анимацию. При длительности 0 корни `NavHost` используют `EnterTransition.None` и `ExitTransition.None`, включая pop. Alpha остаётся 1, своего перехода нет. При 220 мс fade прежний. Панели по-прежнему идут через `animateFloatAsState`: при длительности 0 ход заканчивается на следующих кадрах.
+
+`enabledDataStoreAnimationsHideAndCrossfadeInstantlyWhenSystemScaleIsZero` на API 31: DataStore «Включены», `animator_duration_scale = 0`, activity пересоздана. Пиксели — средняя яркость сохранённых bounds, не семантика. Кнопка «Добавить подписку» после появления настроек за два кадра совпадает с кадром через 400 мс и отличается от главного экрана. Островок и верхняя панель так же скрываются и возвращаются: два кадра после жеста совпадают с кадром через 280 мс. Настоящий fade 220 мс за два кадра до конечных пикселей не доходит. В `finally` и `@After` шкала возвращается в 1. После итогового прогона `adb` показал `animator_duration_scale = 1` и `font_scale = 1.0`.
+
+### Проверки
+
+Среда: JDK 21.0.13, Android SDK 36, Build Tools 35.0.0, Gradle 8.13, эмулятор `api31(AVD)` Android 12, ENV-01. Только синтетические данные. Merge, force push и ручной запуск Actions не выполнялись. Полный накопленный Android-набор, API 33+ и TalkBack: **NOT RUN**.
+
+```text
+git diff --check
+./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug :app:compileDebugAndroidTestKotlin --no-daemon --max-workers=2 --console=plain
+```
+
+| Проверка | Результат |
+|---|---|
+| git diff --check | PASS, вывод пустой |
+| :app:testDebugUnitTest | PASS, выполнена: 373 теста, 0 failures, 0 errors, 0 skipped |
+| :app:assembleDebug | PASS, выполнена |
+| :app:lintDebug | PASS, 0 ошибок, 19 предупреждений |
+| :app:compileDebugAndroidTestKotlin | PASS, UP-TO-DATE: исходники теста уже были собраны в этой сессии |
+| Общая Gradle-команда | BUILD SUCCESSFUL in 1m 5s, 61 actionable task: 21 executed, 40 up-to-date |
+
+Предупреждения lint те же: AndroidGradlePluginVersion 2, GradleDependency 9, NewerVersionAvailable 6, ObsoleteSdkInt 1, UnusedResources 1 (`welcome_message`).
+
+Итоговый Android-прогон тех же 13 классов: **PASS, 94 теста, 0 failures, 0 errors, 0 skipped, 209.935 s**, `BUILD SUCCESSFUL in 3m 44s`. `SettingsRedesignUiTest` теперь 8. Первый запуск этих 94 дошёл до `largeFontAndLandscapeKeepLabelsAndTheLastSection`, простоял 551 s без сообщения и был оборван удалением пакета (`Expected 94 tests, received 93`). Отдельно метод, связка из трёх методов и повтор всех 94 прошли. Это не остаточный дефект правки.
+
+| Класс | Тесты | Результат |
+|---|---:|---|
+| ArchiveSettingsIntegrationTest | 4 | PASS |
+| ArchiveSettingsRedesignUiTest | 15 | PASS |
+| ArchiveSettingsUiTest | 7 | PASS |
+| LegacyNavigationUiTest | 2 | PASS |
+| NavigationUiTest | 15 | PASS |
+| NotificationNavigationRaceUiTest | 7 | PASS |
+| NotificationNavigationUiTest | 14 | PASS |
+| NotificationPermissionUiTest | 2 | PASS на путях API 31 |
+| R4bGalleryUiTest | 1 | PASS |
+| RootChromeUiTest | 10 | PASS |
+| RootNavigationUiTest | 4 | PASS |
+| SettingsIntegrationTest | 5 | PASS |
+| SettingsRedesignUiTest | 8 | PASS |
+
+### Файлы правки
+
+- `app/src/main/res/values/strings.xml`
+- `app/src/main/java/com/glebskorobogatov/subscriptiontracker/ui/design/TrackerRootChrome.kt`
+- `app/src/main/java/com/glebskorobogatov/subscriptiontracker/ui/navigation/TrackerApp.kt`
+- `app/src/androidTest/java/com/glebskorobogatov/subscriptiontracker/ui/settings/SettingsRedesignUiTest.kt`
+- `docs/reports/R4b.md`
+
+### Вне scope
+
+Не менялись утверждённый дизайн, Room и schema, домен, календарь, прогноз, деньги, ReminderRules, WorkManager, ledger, Gradle и зависимости. R5 не начинался. PERSONAL-READY не объявляется.
+
 ## Изменённые файлы
 
 - `UI_DESIGN_SPEC.md`
