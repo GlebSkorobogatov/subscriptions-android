@@ -4,6 +4,7 @@ import android.content.res.Configuration
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
@@ -44,11 +45,29 @@ internal object DetailsEditorPreviewData {
 }
 
 @Composable internal fun EditorDemo(state: EditorState = DetailsEditorPreviewData.editor, theme: Theme = Theme.SYSTEM,
-    editing: Boolean = true,onChange: (String,String) -> Unit = {_,_ ->},onSave: () -> Unit = {},onExit: () -> Unit = {}) {
+    editing: Boolean = true,onChange: (String,String) -> Unit = {_,_ ->},onSave: () -> Unit = {},onExit: () -> Unit = {},
+    onCatalog: (String) -> Unit = {}, onPickImage: () -> Unit = {}) {
+    var catalogOpen by rememberSaveable { mutableStateOf(false) }
+    var dateKey by rememberSaveable { mutableStateOf<String?>(null) }
     TrackerTheme(theme) {
-        Scaffold(topBar = { EditorHeader(stringResource(if(editing) R.string.editor_edit_title else R.string.editor_title),onExit) }) { padding ->
+        Scaffold(topBar = { EditorHeader(stringResource(if(editing) R.string.editor_edit_title else R.string.editor_title)) {
+            when {
+                dateKey != null -> dateKey = null
+                catalogOpen -> catalogOpen = false
+                else -> onExit()
+            }
+        } }) { padding ->
             Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
-                EditorForm(state,onChange,onSave,{},{},onExit,{})
+                EditorForm(state,onChange,onSave,{},{},onExit,{ dateKey = it },
+                    onPickCatalog = { catalogOpen = true },
+                    onChangeFrequency = { unit, count -> onChange("unit", unit); onChange("count", count) })
+            }
+        }
+        if (catalogOpen) CatalogPickerDialog(state.catalogLogoId, { catalogOpen = false }, { id -> onCatalog(id); catalogOpen = false },
+            onPickImage = { catalogOpen = false; onPickImage() })
+        dateKey?.let { key ->
+            EditorDateSheet(initialDateMillis(state.fields[key]), { dateKey = null }) { millis ->
+                onChange(key, epochDayDate(millis).toString())
             }
         }
     }

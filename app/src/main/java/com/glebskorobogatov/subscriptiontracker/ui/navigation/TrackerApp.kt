@@ -9,6 +9,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.navigation.NavDestination.Companion.hasRoute
@@ -73,6 +74,10 @@ fun TrackerApp(state: SubscriptionsUiState,onRetry: () -> Unit,owner: Subscripti
         else -> null
     }
     var exitRequest by remember { mutableIntStateOf(0) }
+    var exitBinding by rememberSaveable(stateSaver = com.glebskorobogatov.subscriptiontracker.ui.editor.ExitBindingSaver) {
+        mutableStateOf(com.glebskorobogatov.subscriptiontracker.ui.editor.ExitBinding())
+    }
+    var userBackRequest by remember { mutableIntStateOf(0) }
     val navigationScope = rememberCoroutineScope()
     val navigationSession = remember { NotificationNavigationSession() }
     val hostLifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
@@ -113,7 +118,10 @@ fun TrackerApp(state: SubscriptionsUiState,onRetry: () -> Unit,owner: Subscripti
                     latestSequence = { model.state.value.navigation?.sequence },
                     navigateHome = { openRoot(Subscriptions) },
                     navigateDetails = { id -> nav.navigate(SubscriptionDetails(id.toString())) { launchSingleTop = true } },
-                    confirmExit = { exitRequest++ },
+                    confirmExit = {
+                        exitBinding = exitBinding.confirmExit(request.sequence)
+                        exitRequest++
+                    },
                     consume = { model.consumed(it) },
                 )
             }
@@ -137,11 +145,11 @@ fun TrackerApp(state: SubscriptionsUiState,onRetry: () -> Unit,owner: Subscripti
     // A fade still installs an alpha animation; None keeps alpha at 1, so a zero duration has no transition.
     val enter = if(duration == 0) EnterTransition.None else fadeIn(tween(duration))
     val exit = if(duration == 0) ExitTransition.None else fadeOut(tween(duration))
-    CompositionLocalProvider(LocalSubscriptionAssets provides owner) {
+    CompositionLocalProvider(LocalSubscriptionAssets provides owner, LocalTrackerAnimations provides animationsEnabled) {
         Scaffold(contentWindowInsets = if(root != null) WindowInsets(0,0,0,0) else WindowInsets.safeDrawing,
             topBar = {
                 if(editor) com.glebskorobogatov.subscriptiontracker.ui.editor.EditorHeader(stringResource(
-                    if(entry?.toRoute<SubscriptionEditor>()?.subscriptionId != null) R.string.editor_edit_title else R.string.editor_title)) { exitRequest++ }
+                    if(entry?.toRoute<SubscriptionEditor>()?.subscriptionId != null) R.string.editor_edit_title else R.string.editor_title)) { userBackRequest++ }
                 else if(archive) TrackerPageHeader(stringResource(R.string.archive),onBack = { nav.popBackStack() })
             }) { padding ->
             TrackerRootChrome(root,::select,{ nav.navigate(SubscriptionEditor()) { launchSingleTop = true } },
@@ -158,9 +166,16 @@ fun TrackerApp(state: SubscriptionsUiState,onRetry: () -> Unit,owner: Subscripti
                             viewModelStoreOwner = backEntry,factory = viewModelFactory { initializer {
                                 com.glebskorobogatov.subscriptiontracker.ui.editor.EditorViewModel(createSavedStateHandle(),owner,id)
                             } })
-                        com.glebskorobogatov.subscriptiontracker.ui.editor.EditorScreen(model,exitRequest,
+                        com.glebskorobogatov.subscriptiontracker.ui.editor.EditorScreen(model,exitRequest,userBackRequest,
+                            liveNotificationSequence = notificationState?.navigation?.sequence,
+                            boundExitSequence = exitBinding.sequence,
                             onSaved = { notifications?.afterSaved(it) },
-                            onExitCancelled = { notificationState?.navigation?.let { notifications?.consumed(it.sequence) } }) { nav.popBackStack() }
+                            onExitArmed = { live -> exitBinding = exitBinding.arm(live) },
+                            onExitCancelled = {
+                                exitBinding.sequence?.let { notifications?.consumed(it) }
+                                exitBinding = exitBinding.finish()
+                            },
+                            onExitAbandoned = { exitBinding = exitBinding.finish() }) { nav.popBackStack() }
                     }
                     composable<SubscriptionDetails> { backEntry ->
                         val id = UUID.fromString(backEntry.toRoute<SubscriptionDetails>().subscriptionId)

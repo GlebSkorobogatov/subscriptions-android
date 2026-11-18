@@ -1,6 +1,7 @@
 package com.glebskorobogatov.subscriptiontracker.ui.review
 
 import com.glebskorobogatov.subscriptiontracker.ui.openArchive
+import com.glebskorobogatov.subscriptiontracker.ui.performScrollToIfScrollable
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.Bitmap
@@ -54,7 +55,7 @@ class KeyboardRotationUiTest {
             compose.onNodeWithTag("field_name").assertIsFocused().assertTextContains("Учебная проверка UI-06")
             deviceScreenshot("editor-landscape-real-ime")
             back();compose.waitUntil(5000) { !imeVisible() }
-            compose.onNodeWithText("Сохранить").performScrollTo().assertIsDisplayed()
+            compose.onNodeWithText("Сохранить").performScrollToIfScrollable().assertIsDisplayed()
             compose.onNodeWithTag("bottom_navigation").assertDoesNotExist()
             deviceScreenshot("editor-landscape-draft")
             compose.onNodeWithTag("date_picker_date").performScrollTo().performClick()

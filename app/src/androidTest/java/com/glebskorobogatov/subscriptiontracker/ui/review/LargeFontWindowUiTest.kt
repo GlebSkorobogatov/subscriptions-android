@@ -52,7 +52,7 @@ class LargeFontWindowUiTest {
                 compose.onNodeWithText(cancel).assertIsDisplayed().assertHasClickAction()
                 val field = when(s) {
                     ReviewScene.ReactivateDialog -> "details_field_amount"
-                    ReviewScene.EditEndDialog -> "details_field_date"
+                    ReviewScene.EditEndDialog -> "details_field_end"
                     ReviewScene.DisableDialog -> "details_field_end"
                     else -> null
                 }
@@ -85,8 +85,7 @@ class LargeFontWindowUiTest {
                     CatalogPickerDialog(selected, {}, { id -> selected = id })
                 }
             }
-            compose.onNodeWithTag("catalog_grid").performScrollToIndex(11)
-            val item = compose.onNodeWithTag("catalog_generic-other").assertIsDisplayed().assertHasClickAction()
+            val item = compose.onNodeWithTag("catalog_generic-other").performScrollTo().assertIsDisplayed().assertHasClickAction()
             assertTrue(item.fetchSemanticsNode().touchBoundsInRoot.width >= 48 * density - 1)
             assertTrue(item.fetchSemanticsNode().touchBoundsInRoot.height >= 48 * density - 1)
             item.performClick().assertIsSelected()

@@ -10,6 +10,9 @@ import android.view.accessibility.AccessibilityManager
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.gestures.BringIntoViewSpec
+import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material3.Surface
@@ -70,7 +73,29 @@ internal class RootPanelController(val tab: TrackerTab) {
 }
 
 internal val LocalRootPanels = staticCompositionLocalOf<RootPanelController?> { null }
+/** User preference from settings. System animator scale is read separately by trackerMotionDuration. */
+internal val LocalTrackerAnimations = staticCompositionLocalOf { true }
 internal val LocalRootContentPadding = staticCompositionLocalOf<PaddingValues> { PaddingValues(0.dp) }
+/** Spec that was current before the island inset. Horizontal containers restore it. */
+internal val LocalVerticalSafeBringIntoViewParent = staticCompositionLocalOf<BringIntoViewSpec?> { null }
+
+internal fun verticalSafeBringIntoViewDistance(parentDistance: Float, offset: Float, size: Float, containerSize: Float, inset: Float): Float {
+    if (inset <= 0f) return parentDistance
+    val safeEnd = (containerSize - inset).coerceAtLeast(0f)
+    val newOffset = offset - parentDistance
+    val newEnd = newOffset + size
+    val extra = if (size <= safeEnd && newEnd > safeEnd) newEnd - safeEnd else 0f
+    return parentDistance + extra
+}
+
+/** The island inset is vertical. A nested horizontal scroller must keep the spec from outside the chrome. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+internal fun WithoutVerticalSafeBringIntoView(content: @Composable () -> Unit) {
+    val parent = LocalVerticalSafeBringIntoViewParent.current
+    if (parent == null) content()
+    else CompositionLocalProvider(LocalBringIntoViewSpec provides parent, content = content)
+}
 
 @Composable internal fun BindRootList(tab: TrackerTab,state: LazyListState,canHide: Boolean = true) {
     BindRootViewport(tab,canHide) { RootViewport(state.canScrollBackward || state.canScrollForward,!state.canScrollBackward) }
@@ -125,6 +150,7 @@ private enum class RootSlot { HEADER, ISLAND, CONTENT }
 
 /** Stable full-size content slot. Measure overlays before content in the same layout pass;
  * padding does not depend on visibility, so animations never move the list's scroll position. */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun TrackerRootChrome(selected: TrackerTab?,onSelect: (TrackerTab) -> Unit,onAdd: () -> Unit,
     modifier: Modifier = Modifier,animationsEnabled: Boolean = true,visibleOverride: Boolean? = null,
@@ -155,7 +181,20 @@ internal fun TrackerRootChrome(selected: TrackerTab?,onSelect: (TrackerTab) -> U
         val bottom = island.maxOfOrNull { it.height } ?: 0
         val insets = PaddingValues(top = top.toDp(),bottom = bottom.toDp())
         val body = subcompose(RootSlot.CONTENT) {
-            CompositionLocalProvider(LocalRootPanels provides controller,LocalRootContentPadding provides insets,content = content)
+            val parentBringIntoView = LocalBringIntoViewSpec.current
+            // Content still draws behind the island. A child requested into view must finish above it,
+            // otherwise a center click lands on the middle tab.
+            val safeBringIntoView = remember(bottom,parentBringIntoView) {
+                object : BringIntoViewSpec {
+                    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
+                        val base = parentBringIntoView.calculateScrollDistance(offset, size, containerSize)
+                        return verticalSafeBringIntoViewDistance(base, offset, size, containerSize, bottom.toFloat())
+                    }
+                }
+            }
+            CompositionLocalProvider(LocalRootPanels provides controller, LocalRootContentPadding provides insets,
+                LocalBringIntoViewSpec provides safeBringIntoView,
+                LocalVerticalSafeBringIntoViewParent provides parentBringIntoView, content = content)
         }.map { it.measure(constraints) }
         layout(constraints.maxWidth,constraints.maxHeight) {
             body.forEach { it.placeRelative(0,0) }

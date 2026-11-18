@@ -1,5 +1,9 @@
 package com.glebskorobogatov.subscriptiontracker.ui.design
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -9,12 +13,16 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import com.glebskorobogatov.subscriptiontracker.R
 
 @Composable
@@ -79,11 +87,66 @@ fun TrackerSurface(modifier: Modifier = Modifier, role: TrackerSurfaceRole = Tra
         tonalElevation = 0.dp,content = content)
 }
 
+/**
+ * Material's sheet motion scheme is internal and ignores the app animation setting.
+ * A zero duration therefore uses a focusable popup with no window animation.
+ * The system photo picker is a separate activity and is not wrapped here.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TrackerBottomSheet(onDismiss: () -> Unit, modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
-    ModalBottomSheet(onDismissRequest = onDismiss,modifier = modifier,containerColor = TrackerDesign.colors.surfaceRaised,
-        contentColor = TrackerDesign.colors.textPrimary,shape = TrackerShapes.card,tonalElevation = 0.dp) {
-        Column(Modifier.fillMaxWidth().imePadding().verticalScroll(rememberScrollState()).padding(TrackerDimensions.modalPadding),content = content)
+fun TrackerBottomSheet(onDismiss: () -> Unit, modifier: Modifier = Modifier, skipPartiallyExpanded: Boolean = false,
+    footer: (@Composable ColumnScope.() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
+    if (trackerMotionDuration(LocalTrackerAnimations.current) == 0) {
+        TrackerImmediateSheet(onDismiss, modifier, footer, content)
+    } else {
+        TrackerModalSheet(onDismiss, modifier, skipPartiallyExpanded, footer, content)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TrackerImmediateSheet(onDismiss: () -> Unit, modifier: Modifier,
+    footer: (@Composable ColumnScope.() -> Unit)?, content: @Composable ColumnScope.() -> Unit) {
+    Popup(onDismissRequest = onDismiss, properties = PopupProperties(
+        focusable = true, dismissOnBackPress = true, dismissOnClickOutside = false, clippingEnabled = false)) {
+        Box(Modifier.fillMaxSize().semantics { dialog() }) {
+            Box(Modifier.matchParentSize().background(BottomSheetDefaults.ScrimColor)
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onDismiss)
+                .clearAndSetSemantics {})
+            Surface(modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                .windowInsetsPadding(BottomSheetDefaults.windowInsets)
+                .pointerInput(Unit) { detectTapGestures { } },
+                color = TrackerDesign.colors.surfaceRaised, contentColor = TrackerDesign.colors.textPrimary,
+                shape = TrackerShapes.card, tonalElevation = 0.dp) {
+                TrackerSheetBody(footer, content)
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TrackerModalSheet(onDismiss: () -> Unit, modifier: Modifier, skipPartiallyExpanded: Boolean,
+    footer: (@Composable ColumnScope.() -> Unit)?, content: @Composable ColumnScope.() -> Unit) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = skipPartiallyExpanded)
+    ModalBottomSheet(onDismissRequest = onDismiss, modifier = modifier, sheetState = sheetState,
+        containerColor = TrackerDesign.colors.surfaceRaised, contentColor = TrackerDesign.colors.textPrimary,
+        shape = TrackerShapes.card, tonalElevation = 0.dp) {
+        TrackerSheetBody(footer, content)
+    }
+}
+
+@Composable
+private fun TrackerSheetBody(footer: (@Composable ColumnScope.() -> Unit)?, content: @Composable ColumnScope.() -> Unit) {
+    if (footer == null) {
+        Column(Modifier.fillMaxWidth().imePadding().verticalScroll(rememberScrollState()).padding(TrackerDimensions.modalPadding), content = content)
+    } else {
+        Column(Modifier.fillMaxWidth().fillMaxHeight().imePadding()) {
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(TrackerDimensions.modalPadding), content = content)
+            Column(Modifier.fillMaxWidth().background(TrackerDesign.colors.background)
+                .padding(horizontal = TrackerDimensions.modalPadding)
+                .padding(top = TrackerDimensions.itemSpacing, bottom = TrackerDimensions.modalPadding),
+                verticalArrangement = Arrangement.spacedBy(TrackerDimensions.itemSpacing), content = footer)
+        }
     }
 }

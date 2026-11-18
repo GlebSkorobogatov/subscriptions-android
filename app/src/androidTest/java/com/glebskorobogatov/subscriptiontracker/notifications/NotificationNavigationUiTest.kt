@@ -6,6 +6,7 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.test.core.app.*
 import com.glebskorobogatov.subscriptiontracker.app.IsolatedMainActivity
+import com.glebskorobogatov.subscriptiontracker.ui.performScrollToIfScrollable
 import com.glebskorobogatov.subscriptiontracker.data.room.*
 import com.glebskorobogatov.subscriptiontracker.domain.subscription.*
 import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.*
@@ -118,6 +119,72 @@ class NotificationNavigationUiTest {
         scenario.followActivityIntent()
         compose.waitUntil(5000) { compose.onAllNodesWithText("Продолжить редактирование").fetchSemanticsNodes().isNotEmpty() }
     }
+    @Test fun cancellingAnOlderExitDoesNotDropANewerNotification() {
+        val date = LocalDate.now().plusDays(4)
+        val other = sub.copy(id = UUID.randomUUID(), name = "Вторая цель уведомления", accountLabel = null,
+            anchorYear = date.year, anchorMonth = date.monthValue, anchorDay = date.dayOfMonth)
+        runBlocking(Dispatchers.IO) {
+            val db = TrackerDatabaseFactory.open(context, dataset)
+            try { db.subscriptions().insert(other) } finally { db.close() }
+        }
+        ActivityScenario.launch<IsolatedMainActivity>(intent().setAction(Intent.ACTION_MAIN).setData(null)).whileAlive { scenario ->
+            draft(scenario)
+            scenario.onActivity {
+                it.startActivity(intent(NotificationRoute(dataset, other.id).identity)
+                    .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP))
+            }
+            scenario.followActivityIntent()
+            compose.waitForIdle()
+            compose.onNodeWithText("Продолжить редактирование").performClick()
+            compose.waitForIdle()
+            // Continuing the older dialog leaves the editor open. The newer request stays pending until the user leaves.
+            if (compose.onAllNodesWithText("Выйти без сохранения").fetchSemanticsNodes().isEmpty()) {
+                compose.onNodeWithContentDescription("Назад").performClick()
+            }
+            compose.onNodeWithText("Выйти без сохранения").performClick()
+            compose.waitUntil(5_000) { compose.onAllNodesWithTag("details_${other.id}").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("details_${sub.id}").assertDoesNotExist()
+        }
+    }
+
+    @Test fun olderExitDialogKeepsItsRequestIdWhenANewerNotificationIsPublished() {
+        val date = LocalDate.now().plusDays(5)
+        val other = sub.copy(id = UUID.randomUUID(), name = "Третья цель уведомления", accountLabel = null,
+            anchorYear = date.year, anchorMonth = date.monthValue, anchorDay = date.dayOfMonth)
+        runBlocking(Dispatchers.IO) {
+            val db = TrackerDatabaseFactory.open(context, dataset)
+            try { db.subscriptions().insert(other) } finally { db.close() }
+        }
+        ActivityScenario.launch<IsolatedMainActivity>(intent().setAction(Intent.ACTION_MAIN).setData(null)).whileAlive { scenario ->
+            draft(scenario)
+            compose.waitUntil(5_000) { exitRequestTags().any { it.matches(Regex("editor_exit_\\d+_live_\\d+")) } }
+            val bound = Regex("editor_exit_(\\d+)_live_\\d+").find(exitRequestTags().single())!!.groupValues[1]
+            scenario.onActivity {
+                it.startActivity(intent(NotificationRoute(dataset, other.id).identity)
+                    .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP))
+            }
+            scenario.followActivityIntent()
+            compose.waitUntil(5_000) {
+                val tag = exitRequestTags().singleOrNull() ?: return@waitUntil false
+                tag.startsWith("editor_exit_${bound}_live_") && !tag.endsWith("_live_$bound") && !tag.endsWith("_live_none")
+            }
+            compose.onNodeWithText("Продолжить редактирование").performClick()
+            compose.waitForIdle()
+            if (compose.onAllNodesWithText("Выйти без сохранения").fetchSemanticsNodes().isEmpty()) {
+                compose.onNodeWithContentDescription("Назад").performClick()
+            }
+            compose.onNodeWithText("Выйти без сохранения").performClick()
+            compose.waitUntil(5_000) { compose.onAllNodesWithTag("details_${other.id}").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("details_${sub.id}").assertDoesNotExist()
+        }
+    }
+
+    private fun exitRequestTags(): List<String> = compose.onAllNodes(androidx.compose.ui.test.SemanticsMatcher("exit request tag") { node ->
+        node.config.getOrElse(androidx.compose.ui.semantics.SemanticsProperties.TestTag) { "" }.startsWith("editor_exit_")
+    }, useUnmergedTree = true).fetchSemanticsNodes().map {
+        it.config[androidx.compose.ui.semantics.SemanticsProperties.TestTag]
+    }
+
     @Test fun notificationDuringEditorRequiresDiscardAndKeepCancelsPendingNavigation() {
         ActivityScenario.launch<IsolatedMainActivity>(intent().setAction(Intent.ACTION_MAIN).setData(null)).whileAlive { scenario ->
             draft(scenario)
@@ -174,7 +241,7 @@ class NotificationNavigationUiTest {
             compose.waitUntil(5_000) { compose.onAllNodesWithTag("field_name").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithTag("field_name").performTextInput("Сохранённая учебная")
             compose.onNodeWithTag("field_amount").performTextInput("150")
-            compose.onNodeWithText("Сохранить").performScrollTo().performClick()
+            compose.onNodeWithText("Сохранить").performScrollToIfScrollable().performClick()
             scenario.onActivity { it.startActivity(intent().addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)) }
             scenario.followActivityIntent()
             details()
@@ -184,5 +251,183 @@ class NotificationNavigationUiTest {
                 finally { db.close() }
             }
         }
+    }
+
+    @Test fun notificationWithOpenCalendarAsksBeforeLeavingAndCancelKeepsTheDraft() {
+        ActivityScenario.launch<IsolatedMainActivity>(intent().setAction(Intent.ACTION_MAIN).setData(null)).whileAlive { scenario ->
+            openEditor()
+            compose.onNodeWithTag("field_name").performTextInput("Черновик над календарём")
+            compose.onNodeWithTag("date_picker_date").performScrollTo().performClick()
+            compose.onNodeWithTag("editor_date_sheet").assertIsDisplayed()
+            deliver(scenario)
+            compose.waitUntil(5_000) { compose.onAllNodesWithText("Продолжить редактирование").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("editor_date_sheet").assertDoesNotExist()
+            compose.onNodeWithText("Продолжить редактирование").performClick()
+            compose.onNodeWithTag("field_name").assertTextContains("Черновик над календарём")
+            compose.onNodeWithTag("details_${sub.id}").assertDoesNotExist()
+            compose.onNodeWithTag("bottom_navigation").assertDoesNotExist()
+        }
+    }
+
+    @Test fun notificationWithOpenCatalogContinuesToDetailsAfterDiscard() {
+        ActivityScenario.launch<IsolatedMainActivity>(intent().setAction(Intent.ACTION_MAIN).setData(null)).whileAlive { scenario ->
+            openEditor()
+            compose.onNodeWithTag("field_name").performTextInput("Черновик над каталогом")
+            compose.onNodeWithTag("editor_choose_catalog").performClick()
+            compose.onNodeWithTag("catalog_sheet").assertIsDisplayed()
+            deliver(scenario)
+            compose.waitUntil(5_000) { compose.onAllNodesWithText("Выйти без сохранения").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("catalog_sheet").assertDoesNotExist()
+            compose.onNodeWithText("Выйти без сохранения").performClick()
+            details()
+            runBlocking(Dispatchers.IO) {
+                val db = TrackerDatabaseFactory.open(context, dataset)
+                try { assertEquals(listOf(sub), db.subscriptions().all()) } finally { db.close() }
+            }
+        }
+    }
+
+    @Test fun cleanEditorWithOpenCalendarFollowsTheNotificationWithoutConfirmation() {
+        ActivityScenario.launch<IsolatedMainActivity>(intent().setAction(Intent.ACTION_MAIN).setData(null)).whileAlive { scenario ->
+            openEditor()
+            compose.onNodeWithTag("date_picker_date").performScrollTo().performClick()
+            compose.onNodeWithTag("editor_date_sheet").assertIsDisplayed()
+            deliver(scenario)
+            details()
+            compose.onNodeWithText("Выйти без сохранения").assertDoesNotExist()
+        }
+    }
+
+    @Test fun openCatalogNotificationSurvivesRecreationAndDeletedTargetReturnsHome() {
+        ActivityScenario.launch<IsolatedMainActivity>(intent().setAction(Intent.ACTION_MAIN).setData(null)).whileAlive { scenario ->
+            openEditor()
+            compose.onNodeWithTag("field_name").performTextInput("Черновик перед удалением")
+            compose.onNodeWithTag("editor_choose_catalog").performClick()
+            compose.onNodeWithTag("catalog_sheet").assertIsDisplayed()
+            deliver(scenario)
+            compose.waitUntil(5_000) { compose.onAllNodesWithText("Выйти без сохранения").fetchSemanticsNodes().isNotEmpty() }
+            recreateForegroundActivity()
+            compose.waitUntil(5_000) { compose.onAllNodesWithText("Выйти без сохранения").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("field_name").assertTextContains("Черновик перед удалением")
+            runBlocking(Dispatchers.IO) {
+                val db = TrackerDatabaseFactory.open(context, dataset)
+                try { db.subscriptions().delete(sub.id) } finally { db.close() }
+            }
+            compose.onNodeWithText("Выйти без сохранения").performClick()
+            home()
+            compose.onNodeWithTag("details_${sub.id}").assertDoesNotExist()
+        }
+    }
+
+    @Test fun recreationKeepsTheOlderExitIdAndCancelDoesNotConsumeTheNewerNotification() {
+        val date = LocalDate.now().plusDays(6)
+        val other = sub.copy(id = UUID.randomUUID(), name = "Четвёртая цель уведомления", accountLabel = null,
+            anchorYear = date.year, anchorMonth = date.monthValue, anchorDay = date.dayOfMonth)
+        runBlocking(Dispatchers.IO) {
+            val db = TrackerDatabaseFactory.open(context, dataset)
+            try { db.subscriptions().insert(other) } finally { db.close() }
+        }
+        ActivityScenario.launch<IsolatedMainActivity>(intent().setAction(Intent.ACTION_MAIN).setData(null)).whileAlive { scenario ->
+            draft(scenario)
+            val bound = boundExitId()
+            scenario.onActivity {
+                it.startActivity(intent(NotificationRoute(dataset, other.id).identity)
+                    .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP))
+            }
+            scenario.followActivityIntent()
+            compose.waitUntil(5_000) {
+                val tag = exitRequestTags().singleOrNull() ?: return@waitUntil false
+                tag.startsWith("editor_exit_${bound}_live_") && !tag.endsWith("_live_$bound")
+            }
+            recreateForegroundActivity()
+            compose.waitUntil(5_000) { exitRequestTags().singleOrNull()?.startsWith("editor_exit_${bound}_") == true }
+            assertTrue(exitTag().startsWith("editor_exit_${bound}_"))
+            compose.onNodeWithText("Продолжить редактирование").performClick()
+            leaveDirtyEditor()
+            compose.waitUntil(5_000) { compose.onAllNodesWithTag("details_${other.id}").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("details_${sub.id}").assertDoesNotExist()
+        }
+    }
+
+    @Test fun userBackDialogSurvivesRecreationWithoutAdoptingANotification() {
+        ActivityScenario.launch<IsolatedMainActivity>(intent().setAction(Intent.ACTION_MAIN).setData(null)).whileAlive { scenario ->
+            openEditor()
+            compose.onNodeWithTag("field_name").performTextInput("Черновик без уведомления")
+            compose.onNodeWithContentDescription("Назад").performClick()
+            compose.waitUntil(5_000) { exitRequestTags().singleOrNull()?.startsWith("editor_exit_unbound_") == true }
+            recreateForegroundActivity()
+            compose.waitUntil(5_000) { exitRequestTags().singleOrNull()?.startsWith("editor_exit_unbound_") == true }
+            deliver(scenario)
+            compose.waitUntil(5_000) {
+                val tag = exitRequestTags().singleOrNull() ?: return@waitUntil false
+                tag.startsWith("editor_exit_unbound_live_") && !tag.endsWith("_live_none")
+            }
+            compose.onNodeWithText("Продолжить редактирование").performClick()
+            leaveDirtyEditor()
+            details()
+        }
+    }
+
+    @Test fun continuingTheOnlyNotificationAfterRecreationConsumesIt() {
+        ActivityScenario.launch<IsolatedMainActivity>(intent().setAction(Intent.ACTION_MAIN).setData(null)).whileAlive { scenario ->
+            draft(scenario)
+            val bound = boundExitId()
+            recreateForegroundActivity()
+            compose.waitUntil(5_000) { exitRequestTags().singleOrNull()?.startsWith("editor_exit_${bound}_") == true }
+            compose.onNodeWithText("Продолжить редактирование").performClick()
+            leaveDirtyEditor()
+            home()
+            compose.onNodeWithTag("details_${sub.id}").assertDoesNotExist()
+        }
+    }
+
+    @Test fun savingClearsTheExitBindingBeforeTheNextEditor() {
+        ActivityScenario.launch<IsolatedMainActivity>(intent().setAction(Intent.ACTION_MAIN).setData(null)).whileAlive { scenario ->
+            openEditor()
+            compose.onNodeWithTag("field_name").performTextInput("Сохраняемая привязка")
+            compose.onNodeWithTag("field_amount").performTextInput("150")
+            deliver(scenario)
+            val bound = boundExitId()
+            compose.onNodeWithTag("editor_save", useUnmergedTree = true).performClick()
+            details()
+            compose.onNodeWithContentDescription("Назад").performClick()
+            home()
+            openEditor()
+            compose.onNodeWithTag("field_name").performTextInput("Следующий черновик")
+            compose.onNodeWithContentDescription("Назад").performClick()
+            compose.waitUntil(5_000) { exitRequestTags().singleOrNull()?.startsWith("editor_exit_unbound_") == true }
+            assertFalse(exitTag().startsWith("editor_exit_${bound}_"))
+            deliver(scenario)
+            compose.waitUntil(5_000) {
+                val tag = exitRequestTags().singleOrNull() ?: return@waitUntil false
+                tag.startsWith("editor_exit_unbound_live_") && !tag.endsWith("_live_none")
+            }
+        }
+    }
+
+    private fun boundExitId(): String {
+        compose.waitUntil(5_000) { exitRequestTags().any { it.matches(Regex("editor_exit_\\d+_live_\\d+")) } }
+        return Regex("editor_exit_(\\d+)_live_\\d+").find(exitTag())!!.groupValues[1]
+    }
+
+    private fun exitTag(): String = exitRequestTags().single()
+
+    private fun leaveDirtyEditor() {
+        compose.waitForIdle()
+        if (compose.onAllNodesWithText("Выйти без сохранения").fetchSemanticsNodes().isEmpty()) {
+            compose.onNodeWithContentDescription("Назад").performClick()
+        }
+        compose.onNodeWithText("Выйти без сохранения").performClick()
+    }
+
+    private fun openEditor() {
+        home()
+        compose.onNodeWithContentDescription("Добавить подписку").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("field_name").fetchSemanticsNodes().isNotEmpty() }
+    }
+
+    private fun deliver(scenario: ActivityScenario<IsolatedMainActivity>) {
+        scenario.onActivity { it.startActivity(intent().addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)) }
+        scenario.followActivityIntent()
     }
 }

@@ -8,6 +8,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
@@ -38,7 +41,18 @@ import java.util.UUID
                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 BoxWithConstraints(Modifier.fillMaxWidth()) {
                     val priceWidth = maxWidth*0.45f
-                    if(maxWidth < 240.dp || LocalDensity.current.fontScale >= 1.5f) {
+                    val measurer = rememberTextMeasurer()
+                    val priceStyle = MaterialTheme.typography.titleSmall
+                    val periodStyle = MaterialTheme.typography.bodySmall
+                    val priceText = formatTrackerRub(model.price.amountMinor)
+                    val periodText = periodLabel(model)
+                    val pricePx = measurer.measure(priceText,priceStyle,constraints = Constraints(maxWidth = Int.MAX_VALUE)).size.width
+                    val periodPx = measurer.measure(periodText,periodStyle,constraints = Constraints(maxWidth = Int.MAX_VALUE)).size.width
+                    val needed = maxOf(pricePx,periodPx)
+                    val sidePx = with(LocalDensity.current) { priceWidth.toPx() }
+                    // A side column that cannot hold the amount wraps the row instead of clipping kopecks.
+                    val stacked = maxWidth < 240.dp || LocalDensity.current.fontScale >= 1.5f || needed > sidePx
+                    if(stacked) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             IdentityAndDate(model)
                             Column(Modifier.fillMaxWidth(),horizontalAlignment = Alignment.End) { Price(model) }
@@ -80,8 +94,7 @@ import java.util.UUID
         if(model.calendarError) Text(stringResource(R.string.projection_calendar_error),Modifier.testTag("calendar_error_${model.id}"),color = TrackerDesign.colors.error)
     }
 }
-@Composable private fun Price(model: SubscriptionCardModel) {
-    TrackerMoney(model.price.amountMinor,Modifier.testTag("subscription_price_${model.id}"),MaterialTheme.typography.titleSmall)
+@Composable private fun periodLabel(model: SubscriptionCardModel): String {
     val period = when {
         model.frequency.count == 1 -> when(model.frequency.unit) {
             FrequencyUnit.DAY -> R.string.home_period_day; FrequencyUnit.WEEK -> R.string.home_period_week
@@ -94,5 +107,10 @@ import java.util.UUID
             FrequencyUnit.MONTH -> R.string.frequency_months; FrequencyUnit.YEAR -> R.string.frequency_years
         }
     }
-    Text(stringResource(period,model.frequency.count),style = MaterialTheme.typography.bodySmall,color = TrackerDesign.colors.textSecondary)
+    return stringResource(period,model.frequency.count)
+}
+@Composable private fun Price(model: SubscriptionCardModel) {
+    TrackerMoney(model.price.amountMinor,Modifier.fillMaxWidth().testTag("subscription_price_${model.id}"),MaterialTheme.typography.titleSmall.copy(textAlign = TextAlign.End))
+    Text(periodLabel(model),Modifier.fillMaxWidth(),style = MaterialTheme.typography.bodySmall,color = TrackerDesign.colors.textSecondary,
+        textAlign = TextAlign.End)
 }

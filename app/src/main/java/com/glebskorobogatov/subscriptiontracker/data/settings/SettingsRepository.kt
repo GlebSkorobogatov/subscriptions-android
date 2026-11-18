@@ -7,6 +7,8 @@ import androidx.datastore.preferences.preferencesDataStoreFile
 import java.util.UUID
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 interface SettingsRepository {
     val settings: Flow<Settings>
@@ -36,10 +38,26 @@ internal object SettingsCodec {
     }
 }
 
+/**
+ * DataStore 1.1.7 can drop a write from a collector whose first read already captured that version.
+ * After a commit, every collector starts a new read. The store stays the only source: a missed
+ * confirmation cannot suppress a later value, and a read failure is not replaced by a remembered one.
+ */
 internal class PreferencesSettingsRepository(private val store: DataStore<Preferences>) : SettingsRepository {
-    override val settings = store.data.map(SettingsCodec::read).distinctUntilChanged()
+    private val generation = MutableStateFlow(0)
+    private val writes = Mutex()
+    override val settings: Flow<Settings> =
+        generation.flatMapLatest { store.data.map(SettingsCodec::read) }.distinctUntilChanged()
     override suspend fun update(transform: (Settings) -> Settings) {
-        store.edit { SettingsCodec.write(it, transform(SettingsCodec.read(it))) }
+        writes.withLock {
+            try {
+                store.edit { preferences ->
+                    SettingsCodec.write(preferences, transform(SettingsCodec.read(preferences)))
+                }
+            } finally {
+                withContext(NonCancellable) { generation.value = generation.value + 1 }
+            }
+        }
     }
 }
 

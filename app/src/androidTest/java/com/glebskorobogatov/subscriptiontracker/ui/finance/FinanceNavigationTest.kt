@@ -1,6 +1,9 @@
 package com.glebskorobogatov.subscriptiontracker.ui.finance
 
 import com.glebskorobogatov.subscriptiontracker.ui.openArchive
+import com.glebskorobogatov.subscriptiontracker.ui.performScrollToIfScrollable
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import com.glebskorobogatov.subscriptiontracker.app.IsolatedMainActivity
@@ -26,7 +29,7 @@ class FinanceNavigationTest {
         compose.waitUntil(5000) { compose.onAllNodesWithTag("field_name").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("field_name").performTextInput("Учебная подписка")
         compose.onNodeWithTag("field_amount").performTextInput("499")
-        compose.onNodeWithText("Сохранить").performScrollTo().performClick()
+        compose.onNodeWithText("Сохранить").performScrollToIfScrollable().performClick()
         compose.waitUntil(5000) { compose.onAllNodesWithTag("subscription_editor").fetchSemanticsNodes().isEmpty() }
         compose.onNodeWithTag("tab_finance").performClick()
         forecastReady(); scrollTo("finance_total")
@@ -54,7 +57,7 @@ class FinanceNavigationTest {
         compose.waitUntil(5000) { compose.onAllNodesWithTag("field_name").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("field_name").performTextInput("График — учебный сервис")
         compose.onNodeWithTag("field_amount").performTextInput("100")
-        compose.onNodeWithText("Сохранить").performScrollTo().performClick()
+        compose.onNodeWithText("Сохранить").performScrollToIfScrollable().performClick()
         compose.waitUntil(5000) { compose.onAllNodesWithTag("subscription_editor").fetchSemanticsNodes().isEmpty() }
         compose.onNodeWithTag("tab_finance").performClick(); forecastReady()
         compose.onNodeWithTag("finance_horizon_12").assertDoesNotExist()
@@ -82,7 +85,13 @@ class FinanceNavigationTest {
         }
         try {
             orient(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE,android.content.res.Configuration.ORIENTATION_LANDSCAPE)
-            chartSelected(); compose.onNodeWithTag("tab_finance").assertIsSelected()
+            chartSelected()
+            // Vertical travel hides the island. R-UI-07 brings it back at the top; the selected month stays in state.
+            val finance = compose.onNodeWithTag("finance_screen")
+            val offset = finance.fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange].value()
+            if (offset > 1f) finance.performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, -offset) }
+            compose.waitForIdle()
+            compose.onNodeWithTag("tab_finance").assertIsSelected()
             val content = compose.onNodeWithTag("finance_screen").fetchSemanticsNode().boundsInRoot
             val island = compose.onNodeWithTag("bottom_navigation").fetchSemanticsNode().boundsInRoot
             org.junit.Assert.assertTrue(content.bottom > island.top) // Root viewport extends behind the translucent island.

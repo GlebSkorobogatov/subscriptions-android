@@ -25,8 +25,10 @@ import androidx.compose.ui.platform.*
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.semantics.*
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.glebskorobogatov.subscriptiontracker.R
@@ -255,7 +257,17 @@ internal fun SettingsPane(state: SettingsUiState,version: String,onTheme: (Theme
             @Composable fun time() {
                 Text(value,Modifier.width(clockWidth).testTag("settings_time_value"),style = titleStyle,maxLines = 1,textAlign = TextAlign.End)
             }
-            if(maxWidth < 240.dp || LocalDensity.current.fontScale >= 1.5f) Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            val title = stringResource(R.string.settings_notification_time)
+            val subtitle = stringResource(R.string.settings_time_subtitle)
+            val measurer = rememberTextMeasurer()
+            val labelMax = (maxWidth - clockWidth - 12.dp).coerceAtLeast(0.dp)
+            val labelPx = with(LocalDensity.current) { labelMax.roundToPx() }
+            val titleFit = measurer.measure(title,titleStyle,constraints = Constraints(maxWidth = labelPx))
+            val subtitleFit = measurer.measure(subtitle,captionStyle,constraints = Constraints(maxWidth = labelPx))
+            val horizontalFits = labelPx > 0 && titleFit.lineCount <= 2 && !titleFit.didOverflowWidth &&
+                !titleFit.didOverflowHeight && !subtitleFit.didOverflowWidth && !subtitleFit.didOverflowHeight
+            // Ordinary font keeps 09:00 beside the title, including a 320 dp window. Large font may stack.
+            if(LocalDensity.current.fontScale >= 1.5f || !horizontalFits) Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 label()
                 Row(Modifier.align(Alignment.End),horizontalArrangement = Arrangement.spacedBy(12.dp),verticalAlignment = Alignment.CenterVertically) { time() }
             } else Row(horizontalArrangement = Arrangement.spacedBy(12.dp),verticalAlignment = Alignment.CenterVertically) {

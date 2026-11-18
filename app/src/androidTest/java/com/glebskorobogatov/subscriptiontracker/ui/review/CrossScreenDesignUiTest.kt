@@ -13,6 +13,7 @@ import androidx.compose.ui.text.TextLayoutResult
 import androidx.core.graphics.ColorUtils
 import com.glebskorobogatov.subscriptiontracker.R
 import com.glebskorobogatov.subscriptiontracker.ui.openSettingsOffsets
+import com.glebskorobogatov.subscriptiontracker.ui.performScrollToIfScrollable
 import com.glebskorobogatov.subscriptiontracker.data.settings.Theme
 import com.glebskorobogatov.subscriptiontracker.ui.design.*
 import com.glebskorobogatov.subscriptiontracker.ui.editor.*
@@ -47,11 +48,11 @@ class CrossScreenDesignUiTest {
         val picked = mutableListOf<String>()
         compose.setContent { TrackerTheme { EditorForm(DetailsEditorPreviewData.editor,{_,_ ->},{},{},{},{},{ picked += it }) } }
         compose.onNodeWithTag("editor_extra").performScrollTo().performClick()
-        for((key,label) in listOf("date" to R.string.editor_date,"start" to R.string.editor_start,"end" to R.string.editor_end)) {
+        for((key,label) in listOf("date" to R.string.editor_date,"start" to R.string.editor_start)) {
             val description = compose.activity.getString(R.string.editor_pick_date_for,text(label))
             compose.onNodeWithTag("date_picker_$key").performScrollTo().assertContentDescriptionEquals(description).performClick()
         }
-        compose.runOnIdle { assertEquals(listOf("date","start","end"),picked) }
+        compose.runOnIdle { assertEquals(listOf("date","start"),picked) }
     }
     @Test fun independentOverrideControlsAnnounceEventAndDayWithoutChangingOtherSet() {
         val state = mutableStateOf(DetailsEditorPreviewData.editor)
@@ -77,6 +78,11 @@ class CrossScreenDesignUiTest {
             val value = compose.onNodeWithTag("settings_time_value",useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
             if(font == 1f) assertTrue("Time on right $width",value.left >= label.right)
             targets(density,"time $width/$font/$theme")
+            // Scrolling to the row hides the island. R-UI-07 shows it again at the top.
+            val settings = compose.onNodeWithTag("settings_screen")
+            val offset = settings.fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange].value()
+            if(offset > 1f) settings.performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, -offset) }
+            compose.waitForIdle()
             compose.onNodeWithTag("bottom_navigation").assertIsDisplayed()
         }
     }
@@ -96,12 +102,17 @@ class CrossScreenDesignUiTest {
             }
             compose.onNodeWithTag("subscriptions_screen").performScrollToNode(hasTestTag("subscription_${ReviewData.longRow.id}"))
             noOverflow(compose.onNodeWithText(ReviewData.longName,useUnmergedTree = true),"subscription name $width/$font/$theme")
+            // Vertical travel hides the island. Measure it at the top, where R-UI-07 shows it.
+            val screen = compose.onNodeWithTag("subscriptions_screen")
+            val offset = screen.fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange].value()
+            if(offset > 1f) screen.performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, -offset) }
+            compose.waitForIdle()
             val island = compose.onNodeWithTag("bottom_navigation").fetchSemanticsNode().boundsInRoot
-            val list = compose.onNodeWithTag("subscriptions_screen").fetchSemanticsNode().boundsInRoot
+            val list = screen.fetchSemanticsNode().boundsInRoot
             assertTrue("Viewport extends behind island",list.bottom > island.top)
-            compose.onNodeWithTag("subscriptions_screen").performScrollToIndex(ReviewData.longContent.active.lastIndex)
+            screen.performScrollToIndex(ReviewData.longContent.active.lastIndex)
             val last = compose.onNodeWithTag("subscription_${ReviewData.longContent.active.last().id}").fetchSemanticsNode().boundsInRoot
-            assertTrue("Last row remains above island",last.bottom <= island.top)
+            assertTrue("Last row remains above the island resting place",last.bottom <= island.top)
             compose.runOnIdle { case.value = Case(width,font,theme,ReviewScene.DetailsLong) }
             val price = compose.onNodeWithText("92233720368547758,07 RUB",useUnmergedTree = true)
             price.performScrollTo();noOverflow(price,"details money $width/$font/$theme")
@@ -118,7 +129,7 @@ class CrossScreenDesignUiTest {
             compose.runOnIdle { case.value = Case(width,font) }
             compose.onNodeWithTag("field_amount").performScrollTo().assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.Error))
             targets(density,"editor $width/$font")
-            compose.onNodeWithText("Сохранить").performScrollTo().assertIsDisplayed().assertHasClickAction()
+            compose.onNodeWithText("Сохранить").performScrollToIfScrollable().assertIsDisplayed().assertHasClickAction()
         }
     }
     @Test fun systemThemeChangesConfigurationWithoutChangingExplicitThemes() {

@@ -13,6 +13,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.stateDescription
 import com.glebskorobogatov.subscriptiontracker.R
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.error
@@ -68,7 +69,8 @@ fun TrackerTextField(value: String, onValueChange: (String) -> Unit, label: Stri
     modifier: Modifier = Modifier, errorMessage: String? = null, enabled: Boolean = true,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default, inputModifier: Modifier = Modifier,
     readOnly: Boolean = false, supportingModifier: Modifier = Modifier,
-    supportingText: String? = null, keyboardActions: KeyboardActions = KeyboardActions.Default) {
+    supportingText: String? = null, keyboardActions: KeyboardActions = KeyboardActions.Default,
+    suffix: (@Composable () -> Unit)? = null) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(label, style = MaterialTheme.typography.labelLarge, modifier = Modifier.clearAndSetSemantics {})
         OutlinedTextField(value, onValueChange, modifier = Modifier.fillMaxWidth().then(inputModifier).semantics {
@@ -85,6 +87,7 @@ fun TrackerTextField(value: String, onValueChange: (String) -> Unit, label: Stri
                 errorSupportingTextColor = TrackerDesign.colors.error,unfocusedSupportingTextColor = TrackerDesign.colors.textSecondary,
                 disabledSupportingTextColor = TrackerDesign.colors.textSecondary),
             keyboardOptions = keyboardOptions, keyboardActions = keyboardActions, readOnly = readOnly,
+            suffix = suffix,
             supportingText = (errorMessage ?: supportingText)?.let { { Text(it, supportingModifier) } })
     }
 }
@@ -92,9 +95,10 @@ fun TrackerTextField(value: String, onValueChange: (String) -> Unit, label: Stri
 /** Dialog text scrolls on small/landscape displays; Material supplies focus and Back handling. */
 @Composable
 fun TrackerConfirmationDialog(title: String, message: String, confirmText: String, dismissText: String,
-    onConfirm: () -> Unit, onDismiss: () -> Unit, destructive: Boolean = false, busy: Boolean = false) {
+    onConfirm: () -> Unit, onDismiss: () -> Unit, destructive: Boolean = false, busy: Boolean = false, tag: String? = null) {
     val scrollTitle = scrollDialogHeading()
-    AlertDialog(onDismissRequest = { if (!busy) onDismiss() },modifier = Modifier.semantics { paneTitle = title },
+    AlertDialog(onDismissRequest = { if (!busy) onDismiss() }, modifier = Modifier.semantics { paneTitle = title }
+        .then(if (tag != null) Modifier.testTag(tag) else Modifier),
         title = if(scrollTitle) null else ({ Text(title,style = MaterialTheme.typography.titleLarge,
             modifier = Modifier.semantics { heading() }) }),
         text = { Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement = Arrangement.spacedBy(12.dp)) {

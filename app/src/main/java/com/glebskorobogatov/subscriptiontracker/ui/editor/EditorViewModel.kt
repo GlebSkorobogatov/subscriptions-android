@@ -21,18 +21,21 @@ data class EditorState(val fields: Map<String,String> = emptyMap(), val loading:
     val errors: Map<String,Int> = emptyMap(), val error: Int? = null, val conflict: Boolean = false,
     val loadFailure: Boolean = false, val notFound: Boolean = false,
     val logoAssetId: UUID? = null, val pendingImageId: UUID? = null, val imageRemoved: Boolean = false,
-    val importingImage: Boolean = false, val catalogLogoId: String? = null, val scheduleEditable: Boolean = true)
+    val importingImage: Boolean = false, val catalogLogoId: String? = null, val scheduleEditable: Boolean = true,
+    /** Null derives the capsule from unit/count. True keeps «Другая» even when the pair matches a preset. */
+    val customFrequency: Boolean? = null)
 
 class EditorViewModel(private val saved: SavedStateHandle, private val owner: SubscriptionsViewModel,
     private val id: UUID?) : ViewModel() {
     init {
         if (saved.get<Int>("draftVersion") != 5) {
-            listOf("fields", "scheduleDraft", "expected", "pendingImage", "imageRemoved", "catalogChoice", "generation").forEach { saved.remove<Any>(it) }
+            listOf("fields", "scheduleDraft", "expected", "pendingImage", "imageRemoved", "catalogChoice", "generation", "frequencyCustom").forEach { saved.remove<Any>(it) }
             saved["draftVersion"] = 5
         }
     }
     private var expected: SubscriptionEntity? = null
-    private val mutable = MutableStateFlow(EditorState(fields = saved.get<HashMap<String,String>>("fields") ?: emptyMap(),dirty = saved.contains("fields")))
+    private val mutable = MutableStateFlow(EditorState(fields = saved.get<HashMap<String,String>>("fields") ?: emptyMap(),
+        dirty = saved.contains("fields"), customFrequency = saved.get<Boolean>("frequencyCustom")))
     val state = mutable.asStateFlow()
     private val newId = UUID.fromString(saved.get<String>("newId") ?: UUID.randomUUID().toString().also { saved["newId"] = it })
     private var pendingImage = saved.get<String>("pendingImage")?.let(UUID::fromString)
@@ -45,19 +48,41 @@ class EditorViewModel(private val saved: SavedStateHandle, private val owner: Su
         if (state.value.saving || key !in FIELD_KEYS) return
         if (state.value.fields[key] == value) return
         var fields = state.value.fields + (key to value)
-        if (key in setOf("date", "unit", "count")) {
-            val before = saved.get<HashMap<String,String>>("scheduleDraft")
-                ?: HashMap(state.value.fields).also { saved["scheduleDraft"] = it }
-            fields = fields - setOf("anchorDay", "start", "periodDue")
-            // Keep refinements with their draft series. A temporary edit followed by a return
-            // restores them, including an explicit clear, without changing other edited fields.
-            if (listOf("date", "unit", "count").all { fields[it] == before[it] }) {
-                fields = fields + before.filterKeys { it in setOf("anchorDay", "start", "periodDue") }
-                saved.remove<HashMap<String,String>>("scheduleDraft")
-            }
-        }
+        if (key in setOf("date", "unit", "count")) fields = reconcileSchedule(fields)
         if (key == "start") fields = if (value.isBlank()) fields - "periodDue"
             else fields + ("periodDue" to fields.getValue("date"))
+        publish(fields)
+    }
+    /** One schedule observation for a preset or custom pair. Sequential unit-then-count would publish an intermediate series. */
+    fun changeFrequency(unit: String, count: String) {
+        if (state.value.saving || unit !in FREQUENCY_UNITS) return
+        val parsed = count.toIntOrNull() ?: return
+        if (parsed < 1) return
+        val canonical = parsed.toString()
+        val current = state.value.fields
+        if (current["unit"] == unit && current["count"] == canonical) return
+        publish(reconcileSchedule(current + ("unit" to unit) + ("count" to canonical)))
+    }
+    /** Presentation only. The stored schedule remains unit and count; this flag is not a frequency type. */
+    fun setFrequencyMode(custom: Boolean) {
+        if (state.value.saving) return
+        if (saved.get<Boolean>("frequencyCustom") == custom && state.value.customFrequency == custom) return
+        saved["frequencyCustom"] = custom
+        mutable.value = state.value.copy(customFrequency = custom)
+    }
+    private fun reconcileSchedule(fields: Map<String,String>): Map<String,String> {
+        val before = saved.get<HashMap<String,String>>("scheduleDraft")
+            ?: HashMap(state.value.fields).also { saved["scheduleDraft"] = it }
+        var next = fields - setOf("anchorDay", "start", "periodDue")
+        // Keep refinements with their draft series. A temporary edit followed by a return
+        // restores them, including an explicit clear, without changing other edited fields.
+        if (listOf("date", "unit", "count").all { next[it] == before[it] }) {
+            next = next + before.filterKeys { it in setOf("anchorDay", "start", "periodDue") }
+            saved.remove<HashMap<String,String>>("scheduleDraft")
+        }
+        return next
+    }
+    private fun publish(fields: Map<String,String>) {
         saved["fields"] = HashMap(fields)
         mutable.value = state.value.copy(fields = fields, dirty = true, errors = emptyMap(), error = null)
     }
@@ -135,12 +160,15 @@ class EditorViewModel(private val saved: SavedStateHandle, private val owner: Su
                 saved["expected"] = fingerprint
                 owner.activeDatasetId()?.let { saved["generation"] = it.toString() }
             }
-            if (discard) { discardImageDraft(); saved.remove<HashMap<String,String>>("scheduleDraft") }
+            if (discard) {
+                discardImageDraft(); saved.remove<HashMap<String,String>>("scheduleDraft"); saved.remove<Boolean>("frequencyCustom")
+            }
             mutable.value = EditorState(restored ?: fields, loading = false, dirty = restored != null || pendingImage != null || imageRemoved || catalogChoice != null,
                 errors = emptyMap(), scheduleEditable = expected?.state?.let { it == SubscriptionState.ACTIVE } ?: true,
                 conflict = stale, error = if (stale) R.string.editor_conflict else null,
                 logoAssetId = expected?.logoAssetId, pendingImageId = pendingImage, imageRemoved = imageRemoved,
-                catalogLogoId = catalogChoice ?: if (imageRemoved || pendingImage != null) null else expected?.catalogLogoId)
+                catalogLogoId = catalogChoice ?: if (imageRemoved || pendingImage != null) null else expected?.catalogLogoId,
+                customFrequency = if (discard) null else saved.get<Boolean>("frequencyCustom"))
             if (discard) saved.remove<HashMap<String,String>>("fields")
         } catch (e: CancellationException) { throw e }
         catch (_: Exception) { mutable.value = state.value.copy(loading = false, error = R.string.editor_load_error, conflict = false, loadFailure = true) }
@@ -215,6 +243,7 @@ class EditorViewModel(private val saved: SavedStateHandle, private val owner: Su
     private class ScheduleFieldError(val field: String) : IllegalArgumentException()
     companion object {
         private val FIELD_KEYS = setOf("name", "label", "amount", "unit", "count", "date", "displayedDue", "anchorDay", "start", "periodDue")
+        private val FREQUENCY_UNITS = setOf("DAY", "WEEK", "MONTH", "YEAR")
         private inline fun <T> scheduleField(key: String, block: () -> T): T = try { block() }
             catch (error: CancellationException) { throw error }
             catch (_: Exception) { throw ScheduleFieldError(key) }

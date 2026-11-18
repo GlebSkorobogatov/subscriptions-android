@@ -136,9 +136,8 @@ class DesignSystemUiTest {
         compose.setContent { TrackerTheme(theme) { CatalogPickerDialog(selected, {}, { selected = it }) } }
         for (mode in listOf(Theme.LIGHT, Theme.DARK)) {
             compose.runOnIdle { theme = mode }
-            OfflineIconCatalog.entries.forEachIndexed { index, entry ->
-                compose.onNodeWithTag("catalog_grid").performScrollToIndex(index)
-                compose.onNodeWithTag("catalog_${entry.id}").assertIsDisplayed().assertHasClickAction()
+            OfflineIconCatalog.entries.forEach { entry ->
+                compose.onNodeWithTag("catalog_${entry.id}").performScrollTo().assertIsDisplayed().assertHasClickAction()
             }
             compose.onNodeWithTag("catalog_generic-other").performClick().assertIsSelected()
             compose.onNodeWithTag("catalog_pick_image").assertHasClickAction()

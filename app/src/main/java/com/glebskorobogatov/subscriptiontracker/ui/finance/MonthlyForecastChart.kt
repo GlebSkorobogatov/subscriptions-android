@@ -63,6 +63,7 @@ import kotlinx.coroutines.flow.first
                 scroll.scrollTo(target.coerceIn(0,scroll.maxValue))
             }
         }
+        WithoutVerticalSafeBringIntoView {
         Row(Modifier.fillMaxWidth().onSizeChanged { viewportPx = it.width }
             .horizontalScroll(scroll).testTag("finance_month_chart").semantics { isTraversalGroup = true },
             horizontalArrangement = Arrangement.spacedBy(gap)) {
@@ -94,6 +95,7 @@ import kotlinx.coroutines.flow.first
                     }
                 }
             }
+        }
         }
     }
 }
