@@ -1,6 +1,8 @@
 package com.glebskorobogatov.subscriptiontracker.ui.navigation
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.tween
@@ -132,6 +134,9 @@ fun TrackerApp(state: SubscriptionsUiState,onRetry: () -> Unit,owner: Subscripti
         openRoot(route)
     }
     val duration = trackerMotionDuration(animationsEnabled)
+    // A fade still installs an alpha animation; None keeps alpha at 1, so a zero duration has no transition.
+    val enter = if(duration == 0) EnterTransition.None else fadeIn(tween(duration))
+    val exit = if(duration == 0) ExitTransition.None else fadeOut(tween(duration))
     CompositionLocalProvider(LocalSubscriptionAssets provides owner) {
         Scaffold(contentWindowInsets = if(root != null) WindowInsets(0,0,0,0) else WindowInsets.safeDrawing,
             topBar = {
@@ -142,7 +147,8 @@ fun TrackerApp(state: SubscriptionsUiState,onRetry: () -> Unit,owner: Subscripti
             TrackerRootChrome(root,::select,{ nav.navigate(SubscriptionEditor()) { launchSingleTop = true } },
                 Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding),animationsEnabled = animationsEnabled) {
                 NavHost(nav,startDestination = Subscriptions,modifier = Modifier.fillMaxSize(),
-                    enterTransition = { fadeIn(tween(duration)) },exitTransition = { fadeOut(tween(duration)) }) {
+                    enterTransition = { enter },exitTransition = { exit },
+                    popEnterTransition = { enter },popExitTransition = { exit }) {
                     composable<Subscriptions> { SubscriptionsScreen(state,
                         onAdd = { nav.navigate(SubscriptionEditor()) { launchSingleTop = true } },
                         onOpen = { nav.navigate(SubscriptionDetails(it.toString())) { launchSingleTop = true } },onRetry = onRetry) }

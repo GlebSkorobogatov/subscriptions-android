@@ -1,27 +1,30 @@
 package com.glebskorobogatov.subscriptiontracker.ui.settings
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.toggleable
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.*
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.semantics.*
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -48,7 +51,7 @@ fun SettingsScreen(vm: SettingsViewModel, notifications: com.glebskorobogatov.su
         @Suppress("DEPRECATION")
         context.packageManager.getPackageInfo(context.packageName,0).versionName.orEmpty()
     }
-    SettingsPane(state,version,vm::setTheme,vm::setOffset,vm::retryRead,vm::retryWrite,notifications,onNotificationSettings,onArchive)
+    SettingsPane(state,version,vm::setTheme,vm::setOffset,vm::retryRead,vm::retryWrite,notifications,onNotificationSettings,onArchive,vm::setAnimations)
 }
 
 /** UI-only dialog selection. Preference writes and retry identity still belong to SettingsViewModel. */
@@ -56,7 +59,7 @@ fun SettingsScreen(vm: SettingsViewModel, notifications: com.glebskorobogatov.su
 internal fun SettingsPane(state: SettingsUiState,version: String,onTheme: (Theme) -> Unit,
     onOffset: (Int,Boolean) -> Unit,onRetryRead: () -> Unit,onRetryWrite: () -> Unit,
     notifications: com.glebskorobogatov.subscriptiontracker.notifications.NotificationAccess? = null,
-    onNotificationSettings: () -> Unit = {},onArchive: () -> Unit = {}) {
+    onNotificationSettings: () -> Unit = {},onArchive: () -> Unit = {},onAnimations: (Boolean) -> Unit = {}) {
     val scroll = rememberScrollState()
     BindRootScroll(TrackerTab.Settings,scroll,canHide = state.phase == SettingsPhase.Content)
     val chrome = LocalRootContentPadding.current
@@ -70,51 +73,47 @@ internal fun SettingsPane(state: SettingsUiState,version: String,onTheme: (Theme
             .testTag("settings_screen")) {
             if(!offsetsOpen) SettingsFeedback(state,onRetryRead,onRetryWrite)
             state.data?.let { settings ->
-                SettingsHeading(R.string.settings_appearance)
-                Column(Modifier.selectableGroup()) {
-                    listOf(Theme.SYSTEM to R.string.settings_theme_system,Theme.LIGHT to R.string.settings_theme_light,Theme.DARK to R.string.settings_theme_dark).forEach { (theme,label) ->
-                        Row(Modifier.fillMaxWidth().heightIn(min = TrackerDimensions.minimumTouchTarget)
-                            .selectable(settings.theme == theme,enabled = enabled,role = Role.RadioButton,onClick = { onTheme(theme) })
-                            .testTag("settings_theme_${theme.name}"),horizontalArrangement = Arrangement.spacedBy(12.dp),verticalAlignment = Alignment.CenterVertically) {
-                            RadioButton(settings.theme == theme,onClick = null,enabled = enabled)
-                            Text(stringResource(label),Modifier.weight(1f).padding(vertical = 12.dp))
-                        }
-                    }
+                SettingsCard(R.string.settings_appearance) {
+                    ThemeChoices(settings.theme,enabled,onTheme)
+                    AnimationSwitch(settings.animationsEnabled,enabled,onAnimations)
                 }
-                SettingsHeading(R.string.settings_reminders)
-                ReminderTimeRow(settings.reminderLocalTime.format(DateTimeFormatter.ofPattern("HH:mm",Locale.ROOT)))
-                HorizontalDivider(color = TrackerDesign.colors.divider)
-                listOf(R.string.settings_payment_offsets).forEach { label ->
+                SettingsCard(R.string.settings_section_notifications) {
+                    ReminderTimeRow(settings.reminderLocalTime.format(DateTimeFormatter.ofPattern("HH:mm",Locale.ROOT)))
                     val summary = offsetSummary(settings.renewalOffsets)
                     Row(Modifier.fillMaxWidth().heightIn(min = TrackerDimensions.minimumTouchTarget)
                         .clickable(enabled = enabled,role = Role.Button) { offsetsOpen = true }
-                        .testTag("settings_payment_offsets").padding(vertical = 16.dp),
+                        .testTag("settings_payment_offsets"),
                         verticalAlignment = Alignment.CenterVertically,horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Column(Modifier.weight(1f),verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(stringResource(label),style = MaterialTheme.typography.titleSmall)
+                        Column(Modifier.weight(1f),verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(stringResource(R.string.settings_payment_offsets),style = MaterialTheme.typography.titleSmall)
                             Text(summary,color = TrackerDesign.colors.textSecondary,style = MaterialTheme.typography.bodySmall)
                         }
                         Icon(Icons.AutoMirrored.Filled.ArrowForward,null,tint = TrackerDesign.colors.textSecondary)
                     }
-                    HorizontalDivider(color = TrackerDesign.colors.divider)
+                    notifications?.let { access ->
+                        Text(stringResource(R.string.notifications_heading),style = MaterialTheme.typography.titleSmall)
+                        Text(stringResource(when {
+                            !access.runtimeGranted -> R.string.notifications_permission_required
+                            !access.appEnabled -> R.string.notifications_system_disabled
+                            else -> R.string.notifications_allowed
+                        }))
+                        if (!access.renewalsEnabled) Text(stringResource(R.string.notifications_payment_disabled))
+                        TextButton(onClick = onNotificationSettings,modifier = Modifier.heightIn(min = TrackerDimensions.minimumTouchTarget)) {
+                            Text(stringResource(R.string.notifications_settings))
+                        }
+                    }
+                    Text(stringResource(R.string.notifications_best_effort),color = TrackerDesign.colors.textSecondary,style = MaterialTheme.typography.bodySmall)
                 }
-                notifications?.let { access ->
-                    SettingsHeading(R.string.notifications_heading)
-                    Text(stringResource(when {
-                        !access.runtimeGranted -> R.string.notifications_permission_required
-                        !access.appEnabled -> R.string.notifications_system_disabled
-                        else -> R.string.notifications_allowed
-                    }))
-                    if (!access.renewalsEnabled) Text(stringResource(R.string.notifications_payment_disabled))
-                    TextButton(onClick = onNotificationSettings) { Text(stringResource(R.string.notifications_settings)) }
+                Surface(shape = TrackerShapes.card,color = TrackerDesign.colors.surfaceSubtle,tonalElevation = 0.dp,
+                    modifier = Modifier.fillMaxWidth().padding(top = 16.dp)) {
+                    TrackerListRow(stringResource(R.string.archive),Modifier.testTag("settings_archive").semantics { heading() },onClick = onArchive)
                 }
-                Text(stringResource(R.string.notifications_best_effort),Modifier.padding(top = 16.dp),color = TrackerDesign.colors.textSecondary,style = MaterialTheme.typography.bodySmall)
-                TrackerListRow(stringResource(R.string.archive),Modifier.testTag("settings_archive"),onClick = onArchive)
-                SettingsHeading(R.string.settings_data)
-                Text(stringResource(R.string.settings_data_note),color = TrackerDesign.colors.textSecondary)
-                SettingsHeading(R.string.settings_about)
-                Text(stringResource(if(version.isBlank()) R.string.settings_version_unknown else R.string.settings_version,version),Modifier.testTag("settings_version"),style = MaterialTheme.typography.titleSmall)
-                Text(stringResource(R.string.settings_local_note),Modifier.padding(top = 8.dp),color = TrackerDesign.colors.textSecondary)
+                SettingsCard(R.string.settings_about) {
+                    Text(stringResource(if(version.isBlank()) R.string.settings_version_unknown else R.string.settings_version,version),Modifier.testTag("settings_version"),style = MaterialTheme.typography.titleSmall)
+                    Text(stringResource(R.string.settings_data),style = MaterialTheme.typography.titleSmall)
+                    Text(stringResource(R.string.settings_data_note),color = TrackerDesign.colors.textSecondary)
+                    Text(stringResource(R.string.settings_local_note),color = TrackerDesign.colors.textSecondary)
+                }
                 Spacer(Modifier.height(32.dp))
             }
         }
@@ -147,8 +146,86 @@ internal fun SettingsPane(state: SettingsUiState,version: String,onTheme: (Theme
     }
 }
 
-@Composable private fun SettingsHeading(label: Int) {
-    Text(stringResource(label),Modifier.padding(top = 24.dp,bottom = 8.dp).semantics { heading() },style = MaterialTheme.typography.titleSmall)
+@Composable private fun SettingsCard(title: Int,content: @Composable ColumnScope.() -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(top = 16.dp),verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(stringResource(title),Modifier.semantics { heading() },style = MaterialTheme.typography.titleSmall)
+        Surface(shape = TrackerShapes.card,color = TrackerDesign.colors.surfaceSubtle,tonalElevation = 0.dp) {
+            Column(Modifier.fillMaxWidth().padding(16.dp),verticalArrangement = Arrangement.spacedBy(12.dp),content = content)
+        }
+    }
+}
+
+@Composable private fun ThemeChoices(selected: Theme,enabled: Boolean,onTheme: (Theme) -> Unit) {
+    val options = listOf(Theme.LIGHT to R.string.settings_theme_light,Theme.DARK to R.string.settings_theme_dark,Theme.SYSTEM to R.string.settings_theme_system)
+    BoxWithConstraints(Modifier.fillMaxWidth().selectableGroup()) {
+        // 360 dp is the window breakpoint. Card padding makes the row itself narrower, so the
+        // switch to a column uses the space three captions still need, or a large font.
+        val stacked = maxWidth < 280.dp || LocalDensity.current.fontScale >= 1.5f
+        if(stacked) Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            options.forEach { (theme,label) -> ThemeChoice(theme,label,selected == theme,enabled,stacked = true,onTheme) }
+        } else Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            options.forEach { (theme,label) -> ThemeChoice(theme,label,selected == theme,enabled,stacked = false,onTheme,Modifier.weight(1f)) }
+        }
+    }
+}
+
+@Composable private fun ThemeChoice(theme: Theme,label: Int,selected: Boolean,enabled: Boolean,stacked: Boolean,
+    onTheme: (Theme) -> Unit,modifier: Modifier = Modifier) {
+    val description = stringResource(if(selected) R.string.tracker_selected else R.string.tracker_not_selected)
+    val choice = modifier.fillMaxWidth().heightIn(min = TrackerDimensions.minimumTouchTarget)
+        .selectable(selected,enabled = enabled,role = Role.RadioButton,onClick = { onTheme(theme) })
+        .semantics { stateDescription = description }.testTag("settings_theme_${theme.name}")
+    if(stacked) Row(choice,horizontalArrangement = Arrangement.spacedBy(12.dp),verticalAlignment = Alignment.CenterVertically) {
+        ThemeThumbnail(theme,selected,Modifier.size(width = 72.dp,height = 84.dp))
+        Text(stringResource(label),Modifier.weight(1f),style = MaterialTheme.typography.bodyMedium)
+    } else Column(choice,horizontalAlignment = Alignment.CenterHorizontally) {
+        ThemeThumbnail(theme,selected,Modifier.fillMaxWidth().height(84.dp))
+        Text(stringResource(label),Modifier.fillMaxWidth().padding(top = 8.dp),style = MaterialTheme.typography.bodyMedium,textAlign = TextAlign.Center)
+    }
+}
+
+@Composable private fun ThemeThumbnail(theme: Theme,selected: Boolean,modifier: Modifier) {
+    Box(modifier.then(if(selected) Modifier.border(2.dp,TrackerDesign.colors.textPrimary,TrackerShapes.field) else Modifier).clip(TrackerShapes.field)) {
+        ThemePreview(theme,Modifier.fillMaxSize())
+        if(selected) Box(Modifier.align(Alignment.TopEnd).padding(4.dp).testTag("settings_theme_check")) {
+            Box(Modifier.size(20.dp).background(TrackerDesign.colors.surface,CircleShape).clearAndSetSemantics {},
+                contentAlignment = Alignment.Center) {
+                Icon(Icons.Outlined.Check,null,Modifier.size(14.dp),tint = TrackerDesign.colors.textPrimary)
+            }
+        }
+    }
+}
+
+@Composable private fun ThemePreview(theme: Theme,modifier: Modifier) {
+    if(theme == Theme.SYSTEM) Row(modifier) {
+        ThemePreviewFace(LightTrackerColors,Modifier.weight(1f).fillMaxHeight())
+        ThemePreviewFace(DarkTrackerColors,Modifier.weight(1f).fillMaxHeight())
+    } else ThemePreviewFace(if(theme == Theme.DARK) DarkTrackerColors else LightTrackerColors,modifier)
+}
+
+@Composable private fun ThemePreviewFace(colors: TrackerColors,modifier: Modifier) {
+    Column(modifier.background(colors.background).padding(horizontal = 6.dp,vertical = 8.dp),verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Box(Modifier.fillMaxWidth(0.7f).height(6.dp).background(colors.textPrimary,CircleShape))
+        Box(Modifier.fillMaxWidth().height(5.dp).background(colors.surfaceSubtle,CircleShape))
+        Box(Modifier.fillMaxWidth(0.62f).height(5.dp).background(colors.textSecondary.copy(alpha = 0.55f),CircleShape))
+        Spacer(Modifier.weight(1f))
+        Box(Modifier.align(Alignment.CenterHorizontally).width(26.dp).height(8.dp).background(colors.surfaceRaised,CircleShape))
+    }
+}
+
+@Composable private fun AnimationSwitch(enabledValue: Boolean,enabled: Boolean,onChange: (Boolean) -> Unit) {
+    val value = stringResource(if(enabledValue) R.string.settings_animations_on else R.string.settings_animations_off)
+    Row(Modifier.fillMaxWidth().heightIn(min = TrackerDimensions.minimumTouchTarget)
+        .toggleable(enabledValue,enabled = enabled,role = Role.Switch,onValueChange = onChange)
+        .testTag("settings_animations"),verticalAlignment = Alignment.CenterVertically,horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.weight(1f),verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(stringResource(R.string.settings_animations),style = MaterialTheme.typography.titleSmall)
+            Text(value,color = TrackerDesign.colors.textSecondary,style = MaterialTheme.typography.bodySmall)
+        }
+        Switch(enabledValue,onCheckedChange = null,enabled = enabled,modifier = Modifier.clearAndSetSemantics {},
+            colors = SwitchDefaults.colors(checkedThumbColor = TrackerDesign.colors.primaryButtonText,checkedTrackColor = TrackerDesign.colors.primaryButtonBg,
+                uncheckedThumbColor = TrackerDesign.colors.surface,uncheckedTrackColor = TrackerDesign.colors.divider,uncheckedBorderColor = TrackerDesign.colors.textSecondary))
+    }
 }
 
 @Composable private fun offsetText(day: Int) = stringResource(

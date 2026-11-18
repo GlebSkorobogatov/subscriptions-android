@@ -37,10 +37,13 @@ internal object ArchiveSettingsPreviewData {
 }
 @Composable internal fun SettingsDemo(state: SettingsUiState = ArchiveSettingsPreviewData.settings,theme: Theme = Theme.SYSTEM,
     onTheme: (Theme) -> Unit = {},onOffset: (Int,Boolean) -> Unit = {_,_ ->},
+    onAnimations: (Boolean) -> Unit = {},
+    notifications: com.glebskorobogatov.subscriptiontracker.notifications.NotificationAccess? = null,
+    onNotificationSettings: () -> Unit = {},onArchive: () -> Unit = {},
     onRetryRead: () -> Unit = {},onRetryWrite: () -> Unit = {},onBack: () -> Unit = {}) {
     TrackerTheme(theme) {
         TrackerRootChrome(TrackerTab.Settings,{ if(it != TrackerTab.Settings) onBack() },{}) {
-            SettingsPane(state,"0.1",onTheme,onOffset,onRetryRead,onRetryWrite)
+            SettingsPane(state,"0.1",onTheme,onOffset,onRetryRead,onRetryWrite,notifications,onNotificationSettings,onArchive,onAnimations)
         }
     }
 }

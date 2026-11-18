@@ -127,7 +127,11 @@ open class MainActivity : ComponentActivity() {
                         Text(stringResource(R.string.settings_load_error))
                         Button(onClick = settings::retryRead) { Text(stringResource(R.string.retry_loading)) }
                     }
-                } else TrackerApp(state, subscriptions::retry, subscriptions,settings,notifications,::openNotificationSettings)
+                } else {
+                    val saved = checkNotNull(preferences.data)
+                    TrackerApp(state, subscriptions::retry, subscriptions,settings,notifications,::openNotificationSettings,
+                        animationsEnabled = saved.animationsEnabled)
+                }
                 if (state !is com.glebskorobogatov.subscriptiontracker.ui.subscriptions.SubscriptionsUiState.StorageBlocked && notificationState.explanation) AlertDialog(
                     onDismissRequest = notifications::dismissExplanation,
                     title = { Text(stringResource(R.string.notifications_explanation_title)) },

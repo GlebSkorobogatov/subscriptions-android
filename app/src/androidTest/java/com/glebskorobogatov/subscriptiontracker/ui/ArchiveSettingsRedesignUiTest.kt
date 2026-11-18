@@ -108,7 +108,12 @@ class ArchiveSettingsRedesignUiTest {
         assertTrue("Label uses at most two natural lines",layouts.single().lineCount <= 2)
         assertTrue("Label retains meaningful horizontal width",label.fetchSemanticsNode().size.width >= 180 * compose.density.density)
         compose.onNodeWithTag("settings_time_value",useUnmergedTree = true).assertIsDisplayed().assertTextEquals("09:00")
-        compose.onNodeWithContentDescription("Назад").assertIsDisplayed()
+        val screen = compose.onNodeWithTag("settings_screen")
+        val offset = screen.fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange].value()
+        if(offset > 1f) screen.performSemanticsAction(SemanticsActions.ScrollBy) { it(0f,-offset) }
+        compose.onNodeWithText("Настройки").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Назад").assertDoesNotExist()
+        compose.onNodeWithTag("tab_settings").assertIsSelected()
     }
     @Test fun threeThemeChoicesApplyAndKeepAccessibleSelection() {
         val state = mutableStateOf(data.settings)

@@ -115,16 +115,27 @@ class SubscriptionUseCases(
         lifecycle.delete(expected, confirmed)
         expected.logoAssetId?.let { runCatching { cleanupAsset(it) } }
     }
-    suspend fun updateSettings(transform: (Settings) -> Settings) {
-        reminderChanges.write(shouldNotify = { it }) {
-            val before = settingsRepository.settings.first()
-            settingsRepository.update(transform)
-            val after = settingsRepository.settings.first()
-            before.renewalOffsets != after.renewalOffsets
-        }
-    }
+    suspend fun updateSettings(transform: (Settings) -> Settings) =
+        updateStoredSettings(settingsRepository, reminderChanges, transform)
     /** Calendar refresh never changes subscription status or writes to Room. */
     suspend fun refreshToday(today: LocalDate, changedAt: Instant) {
         reminderChanges.write { date.update(today) }
+    }
+}
+
+/** Theme and animation edits keep the current reminder plan. Only offset membership reschedules it. */
+internal fun settingsChangeReconcilesReminders(before: Settings, after: Settings) =
+    before.renewalOffsets != after.renewalOffsets
+
+internal suspend fun updateStoredSettings(
+    repository: SettingsRepository,
+    changes: com.glebskorobogatov.subscriptiontracker.data.reminders.ReminderChanges,
+    transform: (Settings) -> Settings,
+) {
+    changes.write(shouldNotify = { it }) {
+        val before = repository.settings.first()
+        repository.update(transform)
+        val after = repository.settings.first()
+        settingsChangeReconcilesReminders(before, after)
     }
 }

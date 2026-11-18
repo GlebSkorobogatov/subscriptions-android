@@ -246,8 +246,12 @@ class ReminderInfrastructureTest {
             com.glebskorobogatov.subscriptiontracker.domain.integration.CurrentDate(LocalDate.of(2027,1,1)),
             reminderChanges = ReminderChanges(request = { signals++ }))
         use.updateSettings { it.copy(theme = Theme.DARK) }
+        use.updateSettings { it.copy(animationsEnabled = false) }
         assertEquals(0,signals)
+        assertEquals(Theme.DARK,lease.repository.settings.first().theme)
+        assertFalse(lease.repository.settings.first().animationsEnabled)
         use.updateSettings { it.copy(renewalOffsets = setOf(0)) }
+        assertFalse(lease.repository.settings.first().animationsEnabled)
         assertEquals(1,signals)
         use.changeLifecycle(sub,LifecycleCommand.Archive,instant)
         assertEquals(2,signals)

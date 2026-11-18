@@ -18,7 +18,7 @@ class ArchiveSettingsUiTest {
     @Before fun ready() { compose.waitUntil(5000) { compose.onAllNodesWithTag("bottom_navigation").fetchSemanticsNodes().isNotEmpty() } }
     private fun settings() {
         compose.onNodeWithTag("tab_settings").performClick()
-        compose.onNodeWithText("Внешний вид").assertExists()
+        compose.onNodeWithText("Оформление").assertExists()
     }
     private fun checked(tag: String,expected: Boolean) {
         compose.openSettingsOffsets()

@@ -17,7 +17,7 @@ class SettingsViewModel(private val saved: SavedStateHandle,private val owner: S
         listOf("timeOpen","hour","minute","hourInput","minuteInput").forEach { saved.remove<Any>(it) }
         val intent = saved.get<HashMap<String,String>>("intent")
         if (intent != null && !runCatching {
-            require(intent["kind"] in setOf("theme","payment"))
+            require(intent["kind"] in setOf("theme","payment","animations"))
             applySetting(Settings(),intent)
         }.isSuccess) saved.remove<Any>("intent")
         return saved.contains("intent")
@@ -50,6 +50,7 @@ class SettingsViewModel(private val saved: SavedStateHandle,private val owner: S
         attempts.value++
     }
     fun setTheme(value: Theme) = start(hashMapOf("kind" to "theme","value" to value.name))
+    fun setAnimations(enabled: Boolean) = start(hashMapOf("kind" to "animations","value" to enabled.toString()))
     fun setOffset(day: Int,enabled: Boolean) {
         require(day in setOf(7,3,1,0))
         start(hashMapOf("kind" to "payment","day" to day.toString(),"enabled" to enabled.toString()))
@@ -84,6 +85,7 @@ internal fun applySetting(current: Settings,intent: Map<String,String>): Setting
     return when(intent.getValue("kind")) {
         "theme" -> current.copy(theme = Theme.valueOf(intent.getValue("value")))
         "payment" -> current.copy(renewalOffsets = offsets(current.renewalOffsets))
+        "animations" -> current.copy(animationsEnabled = intent.getValue("value").toBooleanStrict())
         else -> error("Unknown preference")
     }
 }
