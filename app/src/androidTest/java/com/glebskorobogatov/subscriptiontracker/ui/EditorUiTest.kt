@@ -30,7 +30,7 @@ class EditorUiTest {
         compose.waitUntil(5000) { compose.onAllNodesWithTag("subscription_editor").fetchSemanticsNodes().isEmpty() }
         compose.onNodeWithTag("subscriptions_screen").performScrollToNode(hasText("Тестовый сервис"))
         compose.onNodeWithText("Тестовый сервис").performClick()
-        compose.onNodeWithText("Изменить").assertIsDisplayed().performClick()
+        compose.onNodeWithText("Редактировать").assertIsDisplayed().performClick()
         compose.waitUntil(5000) { compose.onAllNodesWithTag("field_name").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Редактирование подписки").assertIsDisplayed()
         compose.activityRule.scenario.recreate()
@@ -80,7 +80,7 @@ class EditorUiTest {
         compose.waitUntil(5000) { compose.onAllNodesWithTag("subscription_editor").fetchSemanticsNodes().isEmpty() }
         compose.onNodeWithTag("subscriptions_screen").performScrollToNode(hasText("ИИ-помощник"))
         compose.onNodeWithText("ИИ-помощник").performClick()
-        compose.onNodeWithText("Изменить").performClick()
+        compose.onNodeWithText("Редактировать").performClick()
         compose.waitUntil(5000) { compose.onAllNodesWithTag("editor_choose_catalog").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("editor_choose_catalog").performClick()
         compose.onNodeWithTag("catalog_generic-ai").assertIsSelected()

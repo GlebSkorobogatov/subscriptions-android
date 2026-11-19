@@ -36,7 +36,7 @@ class NotificationNavigationUiTest {
     }
     private fun intent(raw: String = NotificationRoute(dataset,sub.id).identity) = Intent(context,IsolatedMainActivity::class.java)
         .setAction(NotificationRoute.OPEN).setData(Uri.parse(raw)).putExtra("test_dataset",dataset.toString())
-    private fun details() { compose.waitUntil(5_000) { compose.onAllNodesWithTag("details_${sub.id}").fetchSemanticsNodes().isNotEmpty() && compose.onAllNodesWithText("Изменить").fetchSemanticsNodes().isNotEmpty() }; compose.onNodeWithText("Изменить").assertExists() }
+    private fun details() { compose.waitUntil(5_000) { compose.onAllNodesWithTag("details_${sub.id}").fetchSemanticsNodes().isNotEmpty() && compose.onAllNodesWithTag("details_primary").fetchSemanticsNodes().isNotEmpty() }; compose.onNodeWithTag("details_primary").assertExists() }
     private fun home() { compose.waitUntil(5_000) { compose.onAllNodesWithTag("subscriptions_screen").fetchSemanticsNodes().isNotEmpty() }; compose.onNodeWithTag("bottom_navigation").assertExists() }
     @Test fun coldActivityIntentOpensCorrectUuidAndBackReturnsHome() {
         ActivityScenario.launch<IsolatedMainActivity>(intent()).whileAlive { scenario ->
@@ -47,7 +47,7 @@ class NotificationNavigationUiTest {
         ActivityScenario.launch<IsolatedMainActivity>(intent()).whileAlive { scenario ->
             details(); scenario.recreate(); details()
             scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }; home()
-            scenario.recreate(); home(); compose.onNodeWithText("Изменить").assertDoesNotExist()
+            scenario.recreate(); home(); compose.onNodeWithTag("details_primary").assertDoesNotExist()
         }
     }
     @Test fun duplicateWarmIntentDoesNotAddAnotherDetailsDestination() {
@@ -85,15 +85,14 @@ class NotificationNavigationUiTest {
         runBlocking(Dispatchers.IO) { val db = TrackerDatabaseFactory.open(context,dataset); try { db.subscriptions().delete(sub.id) } finally { db.close() } }
         ActivityScenario.launch<IsolatedMainActivity>(intent()).whileAlive {
             compose.waitUntil(5_000) { compose.onAllNodesWithText("Добавить подписку").fetchSemanticsNodes().isNotEmpty() }
-            compose.onNodeWithText("Изменить").assertDoesNotExist()
+            compose.onNodeWithTag("details_primary").assertDoesNotExist()
         }
     }
     @Test fun archivedSubscriptionStillOpensItsExistingDetails() {
         runBlocking(Dispatchers.IO) { val db = TrackerDatabaseFactory.open(context,dataset); try { db.subscriptions().update(sub.copy(state=SubscriptionState.ARCHIVED)) } finally { db.close() } }
         ActivityScenario.launch<IsolatedMainActivity>(intent()).whileAlive {
             details()
-            compose.onNodeWithTag("details_management").performScrollTo().performClick()
-            compose.onNodeWithText("Возобновить подписку").performScrollTo().assertIsDisplayed()
+            compose.onNodeWithText("Восстановить").assertIsDisplayed()
         }
     }
     @Test fun unknownOldNotificationActionCannotMutateSubscriptionOnLaunchOrRecreation() {

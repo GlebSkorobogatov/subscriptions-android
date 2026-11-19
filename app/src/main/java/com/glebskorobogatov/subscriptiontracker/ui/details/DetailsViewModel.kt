@@ -21,7 +21,8 @@ enum class DetailsPhase { Loading, Content, NotFound, Error, OperationInProgress
 enum class DetailsAction { Disable, EditEnd, Archive, Reactivate, Delete }
 data class DetailsUiState(val today: LocalDate = LocalDate.now(), val phase: DetailsPhase = DetailsPhase.Loading, val data: Detail? = null,
     val error: Int? = null, val action: DetailsAction? = null, val fields: Map<String,String> = emptyMap(),
-    val frozen: Boolean = false, val conflicted: Boolean = false, val deleted: Boolean = false)
+    val frozen: Boolean = false, val conflicted: Boolean = false, val deleted: Boolean = false,
+    val archived: Boolean = false, val customFrequency: Boolean? = null)
 
 class DetailsViewModel(private val saved: SavedStateHandle, private val owner: SubscriptionsViewModel,
     private val id: UUID) : ViewModel() {
@@ -36,7 +37,9 @@ class DetailsViewModel(private val saved: SavedStateHandle, private val owner: S
         val legacyFields = saved.get<HashMap<String,String>>("fields").orEmpty()
         val fields = legacyFields.filterKeys { it in setOf("date","end","unit","count","amount","anchorDay") }
         saved["fields"] = HashMap(fields)
-        return DetailsUiState(action = action, fields = fields, frozen = saved["sent"] ?: false)
+        val custom = if (action == DetailsAction.Reactivate) saved.get<Boolean>("frequencyCustom") else null
+        if (custom == null) saved.remove<Boolean>("frequencyCustom")
+        return DetailsUiState(action = action, fields = fields, frozen = saved["sent"] ?: false, customFrequency = custom)
     }
     private val mutable = MutableStateFlow(restored())
     val state = mutable.asStateFlow()
@@ -61,7 +64,13 @@ class DetailsViewModel(private val saved: SavedStateHandle, private val owner: S
                             else if (detail == null) DetailsPhase.NotFound else DetailsPhase.Content)
                 }
             } catch (e: CancellationException) { throw e }
-            catch (_: Exception) { mutable.value = state.value.copy(phase = DetailsPhase.Error, error = R.string.details_load_error) }
+            catch (_: Exception) {
+                // A failed observer must not release the navigation or duplicate-submit guard before the write returns.
+                val current = state.value
+                if (current.phase != DetailsPhase.OperationInProgress) {
+                    mutable.value = current.copy(phase = DetailsPhase.Error, error = R.string.details_load_error)
+                }
+            }
         }
     }
     private fun allowed(row: SubscriptionEntity, action: DetailsAction): Boolean = when (action) {
@@ -85,7 +94,25 @@ class DetailsViewModel(private val saved: SavedStateHandle, private val owner: S
         saved["snapshot"] = SubscriptionSnapshot.snapshot(row)
         owner.activeDatasetId()?.let { saved["generation"] = it.toString() }
         saved["fields"] = fields; saved["action"] = action.name
-        mutable.value = state.value.copy(action = action,fields = fields,error = null,conflicted = false)
+        saved.remove<Boolean>("frequencyCustom")
+        mutable.value = state.value.copy(action = action,fields = fields,error = null,conflicted = false,customFrequency = null)
+    }
+    /** Presentation only. Custom editing stays on «Другая» until a preset capsule is chosen. */
+    fun setFrequencyMode(custom: Boolean) {
+        if (state.value.action != DetailsAction.Reactivate || state.value.frozen || state.value.phase == DetailsPhase.OperationInProgress) return
+        if (saved.get<Boolean>("frequencyCustom") == custom && state.value.customFrequency == custom) return
+        saved["frequencyCustom"] = custom
+        mutable.value = state.value.copy(customFrequency = custom)
+    }
+    /** One observation for a preset or custom pair. The lifecycle command is still built at submit. */
+    fun changeFrequency(unit: String, count: String) {
+        if (state.value.action != DetailsAction.Reactivate || state.value.frozen || state.value.phase == DetailsPhase.OperationInProgress) return
+        if (unit !in setOf("DAY","WEEK","MONTH","YEAR")) return
+        val parsed = count.toIntOrNull() ?: return
+        if (parsed < 1) return
+        val fields = state.value.fields + ("unit" to unit) + ("count" to parsed.toString())
+        saved["fields"] = HashMap(fields)
+        mutable.value = state.value.copy(fields = fields,error = null)
     }
     fun change(key: String, value: String) {
         if (key !in setOf("date", "end", "unit", "count", "amount", "anchorDay") || state.value.frozen || state.value.phase == DetailsPhase.OperationInProgress) return
@@ -100,11 +127,11 @@ class DetailsViewModel(private val saved: SavedStateHandle, private val owner: S
         clearDraft()
     }
     private fun clearSavedDraft() {
-        listOf("action","fields","snapshot","sent","operation","generation").forEach { saved.remove<Any>(it) }
+        listOf("action","fields","snapshot","sent","operation","generation","frequencyCustom").forEach { saved.remove<Any>(it) }
     }
     private fun clearDraft() {
         clearSavedDraft()
-        mutable.value = state.value.copy(action = null,fields = emptyMap(),frozen = false,conflicted = false,error = null)
+        mutable.value = state.value.copy(action = null,fields = emptyMap(),frozen = false,conflicted = false,error = null,customFrequency = null)
     }
     fun submit() {
         if (state.value.phase == DetailsPhase.OperationInProgress || state.value.action == null || state.value.conflicted) return
@@ -122,10 +149,17 @@ class DetailsViewModel(private val saved: SavedStateHandle, private val owner: S
                 DetailsAction.Disable -> LifecycleCommand.Cancel(LocalDate.parse(fields.getValue("end")))
                 DetailsAction.EditEnd -> LifecycleCommand.EditEnd(LocalDate.parse(fields.getValue("end")))
                 DetailsAction.Archive -> LifecycleCommand.Archive
-                DetailsAction.Reactivate -> LifecycleCommand.Reactivate(RubPrice.parse(fields.getValue("amount")),
-                    ScheduleEdit(LocalDate.parse(fields.getValue("date")),
-                        Frequency(FrequencyUnit.valueOf(fields.getValue("unit")), fields.getValue("count").toInt()),
-                        fields["anchorDay"]?.takeIf(String::isNotBlank)?.toInt()))
+                DetailsAction.Reactivate -> {
+                    val date = LocalDate.parse(fields.getValue("date"))
+                    val frequency = Frequency(FrequencyUnit.valueOf(fields.getValue("unit")), fields.getValue("count").toInt())
+                    val anchorText = fields["anchorDay"]?.takeIf(String::isNotBlank)
+                    val anchor = anchorText?.toIntOrNull()
+                    if (anchorText != null && (anchor == null || !validAnchor(date, frequency, anchor))) {
+                        mutable.value = state.value.copy(error = R.string.details_anchor_invalid)
+                        return
+                    }
+                    LifecycleCommand.Reactivate(RubPrice.parse(fields.getValue("amount")), ScheduleEdit(date, frequency, anchor))
+                }
                 DetailsAction.Delete -> null
             }
         } catch (_: Exception) { mutable.value = state.value.copy(error = R.string.details_invalid); return }
@@ -140,8 +174,13 @@ class DetailsViewModel(private val saved: SavedStateHandle, private val owner: S
                 }
                 clearDraft()
                 mutable.value = state.value.copy(phase = if (state.value.data == null) DetailsPhase.NotFound else DetailsPhase.Content,
-                    deleted = action == DetailsAction.Delete)
-            } catch (e: CancellationException) { throw e }
+                    deleted = action == DetailsAction.Delete, archived = action == DetailsAction.Archive)
+            } catch (e: CancellationException) {
+                // Keep the submitted snapshot locked. An interrupted response establishes neither success nor failure.
+                val current = state.value
+                mutable.value = current.copy(phase = if (current.data == null) DetailsPhase.NotFound else DetailsPhase.Content)
+                throw e
+            }
             catch (_: LifecycleConflict) { conflict() }
             catch (_: IllegalArgumentException) { rejected(R.string.details_invalid) }
             catch (_: Exception) {
@@ -150,6 +189,10 @@ class DetailsViewModel(private val saved: SavedStateHandle, private val owner: S
             }
         }
     }
+    private fun validAnchor(date: LocalDate, frequency: Frequency, anchor: Int): Boolean = try {
+        calculationOrNull { RecurringSchedule.starting(date, frequency, anchor) } != null
+    } catch (_: IllegalArgumentException) { false }
+
     private fun rejected(message: Int) {
         saved["sent"] = false
         mutable.value = state.value.copy(phase = DetailsPhase.Content,frozen = false,error = message)

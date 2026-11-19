@@ -12,17 +12,23 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.*
 import androidx.navigation.toRoute
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.lifecycle.viewmodel.initializer
 import com.glebskorobogatov.subscriptiontracker.R
 import com.glebskorobogatov.subscriptiontracker.ui.design.*
 import com.glebskorobogatov.subscriptiontracker.ui.subscriptions.*
+import com.glebskorobogatov.subscriptiontracker.ui.details.DetailsPhase
+import com.glebskorobogatov.subscriptiontracker.ui.details.DetailsScreen
+import com.glebskorobogatov.subscriptiontracker.ui.details.DetailsUiState
+import com.glebskorobogatov.subscriptiontracker.ui.details.DetailsViewModel
 import com.glebskorobogatov.subscriptiontracker.ui.finance.FinanceScreen
 import com.glebskorobogatov.subscriptiontracker.ui.archive.ArchiveScreen
 import com.glebskorobogatov.subscriptiontracker.ui.settings.SettingsScreen
@@ -65,7 +71,6 @@ fun TrackerApp(state: SubscriptionsUiState,onRetry: () -> Unit,owner: Subscripti
     val entry = navEntry.value
     val destination = entry?.destination
     val editor = destination?.hasRoute<SubscriptionEditor>() == true
-    val details = destination?.hasRoute<SubscriptionDetails>() == true
     val archive = destination?.hasRoute<Archive>() == true
     val root = when {
         destination?.hasRoute<Finance>() == true -> TrackerTab.Finance
@@ -82,48 +87,89 @@ fun TrackerApp(state: SubscriptionsUiState,onRetry: () -> Unit,owner: Subscripti
     val navigationSession = remember { NotificationNavigationSession() }
     val hostLifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
     val notificationState = notifications?.state?.collectAsStateWithLifecycle()?.value
-    // The read runs outside this effect. Marking the request consumed changes its key, and that must not cancel the decision.
-    LaunchedEffect(notificationState?.navigation?.sequence,editor) {
+    fun detailsModel(entry: NavBackStackEntry): DetailsViewModel =
+        ViewModelProvider.create(entry, viewModelFactory {
+            initializer {
+                val id = UUID.fromString(entry.toRoute<SubscriptionDetails>().subscriptionId)
+                DetailsViewModel(createSavedStateHandle(), owner, id)
+            }
+        })[DetailsViewModel::class]
+
+    fun leaveDetails(entry: NavBackStackEntry) {
+        if (nav.currentBackStackEntry !== entry) return
+        if (!nav.popBackStack()) nav.navigate(Subscriptions) { launchSingleTop = true }
+    }
+
+    // The request stays pending across a suspended read or write and across Activity recreation.
+    // Consuming it after navigation must not cancel the job that applied the decision.
+    LaunchedEffect(notificationState?.navigation?.sequence, editor) {
         val model = notifications ?: return@LaunchedEffect
         val request = notificationState?.navigation ?: return@LaunchedEffect
         navigationSession.dispatch(navigationScope, request.sequence, editor) {
-            // Restoration can publish the editor after this effect has already started with a null route.
-            // Wait for a real destination, then read it again after the suspending lookup.
-            val editorNow = withContext(Dispatchers.Main.immediate) {
-                // currentBackStackEntry is not snapshot state. Read the Compose State so restoration wakes this wait.
-                hostLifecycle.awaitAtLeastStarted()
-                snapshotFlow { navEntry.value?.destination }.first { it != null }!!.hasRoute<SubscriptionEditor>()
-            }
-            val decision = NotificationNavigationResolver.decide(
-                request = request,
-                editor = editorNow,
-                visibleDetailsId = { null },
-                activeGeneration = { owner.activeDatasetId() },
-                latestSequence = { model.state.value.navigation?.sequence },
-                exists = { id -> owner.details(id).first() != null },
-            )
-            withContext(Dispatchers.Main.immediate) {
-                currentCoroutineContext().ensureActive()
-                val editorAfter = nav.currentBackStackEntry?.destination?.hasRoute<SubscriptionEditor>() == true
-                val visible = visibleNotificationTarget(nav)
-                val onMain = when {
-                    editorAfter && decision !is NotificationNavigationDecision.Superseded -> NotificationNavigationDecision.AwaitEditor
-                    decision is NotificationNavigationDecision.OpenDetails && visible == decision.subscriptionId ->
-                        NotificationNavigationDecision.AlreadyVisible
-                    else -> decision
+            hostLifecycle.awaitAtLeastStarted()
+            snapshotFlow { navEntry.value }.first { it != null }
+            while (model.state.value.navigation?.sequence == request.sequence) {
+                // details() is collected with flowOn(Default). A lost response can resume there.
+                // NavController updates the entry lifecycle and must run on the main thread.
+                val finished = withContext(Dispatchers.Main.immediate) {
+                    val before = nav.currentBackStackEntry
+                    val currentDetails = before?.takeIf { it.destination.hasRoute<SubscriptionDetails>() }?.let(::detailsModel)
+                    if (currentDetails?.state?.value?.phase == DetailsPhase.OperationInProgress) {
+                        currentDetails.state.first { it.phase != DetailsPhase.OperationInProgress }
+                        hostLifecycle.awaitAtLeastStarted()
+                        return@withContext false
+                    }
+                    val settled = currentDetails?.state?.value
+                    if (before != null && settled?.requiresDetailsExit == true) {
+                        leaveDetails(before)
+                        return@withContext false
+                    }
+
+                    val decision = NotificationNavigationResolver.decide(
+                        request = request,
+                        editor = before?.destination?.hasRoute<SubscriptionEditor>() == true,
+                        visibleDetailsId = { null },
+                        activeGeneration = { owner.activeDatasetId() },
+                        latestSequence = { model.state.value.navigation?.sequence },
+                        exists = { id -> owner.details(id).first() != null },
+                    )
+                    hostLifecycle.awaitAtLeastStarted()
+                    currentCoroutineContext().ensureActive()
+                    val after = nav.currentBackStackEntry
+                    val editorAfter = after?.destination?.hasRoute<SubscriptionEditor>() == true
+                    // An operation may have started or finished while the existence read was suspended.
+                    // Resolve again from the current entry once its operation has settled.
+                    if (!editorAfter && (before !== after ||
+                            currentDetails?.state?.value?.let {
+                                it.phase == DetailsPhase.OperationInProgress || it.requiresDetailsExit
+                            } == true)) return@withContext false
+                    val visible = visibleNotificationTarget(nav)
+                    val onMain = when {
+                        editorAfter && decision !is NotificationNavigationDecision.Superseded -> NotificationNavigationDecision.AwaitEditor
+                        decision is NotificationNavigationDecision.OpenDetails && request.generation != owner.activeDatasetId() ->
+                            NotificationNavigationDecision.Home
+                        decision is NotificationNavigationDecision.OpenDetails && visible == decision.subscriptionId ->
+                            NotificationNavigationDecision.AlreadyVisible
+                        else -> decision
+                    }
+                    applyNotificationNavigation(
+                        request = request,
+                        decision = onMain,
+                        latestSequence = { model.state.value.navigation?.sequence },
+                        navigateHome = { openRoot(Subscriptions) },
+                        navigateDetails = { id ->
+                            val route = SubscriptionDetails(id.toString())
+                            if (!nav.popBackStack(route, inclusive = false)) nav.navigate(route)
+                        },
+                        confirmExit = {
+                            exitBinding = exitBinding.confirmExit(request.sequence)
+                            exitRequest++
+                        },
+                        consume = { model.consumed(it) },
+                    )
+                    true
                 }
-                applyNotificationNavigation(
-                    request = request,
-                    decision = onMain,
-                    latestSequence = { model.state.value.navigation?.sequence },
-                    navigateHome = { openRoot(Subscriptions) },
-                    navigateDetails = { id -> nav.navigate(SubscriptionDetails(id.toString())) { launchSingleTop = true } },
-                    confirmExit = {
-                        exitBinding = exitBinding.confirmExit(request.sequence)
-                        exitRequest++
-                    },
-                    consume = { model.consumed(it) },
-                )
+                if (finished) break
             }
         }
     }
@@ -135,7 +181,19 @@ fun TrackerApp(state: SubscriptionsUiState,onRetry: () -> Unit,owner: Subscripti
             nav.navigate(Archive) { launchSingleTop = true }
         }
     }
-    SideEffect { notifications?.visibleSubscription(if(details) entry?.toRoute<SubscriptionDetails>()?.subscriptionId?.let(UUID::fromString) else null) }
+    SideEffect {
+        if (notifications != null) {
+            val detailsEntry = nav.currentBackStackEntry?.takeIf { it.destination.hasRoute<SubscriptionDetails>() }
+            if (detailsEntry == null) notifications.visibleSubscription(null)
+            else {
+                val details = detailsModel(detailsEntry)
+                notifications.visibleSubscription(UUID.fromString(detailsEntry.toRoute<SubscriptionDetails>().subscriptionId)) {
+                    val current = details.state.value
+                    current.phase != DetailsPhase.OperationInProgress && !current.requiresDetailsExit
+                }
+            }
+        }
+    }
     fun select(tab: TrackerTab) {
         if(tab == root) return
         val route: Any = when(tab) { TrackerTab.Subscriptions -> Subscriptions; TrackerTab.Finance -> Finance; TrackerTab.Settings -> Settings }
@@ -179,13 +237,13 @@ fun TrackerApp(state: SubscriptionsUiState,onRetry: () -> Unit,owner: Subscripti
                     }
                     composable<SubscriptionDetails> { backEntry ->
                         val id = UUID.fromString(backEntry.toRoute<SubscriptionDetails>().subscriptionId)
-                        val model: com.glebskorobogatov.subscriptiontracker.ui.details.DetailsViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
-                            viewModelStoreOwner = backEntry,factory = viewModelFactory { initializer {
-                                com.glebskorobogatov.subscriptiontracker.ui.details.DetailsViewModel(createSavedStateHandle(),owner,id)
-                            } })
-                        com.glebskorobogatov.subscriptiontracker.ui.details.DetailsScreen(model,id,0,
-                            onBack = { nav.popBackStack() },onEdit = { nav.navigate(SubscriptionEditor(id.toString())) },
-                            onDeleted = { if(!nav.popBackStack()) nav.navigate(Subscriptions) { launchSingleTop = true } })
+                        DetailsScreen(detailsModel(backEntry), id, 0,
+                            onBack = { leaveDetails(backEntry) },
+                            onEdit = {
+                                if (nav.currentBackStackEntry === backEntry) nav.navigate(SubscriptionEditor(id.toString()))
+                            },
+                            onDeleted = { leaveDetails(backEntry) },
+                            onArchived = { leaveDetails(backEntry) })
                     }
                     composable<Finance> { backEntry ->
                         val model: com.glebskorobogatov.subscriptiontracker.ui.finance.FinanceViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
@@ -211,6 +269,9 @@ fun TrackerApp(state: SubscriptionsUiState,onRetry: () -> Unit,owner: Subscripti
         }
     }
 }
+
+private val DetailsUiState.requiresDetailsExit: Boolean
+    get() = deleted || archived || phase == DetailsPhase.NotFound
 
 private suspend fun androidx.lifecycle.Lifecycle.awaitAtLeastStarted() {
     if (currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) return

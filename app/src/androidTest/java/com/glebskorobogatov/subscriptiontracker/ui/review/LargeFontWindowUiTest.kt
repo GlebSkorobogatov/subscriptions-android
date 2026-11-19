@@ -10,6 +10,7 @@ import androidx.compose.ui.text.TextLayoutResult
 import com.glebskorobogatov.subscriptiontracker.R
 import com.glebskorobogatov.subscriptiontracker.app.LargeFontReviewActivity
 import com.glebskorobogatov.subscriptiontracker.data.settings.Theme
+import com.glebskorobogatov.subscriptiontracker.ui.design.formatTrackerRub
 import com.glebskorobogatov.subscriptiontracker.ui.openSettingsOffsets
 import com.glebskorobogatov.subscriptiontracker.ui.editor.CatalogPickerDialog
 import com.glebskorobogatov.subscriptiontracker.ui.design.TrackerTheme
@@ -41,9 +42,9 @@ class LargeFontWindowUiTest {
             val artifacts = ReviewArtifacts("landscape-dark")
             for((s,action,cancel) in listOf(
 
-                Triple(ReviewScene.DeleteDialog,"Подтвердить","Отмена"),
+                Triple(ReviewScene.DeleteDialog,"Удалить","Отмена"),
                 Triple(ReviewScene.EditEndDialog,"Подтвердить","Отмена"),
-                Triple(ReviewScene.DisableDialog,"Подтвердить","Отмена"),Triple(ReviewScene.ReactivateDialog,"Подтвердить","Отмена"),
+                Triple(ReviewScene.DisableDialog,"Подтвердить","Отмена"),Triple(ReviewScene.ReactivateDialog,"Сохранить","Отмена"),
                 Triple(ReviewScene.ArchiveDialog,"Подтвердить","Отмена"),
 
                 Triple(ReviewScene.UnsavedDialog,text(R.string.editor_discard),text(R.string.editor_continue)))) {
@@ -103,7 +104,7 @@ class LargeFontWindowUiTest {
             when(s) {
                 ReviewScene.Settings -> compose.onNodeWithTag("settings_time").performScrollTo()
                 ReviewScene.EditorError -> compose.onNodeWithTag("field_amount").performScrollTo()
-                ReviewScene.DetailsLong -> compose.onNodeWithText("92233720368547758,07 RUB").performScrollTo()
+                ReviewScene.DetailsLong -> compose.onNodeWithText(formatTrackerRub(Long.MAX_VALUE)).performScrollTo()
                 else -> Unit
             }
             artifacts.capture(compose,s,name,font,density)

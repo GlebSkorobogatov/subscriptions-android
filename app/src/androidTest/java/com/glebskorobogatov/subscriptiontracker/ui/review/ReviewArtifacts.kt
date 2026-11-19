@@ -26,7 +26,12 @@ internal class ReviewArtifacts(private val group: String) {
         val suffix = if(variant.isEmpty()) "" else "-$variant"
         val file = File(directory,"ui06-$group-$slug-$theme-${width}x${height}-f$font$suffix.png")
         file.parentFile!!.mkdirs()
-        file.outputStream().use { target.captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG,100,it) }
+        // An in-window modal keeps dialog semantics without a second window, so the activity bitmap is the capture.
+        val image = try { target.captureToImage() } catch (error: IllegalArgumentException) {
+            if (!dialog) throw error
+            compose.onNodeWithTag("ui06_viewport").captureToImage()
+        }
+        file.outputStream().use { image.asAndroidBitmap().compress(Bitmap.CompressFormat.PNG,100,it) }
         assertTrue("PNG must be written: ${file.name}",file.length() > 0)
         records += JSONObject().put("file",file.name).put("scene",scene.name).put("variant",variant).put("theme",theme).put("fontScale",font)
             .put("viewportDp","${width}x$height").put("imagePx","${node.size.width}x${node.size.height}").put("modalWindow",dialog)

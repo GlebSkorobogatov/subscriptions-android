@@ -187,13 +187,13 @@ class NotificationNavigationRaceUiTest {
     private fun details(id: UUID) {
         compose.waitUntil(15_000) {
             compose.onAllNodesWithTag("details_$id").fetchSemanticsNodes().isNotEmpty() &&
-                compose.onAllNodesWithText("Изменить").fetchSemanticsNodes().isNotEmpty()
+                compose.onAllNodesWithTag("details_primary").fetchSemanticsNodes().isNotEmpty()
         }
     }
 
     private fun home() {
         compose.waitUntil(15_000) { compose.onAllNodesWithTag("subscriptions_screen").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("bottom_navigation").assertExists()
-        assertFalse(compose.onAllNodesWithText("Изменить").fetchSemanticsNodes().isNotEmpty())
+        assertFalse(compose.onAllNodesWithTag("details_primary").fetchSemanticsNodes().isNotEmpty())
     }
 }

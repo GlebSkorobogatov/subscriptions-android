@@ -65,7 +65,12 @@ class NotificationViewModel(private val saved: SavedStateHandle, private val own
     val state = mutable.asStateFlow()
     private var navigationJob: Job? = null
     private var visibleSubscription: UUID? = null
-    fun visibleSubscription(id: UUID?) { visibleSubscription = id }
+    private var visibleDetailsStable: () -> Boolean = { true }
+
+    fun visibleSubscription(id: UUID?, stable: () -> Boolean = { true }) {
+        visibleSubscription = id
+        visibleDetailsStable = stable
+    }
     init {
         refresh()
         if (saved.contains("pendingRoute")) open(saved["pendingRoute"])
@@ -113,7 +118,9 @@ class NotificationViewModel(private val saved: SavedStateHandle, private val own
         navigationJob?.cancel()
         saved["pendingRoute"] = raw ?: ""
         val incoming = NotificationRoute.parse(raw)
-        val alreadyVisible = incoming != null && incoming.subscription == visibleSubscription && owner.activeDatasetId() == incoming.generation
+        val stillStable = visibleDetailsStable
+        val alreadyVisible = incoming != null && incoming.subscription == visibleSubscription &&
+            owner.activeDatasetId() == incoming.generation && stillStable()
         navigationJob = viewModelScope.launch {
             val route = NotificationRoute.parse(raw)
             val subscription = try {
@@ -133,7 +140,7 @@ class NotificationViewModel(private val saved: SavedStateHandle, private val own
             route?.let { runCatching { environment.dismiss(it) } }
             // A repeated tap on the visible target must not reopen it after the user pressed Back
             // while Room was being checked. Missing/stale targets still get the safe fallback.
-            if (alreadyVisible && subscription != null) {
+            if (alreadyVisible && subscription != null && stillStable()) {
                 saved.remove<String>("pendingRoute")
                 return@launch
             }

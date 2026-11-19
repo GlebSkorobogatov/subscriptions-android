@@ -37,9 +37,10 @@ internal object DetailsEditorPreviewData {
 
 @Composable internal fun DetailsDemo(state: DetailsUiState = DetailsEditorPreviewData.details,theme: Theme = Theme.SYSTEM,
     onBack: () -> Unit = {},onEdit: () -> Unit = {},onAction: (DetailsAction) -> Unit = {},onRefresh: () -> Unit = {}) {
+    var menu by rememberSaveable { mutableStateOf(false) }
     TrackerTheme(theme) {
         Scaffold { padding -> Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
-            DetailsPane(state,DetailsEditorPreviewData.id,onBack,onEdit,onBack,onAction,onRefresh)
+            DetailsPane(state, DetailsEditorPreviewData.id, menu, { menu = it }, onBack, onEdit, onBack, onAction, onRefresh)
         } }
     }
 }

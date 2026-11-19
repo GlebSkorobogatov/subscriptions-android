@@ -44,8 +44,13 @@ class DetailsEditorRedesignUiTest {
     }
     @Test fun activeDetailsShowPlanAndUseSuppliedFraction() {
         compose.setContent { DetailsDemo() }
-        compose.onNodeWithText("Плановая стоимость продления").assertExists()
-        compose.onNodeWithText("799,00 RUB").assertExists()
+        compose.onNodeWithText("799 ₽").assertExists()
+        val root = compose.onNodeWithTag("details_${data.id}",useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        val icon = compose.onNodeWithTag("details_icon",useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        val price = compose.onNodeWithTag("details_price",useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        assertTrue("The hero icon stays left of the amount",icon.left <= price.left + 1f)
+        assertTrue("Details content is aligned to the left",price.left < root.center.x)
+        assertEquals(72f * compose.density.density,icon.height,1f)
         compose.onNodeWithTag("details_progress",useUnmergedTree = true).assertRangeInfoEquals(ProgressBarRangeInfo(0.5f,0f..1f))
         val track = compose.onNodeWithTag("details_progress_track",useUnmergedTree = true).fetchSemanticsNode()
         assertEquals(4f * compose.density.density,track.size.height.toFloat(),1f)
@@ -54,10 +59,11 @@ class DetailsEditorRedesignUiTest {
         val actions = mutableListOf<DetailsAction>()
         compose.setContent { DetailsDemo(onAction = { actions += it }) }
         compose.onNodeWithText("Удалить подписку").assertDoesNotExist()
-        compose.openDetailsManagement()
-        for ((label,action) in listOf("Отменить подписку" to DetailsAction.Disable,
+        compose.onNodeWithText("Редактировать").assertHasClickAction()
+        for ((label,action) in listOf("Отметить отмену" to DetailsAction.Disable,
             "Архивировать" to DetailsAction.Archive,"Удалить подписку" to DetailsAction.Delete)) {
-            compose.onNodeWithText(label).performScrollToIfScrollable().assertHasClickAction().performClick()
+            compose.openDetailsManagement()
+            compose.onNodeWithText(label).assertHasClickAction().performClick()
             compose.runOnIdle { assertEquals(action,actions.last()) }
         }
     }
@@ -65,10 +71,10 @@ class DetailsEditorRedesignUiTest {
         val state = data.details.copy(data=data.details.data!!.copy(subscription=data.row.copy(state=SubscriptionState.CANCELLED)))
         val actions=mutableListOf<DetailsAction>()
         compose.setContent { DetailsDemo(state,onAction={ actions+=it }) }
+        compose.onNodeWithText("Возобновить").assertHasClickAction()
         compose.openDetailsManagement()
-        compose.onNodeWithText("Изменить дату окончания доступа").performScrollToIfScrollable().performClick()
+        compose.onNodeWithText("Изменить окончание доступа").performClick()
         compose.runOnIdle { assertEquals(listOf(DetailsAction.EditEnd),actions) }
-        compose.onNodeWithText("Возобновить подписку").performScrollToIfScrollable().assertHasClickAction()
         compose.onNodeWithText("Проблема с оплатой").assertDoesNotExist()
         compose.onNodeWithText("Подтвердить оплату").assertDoesNotExist()
     }
@@ -76,15 +82,14 @@ class DetailsEditorRedesignUiTest {
         val detail = data.details.data!!.copy(subscription = data.row.copy(state = SubscriptionState.ARCHIVED),
             period = SubscriptionPeriod(null,null,null))
         compose.setContent { DetailsDemo(data.details.copy(data = detail)) }
-        compose.openDetailsManagement()
-        compose.onNodeWithText("Возобновить подписку").performScrollToIfScrollable().assertHasClickAction()
+        compose.onNodeWithText("Восстановить").assertHasClickAction()
+        compose.onNodeWithTag("details_progress",useUnmergedTree = true).assertDoesNotExist()
         compose.onNodeWithText("Подтвердить оплату").assertDoesNotExist()
     }
     @Test fun progressOperationBlocksBackEditAndPayment() {
         compose.setContent { DetailsDemo(data.details.copy(phase = DetailsPhase.OperationInProgress)) }
         compose.onNodeWithContentDescription("Назад").assertIsNotEnabled()
-        compose.onNodeWithText("Изменить").assertIsNotEnabled()
-        compose.onAllNodesWithText("Изменить").assertAll(isNotEnabled())
+        compose.onNodeWithText("Редактировать").assertIsNotEnabled()
     }
     @Test fun loadingErrorAndNotFoundRemainDistinctAndRetryWorks() {
         val state = mutableStateOf(data.details.copy(phase = DetailsPhase.Loading,data = null))
@@ -143,7 +148,7 @@ class DetailsEditorRedesignUiTest {
     private fun capture(theme: Theme,name: String) {
         val editor = mutableStateOf(false)
         compose.setContent { if(editor.value) EditorDemo(theme = theme) else DetailsDemo(theme = theme) }
-        compose.onNodeWithText("799,00 RUB").assertExists()
+        compose.onNodeWithText("799 ₽").assertExists()
         screenshot("details-$name")
         compose.runOnIdle { editor.value = true }
         compose.onNodeWithTag("field_name").assertExists()
