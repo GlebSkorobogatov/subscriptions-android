@@ -123,3 +123,48 @@ API 33: **NOT RUN**. TalkBack на устройстве: **NOT RUN**. Photo Pick
 `DetailsScreen.kt`, `DetailsViewModel.kt`, `ArchiveScreen.kt`, `TrackerApp.kt`, `TrackerTokens.kt`, `strings.xml`, `ic_more_vert.xml`, `ic_edit.xml`, `ic_event.xml`, `ic_delete.xml`, `DetailsEditorPreviews.kt`, `DetailsViewModelTest.kt`, `DetailsUiTest.kt`, `DetailsEditorRedesignUiTest.kt`, `DetailsTestNavigation.kt`, `ArchiveSettingsUiTest.kt`, `ArchiveSettingsRedesignUiTest.kt`, `R5aEditorUiTest.kt`, `EditorUiTest.kt`, `SubscriptionsUiTest.kt`, `AccessibilityUiTest.kt`, `NotificationNavigationUiTest.kt`, `NotificationNavigationRaceUiTest.kt`, `CrossScreenDesignUiTest.kt`, `LargeFontWindowUiTest.kt`, `ReviewArtifacts.kt`, `R5bLifecycleUiTest.kt`, `docs/reports/R5b.md`.
 
 Остановиться до независимой приёмки. Следующий этап не начат.
+
+## R5b-fix — завершение приёмки деталей
+
+Исходный SHA `dd7300f70e78cc3b42b76c89d9a582296692ad1f`, ветка `codex/r5b-details-archive`, база `codex/r5a-editor`. Проверены чистое рабочее дерево, совпадение HEAD с Draft PR #13 и область изменений. Итоговый SHA реализации `33e965829ab0a8e6f110f59e3b871c09e4f8c5d5`. Коммит с результатами этой проверки находится поверх него в том же [Draft PR #13](https://github.com/GlebSkorobogatov/subscriptions-android/pull/13).
+
+### Замечания и исправления
+
+- **Восстановление после удаления (R-LIFE-05, T-LIFE-05).** У диалога удаления отсутствовала кнопка reload, хотя ViewModel уже поддерживала сброс конфликтного или неопределённого черновика и повторное чтение. «Перезагрузить данные» теперь вызывает `refresh` для обоих случаев. Во время записи повтор, закрытие и reload заблокированы. При конфликте следующий запуск требует нового явного подтверждения со свежим снимком. При потерянном ответе доступен повтор с прежним снимком или reload. Если запись отсутствует, после reload отображается NotFound и действие безопасного возврата без вызова callback успешного удаления. Ошибка наблюдения и отмена корутины обработаны так, чтобы первая не разблокировала ещё идущую запись, а вторая оставляла проверяемый frozen-черновик.
+- **Гонка навигации (R-UI-04, R-LIFE-03/05, T-UI-03, T-NOT-06).** Раньше уведомление могло открыть B во время операции A, а завершение экрана A вызывало обычный `popBackStack()` над B. Теперь callback закрывает только владеющий `NavBackStackEntry`. Запрос уведомления остаётся в Activity-scoped ViewModel, пока операция текущих деталей выполняется. После завершения подтверждённо архивированные/удалённые детали закрываются и цель перечитывается. Если цель ещё существует, открывается её актуальная запись. При отсутствующей цели открывается список. При ошибке операции с доступной записью можно открыть B, затем вернуться к ошибке A. Повторный запрос использует видимую или уже существующую запись маршрута. Повторное уведомление для A во время операции проходит эту проверку вместо раннего подавления дубля. Возврат редактора продолжает использовать ExitBinding из REG-02.
+- **Модальное окно формы (R-UI-04/09, T-UI-03/08).** Семантика `dialog()` в окне Activity оставляла фон частью той же иерархии фокуса. Форма стала отдельным Compose Dialog с прежней нижней поверхностью, формой и цветами. Календарь открывается поверх неё. Back закрывает верхнее окно первым, обычный Back в форме её закрывает. Для busy и frozen отключены уход по Back и касанию фона. Поля прокручиваются, в обычном окне кнопки закреплены. При высоте формы менее 220 dp с учётом insets и IME они прокручиваются вместе с полями. Если скрытая опора не согласуется с датой и периодичностью, используется проверка действующего контракта `RecurringSchedule.starting`, поле раскрывается, прокручивается в видимую область и получает пояснение ошибки.
+
+### Изменённые файлы и регрессии
+
+- `ui/details/DetailsScreen.kt`, `DetailsViewModel.kt`, `res/values/strings.xml` — reload, NotFound, модальная форма, индикация ошибочной опоры.
+- `ui/navigation/TrackerApp.kt`, `notifications/NotificationViewModel.kt` — ожидание операции, проверка владельца, повторное разрешение цели. Существующие NotificationNavigationResolver, NotificationNavigationSession и ExitBinding используются без правок.
+- `debug/.../app/IsolatedMainActivity.kt` — пауза только в тестовой среде перед реальной записью, подтверждение прочитанного запроса уведомления и моделирование потерянного ответа после записи.
+- `DetailsViewModelTest.kt` — четыре новых JVM-теста для конфликта, неопределённого результата с пропавшей записью, ошибки чтения во время записи и исправления опорного дня. Проверка CancellationException дополнена ожиданием выхода из busy без подтверждения результата.
+- `DetailsOperationNavigationUiTest.kt` — семь Android-сценариев с управляемой паузой. Архивирование и удаление с уведомлением B, удаление с пересозданием Activity, уведомление A при архивировании и при удалении, конфликт с reload, потеря ответа с NotFound, блокировка закрытия формы в busy/frozen. После возврата проверяются стек и сохранённая строка Room.
+- `R5bLifecycleUiTest.kt` (классы `R5bLifecycleUiTest` и `R5bFontScaleUiTest`) — три Android-сценария для фонового Back/касания, исправления скрытой опоры и работы поля и действий при landscape и font scale 2. Прежний сценарий закрытия календаря перед формой сохранён.
+
+Хранилище, схема Room, календарная и денежная арифметика, прогноз, reminders/WorkManager/ledger, ассеты, настройки, конфигурация сборки и Manifest проверены по diff. Изменения ограничены слоем деталей, навигацией и синтетическими тестами.
+
+### Среда и результаты
+
+Codex Cloud, Temurin JDK 21.0.9, Android SDK 36, Build Tools 35.0.0, Gradle Wrapper 8.13. ENV-01 из Cursor в этой среде недоступен. В SDK отсутствует бинарник эмулятора, /dev/kvm отсутствует, ADB завершился до получения списка устройств из-за недоступного каталога настроек.
+
+```sh
+git diff --check
+./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug :app:compileDebugAndroidTestKotlin --no-daemon --max-workers=2 --console=plain
+```
+
+| Проверка | Фактический результат |
+|---|---|
+| git diff --check | PASS |
+| :app:testDebugUnitTest | PASS, 409 выполнено, 0 failures/errors/skipped |
+| :app:assembleDebug | PASS |
+| :app:lintDebug | PASS, 0 ошибок, 8 предупреждений в отчёте Codex |
+| :app:compileDebugAndroidTestKotlin | PASS, 475 аннотаций @Test в скомпилированных классах |
+| Обязательная Gradle-команда | BUILD SUCCESSFUL, 2m 44s |
+
+Первый прогон обязательной команды тоже завершился успешно за 2m 51s. Затем уточнено поведение при отмене операции и добавлена проверка закрытия locked-формы. Первоначальных падений Gradle-задач и JVM-тестов в R5b-fix не было. У пробного запуска ADB был отказ из-за недоступного каталога, устройство проверить не удалось.
+
+В отчёте Codex шесть предупреждений NewerVersionAvailable, одно ObsoleteSdkInt и одно UnusedResources. Прежние 19 предупреждений относятся к окружению Cursor. Для разницы в lint не вносились изменения Gradle или зависимостей. Room schema exports сверены побайтово с базой.
+
+Android-прогоны новых методов, классов деталей/архива/навигации и полного набора — **NOT RUN**. Результат прежнего прогона R5b на API 31 относится к исходной версии. `captureWhenSystemFontIsEnlarged` даже при зелёном общем прогоне со штатным шрифтом не проверяет системный увеличенный шрифт. Для повторной проверки требуется выставить масштаб до запуска Activity. API 33+, физический TalkBack, Photo Picker, process death, реальное поведение IME и новые скриншоты — **NOT RUN**. Состояние готово для независимой статической приёмки, фактическое поведение окон и гонки ещё требуют Android-прогона.
