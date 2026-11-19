@@ -168,3 +168,53 @@ git diff --check
 В отчёте Codex шесть предупреждений NewerVersionAvailable, одно ObsoleteSdkInt и одно UnusedResources. Прежние 19 предупреждений относятся к окружению Cursor. Для разницы в lint не вносились изменения Gradle или зависимостей. Room schema exports сверены побайтово с базой.
 
 Android-прогоны новых методов, классов деталей/архива/навигации и полного набора — **NOT RUN**. Результат прежнего прогона R5b на API 31 относится к исходной версии. `captureWhenSystemFontIsEnlarged` даже при зелёном общем прогоне со штатным шрифтом не проверяет системный увеличенный шрифт. Для повторной проверки требуется выставить масштаб до запуска Activity. API 33+, физический TalkBack, Photo Picker, process death, реальное поведение IME и новые скриншоты — **NOT RUN**. Состояние готово для независимой статической приёмки, фактическое поведение окон и гонки ещё требуют Android-прогона.
+
+## R5b-verify — инструментальная приёмка
+
+Исходный SHA `1c32a47399c0dbed018f2e19cb15143239bc3669`, ветка `codex/r5b-details-archive`, база `codex/r5a-editor`, Draft PR #13. Исправление навигации: `977b5b60857e7b59f9b576431ea5ccffa45fca4a`. Коммит с этим разделом лежит поверх него в том же PR. PR #12 не менялся. Merge, force push и ручной запуск Actions не выполнялись. R6a не начат. PERSONAL-READY не объявляется.
+
+Среда ENV-01: Temurin/OpenJDK 21.0.13, Android SDK `/opt/android-sdk` платформа 36, Build Tools 35.0.0, Gradle Wrapper 8.13, `/dev/kvm` доступен. Эмулятор `api31`, `emulator-5554`, Google APIs x86_64, API 31. На старте рабочее дерево чистое, HEAD совпал с указанным SHA.
+
+### Первые падения и повторы
+
+- `DetailsOperationNavigationUiTest.popBackStackToExistingRouteKeepsUnresolvedFrozenDraft`, код до исправления: **FAIL**, 3.68 с. `IllegalStateException: Method setCurrentState must be called on the main thread` в `TrackerApp` на `navigate` после `popBackStack(route)`. `details()` собирается через `flowOn(Dispatchers.Default)`. Когда уведомление приходит уже после потерянного ответа, продолжение корутины оказывается вне главного потока, а `NavController` меняет lifecycle записи только на нём. До правки отдельные прогоны `archiveWaitsForItsOwnExitBeforeOpeningTheOtherDetails` и `conflictedDeleteKeepsItsErrorAfterTheOtherDetailsAndReloadsWithoutDeleting`: **PASS**. После `withContext(Dispatchers.Main.immediate)` тот же новый метод: **PASS**.
+- Запрошенные классы на исправленном коде, первый проход: **71 тест, 70 PASS, 1 FAIL**, 4 мин 36 с. Единственное падение — `R5bLifecycleUiTest.modalFormBlocksTheBackgroundBackButtonAndNativeBackClosesOnlyTheForm`: сразу после `pressBack` семантика ещё содержала `details_dialog`. Касание фона уже вызывало `dismiss`. Повтор без ожидания кадра: снова **FAIL**. С `waitForIdle` после касания и после Back: **PASS**. Отдельный обработчик клавиш в форму не добавлялся: после кадра диалог закрыт, запись деталей на месте. Повтор всех восьми классов: **71/71 PASS**, 6 мин 39 с.
+- Полный набор: **476 тестов, 475 PASS, 1 FAIL, 0 skipped**, 16 мин 52 с. Падение — `R5aEditorUiTest.presetsCustomCalendarAndValidation`, строка выбора `frequency_unit_MONTH`: после `performClick` узел остался `Selected = false`. Изолированный повтор этого метода: **PASS**, 32 с. Редактор и капсулы частоты в этом проходе не менялись. Это не регрессия R5b-fix.
+
+### Что исправлено
+
+`TrackerApp` выполняет чтение стека, `leaveDetails`, `popBackStack(route)` и `navigate` внутри `withContext(Dispatchers.Main.immediate)`. Решение уведомления и контракт владельца записи не переписывались. Новый сценарий архивирует запись с потерянным ответом, открывает другую карточку и возвращается к первой через `popBackStack(route)`. Диалог неподтверждённого черновика остаётся, второй экземпляр деталей не создаётся. После reload Back открывает список, а не чужую карточку. В Room строка остаётся `ARCHIVED`.
+
+`modalFormBlocksTheBackgroundBackButtonAndNativeBackClosesOnlyTheForm` ждёт кадр Compose после системного касания и Back. Условие проверки то же: диалог закрыт, экран деталей и состояние «Активна» на месте.
+
+### Команды
+
+`git diff --check`: **PASS**.
+
+```sh
+./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug :app:compileDebugAndroidTestKotlin --no-daemon --max-workers=2 --console=plain
+```
+
+Команда на итоговом дереве с исправлением навигации: **BUILD SUCCESSFUL**, 1 мин 2 с. Отчёт lint этой команды остался прежним файлом (`lintReportDebug` UP-TO-DATE). Отдельный `:app:lintDebug --rerun-tasks` пересобрал отчёт за 1 мин 30 с.
+
+| Проверка | Результат |
+|---|---|
+| :app:testDebugUnitTest | PASS, 409 выполнено, 0 failures/errors/skipped |
+| :app:assembleDebug | PASS |
+| :app:lintDebug | PASS, 0 ошибок, 19 предупреждений |
+| :app:compileDebugAndroidTestKotlin | PASS, 476 аннотаций @Test |
+| Запрошенные Android-классы, повтор | PASS, 71/71, 0 skipped |
+| Полный Android-набор, первый проход | 476 тестов, 475 PASS, 1 FAIL, 0 skipped, 16 мин 52 с |
+| Повтор `presetsCustomCalendarAndValidation` | PASS |
+
+19 предупреждений ENV-01 те же, что в первом прогоне R5b на Cursor: GradleDependency 9, NewerVersionAvailable 6, AndroidGradlePluginVersion 2, ObsoleteSdkInt 1, UnusedResources 1 (`welcome_message`). Восемь предупреждений из отчёта Codex относятся к другой среде. Gradle и зависимости не менялись.
+
+Запрошенные классы: `DetailsOperationNavigationUiTest`, `R5bLifecycleUiTest`, `R5bFontScaleUiTest`, `DetailsUiTest`, `NotificationNavigationUiTest`, `NotificationNavigationRaceUiTest`, `LargeFontWindowUiTest`, `CrossScreenDesignUiTest`.
+
+### Системный font scale 2
+
+`captureWhenSystemFontIsEnlarged` в обычном наборе по-прежнему выходит сразу, если масштаб меньше 1.5. Отдельный запуск: `settings put system font_scale 2` до старта Activity, затем только этот метод. **PASS**, 8.648 с. Снимки `r5b-details-system-font-2`, `r5b-menu-system-font-2` и `r5b-details-system-font-2-landscape` записаны, раннего выхода не было. На портретных кадрах крупный текст и меню с переносом «Удалить подписку». Исходное значение настройки было не задано. После проверки `settings delete system font_scale`, чтение снова `null`.
+
+### Ограничения
+
+API 33+, физический TalkBack, Photo Picker, process death и отдельная проверка реальной клавиатуры вне уже прошедших тестов — **NOT RUN**. Остановиться до независимой приёмки. Следующий этап не начат.
