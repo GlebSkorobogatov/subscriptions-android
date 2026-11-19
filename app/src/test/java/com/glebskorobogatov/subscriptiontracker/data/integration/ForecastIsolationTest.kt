@@ -118,6 +118,24 @@ class ForecastIsolationTest {
         } finally { reader.cancelAndJoin(); updates.close() }
     }
 
+    @Test fun hundredDailyRowsKeepForecastOrderRankingAndMetadataInOneSnapshot() {
+        val rows = (1L..100L).map { id ->
+            row(id = id, price = 100L + id, unit = FrequencyUnit.DAY).copy(accountLabel = "Метка $id")
+        }
+        val value = forecastSnapshot(rows.reversed(), today)
+        val forecast = requireNotNull(value.forecast)
+        val costs = requireNotNull(value.normalizedCosts)
+        val byId = value.rows.associateBy { it.id }
+        assertEquals(36_500, forecast.charges.size)
+        assertEquals(3_100, forecast.next30Days.charges.size)
+        assertEquals(5_493_250L, forecast.totalMinor)
+        assertEquals(forecast.totalMinor, costs.total.annualMinor)
+        assertEquals(rows.map { it.id }, forecast.charges.take(100).map { it.subscriptionId.value })
+        assertEquals(rows.asReversed().map { it.id }, costs.ranked.map { it.subscriptionId.value })
+        assertEquals("Метка 100", byId.getValue(costs.ranked.first().subscriptionId.value).accountLabel)
+        assertTrue(forecast.charges.all { byId.getValue(it.subscriptionId.value).priceMinor == it.amountMinor })
+    }
+
     @Test fun cancellationIsNeverConvertedToFinancialError() {
         assertThrows(CancellationException::class.java) {
             calculationOrNull<String> { throw CancellationException("Synthetic cancellation") }

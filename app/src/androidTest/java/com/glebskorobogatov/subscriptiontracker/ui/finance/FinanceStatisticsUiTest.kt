@@ -117,14 +117,18 @@ class FinanceStatisticsUiTest {
 
     @Test fun rankingWriteFailureLeavesConfirmedSelectionAndOffersRetry() {
         var retries = 0
+        var reloads = 0
         val ui = FinanceUiState(FinancePhase.Content, snapshot(listOf(weekly)), YearMonth.from(today))
         compose.setContent {
-            TrackerTheme { FinancePane(ui, periodEnabled = false, periodWriteError = true, onRetryPeriod = { retries++ }) }
+            TrackerTheme { FinancePane(ui, periodEnabled = false, periodWriteError = true,
+                onRetryPeriod = { retries++ }, onReloadPeriod = { reloads++ }) }
         }
         scroll("finance_ranking_period_MONTH").assertIsSelected().assertIsNotEnabled()
         scroll("finance_ranking_write_error")
         compose.onNodeWithText("Повторить сохранение").performClick()
-        compose.runOnIdle { assertEquals(1, retries) }
+        compose.runOnIdle { assertEquals(1, retries); assertEquals(0, reloads) }
+        scroll("finance_ranking_reload").assertIsEnabled().assertHeightIsAtLeast(48.dp).performClick()
+        compose.runOnIdle { assertEquals(1, retries); assertEquals(1, reloads) }
         scroll("finance_total").assertTextEquals("5 214,29 ₽")
     }
 

@@ -165,6 +165,8 @@
     <string name="finance_ranking_month">За месяц</string>
     <string name="finance_ranking_year">За год</string>
     <string name="finance_ranking_empty">Нет активных подписок для сравнения.</string>
+    <string name="finance_ranking_reload">Перечитать настройки</string>
+    <string name="editor_save_feedback">Изменения сохранены</string>
     <string name="finance_ranking_write_error">Не удалось подтвердить сохранение периода сравнения.</string>
     <string name="finance_choose_month">Выбрать месяц</string>
     <string name="storage_unavailable_title">Хранилище недоступно</string>

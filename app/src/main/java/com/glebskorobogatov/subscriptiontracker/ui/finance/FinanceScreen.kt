@@ -46,6 +46,7 @@ fun FinanceScreen(model: FinanceViewModel, settingsModel: SettingsViewModel) {
         periodEnabled = settings.phase == SettingsPhase.Content && !settings.pending,
         periodWriteError = settings.phase == SettingsPhase.Content && settings.rankingPending,
         onRetryPeriod = settingsModel::retryWrite,
+        onReloadPeriod = settingsModel::retryRead,
     )
 }
 
@@ -59,6 +60,7 @@ internal fun FinancePane(
     periodEnabled: Boolean = true,
     periodWriteError: Boolean = false,
     onRetryPeriod: () -> Unit = {},
+    onReloadPeriod: () -> Unit = {},
 ) {
     val list = rememberLazyListState()
     val chart = rememberCalendarChartState()
@@ -147,7 +149,7 @@ internal fun FinancePane(
                             HorizontalDivider(color = TrackerDesign.colors.divider)
                         }
                         item(key = "ranking_heading") {
-                            CostRankingHeading(period, onPeriod, periodEnabled, periodWriteError, onRetryPeriod)
+                            CostRankingHeading(period, onPeriod, periodEnabled, periodWriteError, onRetryPeriod, onReloadPeriod)
                         }
                         val ranking = normalized.ranked
                         val largest = ranking.firstOrNull()?.amounts?.exactAnnual

@@ -60,7 +60,11 @@ class SubscriptionsUiTest {
         Unit
     }
     private fun Context.preferencesFile() = java.io.File(filesDir, "datastore/settings-$dataset.preferences_pb")
-    private fun start(fontScale: Float = 1f, restoration: StateRestorationTester? = null) {
+    private fun start(
+        fontScale: Float = 1f,
+        restoration: StateRestorationTester? = null,
+        beforeWrite: suspend () -> Unit = {},
+    ) {
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
             vm = SubscriptionsViewModel(object : SubscriptionsSource {
                 override fun settings() = use.settings
@@ -69,7 +73,10 @@ class SubscriptionsUiTest {
                 override fun details(id: UUID) = use.details(id)
                 override fun observe(refreshes: Flow<Unit>) = subscriptionStates(use)
                 override suspend fun <T> perform(block: suspend (SubscriptionUseCases) -> T): T =
-                    withContext(Dispatchers.IO) { block(use) }
+                    withContext(Dispatchers.IO) {
+                        beforeWrite()
+                        block(use)
+                    }
             })
             store.put("screen", vm)
             settingsVm = SettingsViewModel(SavedStateHandle(),vm); store.put("settings",settingsVm)
@@ -93,6 +100,35 @@ class SubscriptionsUiTest {
     private fun awaitContent(count: Int) {
         compose.waitUntil(5000) {
             (vm.state.value as? SubscriptionsUiState.Content)?.let { it.active.size + it.cancelled.size == count } == true
+        }
+    }
+
+    @Test fun editorFeedbackAppearsAboveIslandOnlyAfterConfirmedCommit() {
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        start(beforeWrite = {
+            entered.complete(Unit)
+            release.await()
+        })
+        compose.onNodeWithText("Добавить подписку").performClick()
+        compose.waitUntil(5000) { compose.onAllNodesWithTag("field_name").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("field_name").performTextInput("Учебное сохранение R7")
+        compose.onNodeWithTag("field_amount").performTextInput("123,45")
+        try {
+            compose.onNodeWithTag("editor_save").performClick()
+            compose.waitUntil(5000) { entered.isCompleted }
+            compose.onNodeWithTag("editor_save_feedback").assertDoesNotExist()
+            assertTrue(runBlocking(Dispatchers.IO) { db.subscriptions().all().isEmpty() })
+            release.complete(Unit)
+            compose.waitUntil(5000) { compose.onAllNodesWithTag("editor_save_feedback").fetchSemanticsNodes().isNotEmpty() }
+            val feedback = compose.onNodeWithTag("editor_save_feedback").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+            val island = compose.onNodeWithTag("bottom_navigation").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+            assertTrue(feedback.bottom <= island.top)
+            val saved = runBlocking(Dispatchers.IO) { db.subscriptions().all().single() }
+            assertEquals(12345L, saved.priceMinor)
+            assertEquals("Учебное сохранение R7", saved.name)
+        } finally {
+            release.complete(Unit)
         }
     }
 
