@@ -37,6 +37,7 @@ internal fun CostRankingHeading(
     enabled: Boolean,
     writeError: Boolean,
     onRetry: () -> Unit,
+    onReload: () -> Unit,
 ) {
     Column(Modifier.fillMaxWidth().padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         FinanceHeading(stringResource(R.string.finance_ranking_title), Modifier.testTag("finance_ranking_heading"))
@@ -58,6 +59,8 @@ internal fun CostRankingHeading(
                 onRetry,
                 Modifier.testTag("finance_ranking_write_error"),
             )
+            TrackerTextButton(stringResource(R.string.finance_ranking_reload), onReload,
+                Modifier.testTag("finance_ranking_reload"))
         }
     }
 }

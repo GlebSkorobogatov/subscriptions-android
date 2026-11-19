@@ -11,6 +11,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalAccessibilityManager
 import androidx.compose.ui.res.stringResource
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavDestination.Companion.hasRoute
@@ -35,6 +36,7 @@ import com.glebskorobogatov.subscriptiontracker.ui.settings.SettingsScreen
 import java.util.UUID
 import kotlinx.serialization.Serializable
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
@@ -199,6 +201,16 @@ fun TrackerApp(state: SubscriptionsUiState,onRetry: () -> Unit,owner: Subscripti
         val route: Any = when(tab) { TrackerTab.Subscriptions -> Subscriptions; TrackerTab.Finance -> Finance; TrackerTab.Settings -> Settings }
         openRoot(route)
     }
+    var savedFeedback by remember { mutableStateOf<Any?>(null) }
+    val accessibility = LocalAccessibilityManager.current
+    LaunchedEffect(savedFeedback) {
+        if (savedFeedback != null) {
+            val timeout = accessibility?.calculateRecommendedTimeoutMillis(2_500L, containsText = true, containsIcons = true)
+                ?: 2_500L
+            delay(timeout)
+            savedFeedback = null
+        }
+    }
     val duration = trackerMotionDuration(animationsEnabled)
     // A fade still installs an alpha animation; None keeps alpha at 1, so a zero duration has no transition.
     val enter = if(duration == 0) EnterTransition.None else fadeIn(tween(duration))
@@ -211,7 +223,8 @@ fun TrackerApp(state: SubscriptionsUiState,onRetry: () -> Unit,owner: Subscripti
                 else if(archive) TrackerPageHeader(stringResource(R.string.archive),onBack = { nav.popBackStack() })
             }) { padding ->
             TrackerRootChrome(root,::select,{ nav.navigate(SubscriptionEditor()) { launchSingleTop = true } },
-                Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding),animationsEnabled = animationsEnabled) {
+                Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding), animationsEnabled = animationsEnabled,
+                saveFeedback = if (!editor && savedFeedback != null) stringResource(R.string.editor_save_feedback) else null) {
                 NavHost(nav,startDestination = Subscriptions,modifier = Modifier.fillMaxSize(),
                     enterTransition = { enter },exitTransition = { exit },
                     popEnterTransition = { enter },popExitTransition = { exit }) {
@@ -227,7 +240,10 @@ fun TrackerApp(state: SubscriptionsUiState,onRetry: () -> Unit,owner: Subscripti
                         com.glebskorobogatov.subscriptiontracker.ui.editor.EditorScreen(model,exitRequest,userBackRequest,
                             liveNotificationSequence = notificationState?.navigation?.sequence,
                             boundExitSequence = exitBinding.sequence,
-                            onSaved = { notifications?.afterSaved(it) },
+                            onSaved = {
+                                savedFeedback = Any()
+                                notifications?.afterSaved(it)
+                            },
                             onExitArmed = { live -> exitBinding = exitBinding.arm(live) },
                             onExitCancelled = {
                                 exitBinding.sequence?.let { notifications?.consumed(it) }

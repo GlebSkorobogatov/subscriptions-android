@@ -146,7 +146,7 @@ private fun animatorDurationScale(resolver: ContentResolver): Float =
     }
     return enabled
 }
-private enum class RootSlot { HEADER, ISLAND, CONTENT }
+private enum class RootSlot { HEADER, ISLAND, CONTENT, FEEDBACK }
 
 /** Stable full-size content slot. Measure overlays before content in the same layout pass;
  * padding does not depend on visibility, so animations never move the list's scroll position. */
@@ -154,7 +154,7 @@ private enum class RootSlot { HEADER, ISLAND, CONTENT }
 @Composable
 internal fun TrackerRootChrome(selected: TrackerTab?,onSelect: (TrackerTab) -> Unit,onAdd: () -> Unit,
     modifier: Modifier = Modifier,animationsEnabled: Boolean = true,visibleOverride: Boolean? = null,
-    content: @Composable () -> Unit) {
+    saveFeedback: String? = null, content: @Composable () -> Unit) {
     val controller = remember(selected) { selected?.let(::RootPanelController) }
     val pinned = touchExplorationEnabled()
     SideEffect { controller?.let { it.keepVisible = pinned; it.refresh() } }
@@ -196,11 +196,25 @@ internal fun TrackerRootChrome(selected: TrackerTab?,onSelect: (TrackerTab) -> U
                 LocalBringIntoViewSpec provides safeBringIntoView,
                 LocalVerticalSafeBringIntoViewParent provides parentBringIntoView, content = content)
         }.map { it.measure(constraints) }
+        val feedbackGap = TrackerDimensions.navigationGap.roundToPx()
+        val feedback = if (saveFeedback == null) emptyList() else subcompose(RootSlot.FEEDBACK) {
+            TrackerSuccessCapsule(saveFeedback, Modifier.testTag("editor_save_feedback"))
+        }.map {
+            it.measure(constraints.copy(
+                minWidth = 0, minHeight = 0,
+                maxWidth = (constraints.maxWidth - 2 * feedbackGap).coerceAtLeast(0),
+                maxHeight = (constraints.maxHeight - bottom - feedbackGap).coerceAtLeast(0),
+            ))
+        }
         layout(constraints.maxWidth,constraints.maxHeight) {
             body.forEach { it.placeRelative(0,0) }
             if(shown > 0f) {
                 header.forEach { it.placeRelativeWithLayer(0,(-top*(1-shown)).roundToInt(),zIndex = 1f) }
                 island.forEach { it.placeRelativeWithLayer(0,constraints.maxHeight-bottom+(bottom*(1-shown)).roundToInt(),zIndex = 1f) }
+            }
+            feedback.forEach {
+                it.placeRelative((constraints.maxWidth - it.width) / 2,
+                    constraints.maxHeight - bottom - feedbackGap - it.height, zIndex = 2f)
             }
         }
     }

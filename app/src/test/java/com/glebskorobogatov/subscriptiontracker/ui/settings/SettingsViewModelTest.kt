@@ -182,4 +182,39 @@ class SettingsViewModelTest {
         assertEquals(CostRankingPeriod.MONTH, restored.state.value.data?.costRankingPeriod)
     }
 
+
+    @Test fun readingAfterLostRankingResponseClearsPendingOnlyOnSuccessfulRead() = runTest(dispatcher) {
+        val saved = SavedStateHandle()
+        val original = Settings(theme = Theme.DARK, animationsEnabled = false, renewalOffsets = setOf(7, 0))
+        var readFails = false
+        var writes = 0
+        var stored = original
+        val vm = model(saved, values = flow {
+            if (readFails) error("Store unavailable")
+            emit(stored)
+        }, operation = {
+            writes++
+            // The store committed the requested value, but its reply did not arrive.
+            stored = original.copy(costRankingPeriod = CostRankingPeriod.YEAR)
+        })
+        runCurrent()
+        vm.setCostRankingPeriod(CostRankingPeriod.YEAR)
+        runCurrent()
+        assertTrue(vm.state.value.rankingPending)
+        assertEquals(original, vm.state.value.data)
+        readFails = true
+        vm.retryRead()
+        runCurrent()
+        assertEquals(SettingsPhase.Error, vm.state.value.phase)
+        assertTrue(saved.contains("intent"))
+        readFails = false
+        vm.retryRead()
+        runCurrent()
+        assertFalse(saved.contains("intent"))
+        assertFalse(vm.state.value.rankingPending)
+        assertEquals(SettingsPhase.Content, vm.state.value.phase)
+        assertEquals(stored, vm.state.value.data)
+        assertEquals(1, writes)
+    }
+
 }
