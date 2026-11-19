@@ -5,6 +5,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -16,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
@@ -23,6 +26,8 @@ import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.glebskorobogatov.subscriptiontracker.R
 import com.glebskorobogatov.subscriptiontracker.domain.model.FrequencyUnit
@@ -56,7 +61,7 @@ fun DetailsScreen(vm: DetailsViewModel, id: UUID, exitRequest: Int, onBack: () -
     LaunchedEffect(state.deleted) { if (state.deleted) onDeleted() }
     LaunchedEffect(state.archived) { if (state.archived) onArchived() }
     Box(Modifier.fillMaxSize()) {
-        DetailsPane(state, id, menu, { menu = it }, { leave() }, onEdit, onDeleted, vm::open, vm::refresh)
+        DetailsPane(state, id, menu, { menu = it }, { leave() }, onEdit, { leave() }, vm::open, vm::refresh)
         if (state.action != null) DetailsActionDialog(state, vm::change, vm::submit, vm::dismiss, vm::refresh,
             vm::changeFrequency, vm::setFrequencyMode)
     }
@@ -65,10 +70,10 @@ fun DetailsScreen(vm: DetailsViewModel, id: UUID, exitRequest: Int, onBack: () -
 /** Read-only presentation adapter; callbacks still enter the existing ViewModel commands. */
 @Composable
 internal fun DetailsPane(state: DetailsUiState, id: UUID, menu: Boolean, onMenu: (Boolean) -> Unit,
-    onBack: () -> Unit, onEdit: () -> Unit, onDeleted: () -> Unit, onAction: (DetailsAction) -> Unit, onRefresh: () -> Unit) {
+    onBack: () -> Unit, onEdit: () -> Unit, onMissingBack: () -> Unit, onAction: (DetailsAction) -> Unit, onRefresh: () -> Unit) {
     val subscription = state.data?.subscription
     val operable = state.phase == DetailsPhase.Content && state.action == null && !state.frozen
-    val backEnabled = state.phase != DetailsPhase.OperationInProgress && !state.frozen
+    val backEnabled = state.action == null && state.phase != DetailsPhase.OperationInProgress && !state.frozen
     ProvideTextStyle(MaterialTheme.typography.bodyMedium.copy(
         lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.None))) {
         Column(Modifier.fillMaxSize().testTag("details_$id")) {
@@ -84,7 +89,8 @@ internal fun DetailsPane(state: DetailsUiState, id: UUID, menu: Boolean, onMenu:
                     DetailsPhase.Error -> TrackerPrimaryButton(stringResource(R.string.retry_loading), onRefresh, Modifier.fillMaxWidth())
                     DetailsPhase.NotFound -> {
                         Text(stringResource(R.string.subscription_not_found))
-                        TrackerSecondaryButton(stringResource(R.string.return_to_subscriptions), onDeleted, Modifier.fillMaxWidth())
+                        TrackerSecondaryButton(stringResource(R.string.return_to_subscriptions), onMissingBack, Modifier.fillMaxWidth(),
+                            enabled = backEnabled)
                     }
                     else -> state.data?.let { detail -> DetailsBody(detail, state.phase == DetailsPhase.OperationInProgress,
                         showReload = state.action == null && (state.frozen || state.error != null), onRefresh = onRefresh) }
@@ -272,6 +278,7 @@ internal fun DetailsActionDialog(state: DetailsUiState, onChange: (String, Strin
                 state.error?.let { Text(stringResource(it), color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
                 Text(stringResource(R.string.details_delete_warning))
                 if (state.frozen) Text(stringResource(R.string.details_retry_same))
+                DetailsReload(state, onRefresh)
                 if (busy) CircularProgressIndicator()
             } },
             confirmButton = { TrackerDestructiveButton(stringResource(if (state.frozen) R.string.details_retry else R.string.details_delete_confirm),
@@ -288,7 +295,7 @@ internal fun DetailsActionDialog(state: DetailsUiState, onChange: (String, Strin
                     state.error?.let { Text(stringResource(it), color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
                     Text(stringResource(if (active) R.string.details_archive_active else R.string.details_archive_cancelled))
                     if (state.frozen) Text(stringResource(R.string.details_retry_same))
-                    if (state.conflicted || state.frozen) TextButton(onClick = onRefresh) { Text(stringResource(R.string.editor_reload)) }
+                    DetailsReload(state, onRefresh)
                     if (busy) CircularProgressIndicator()
                 } },
                 confirmButton = { TrackerPrimaryButton(stringResource(if (state.frozen) R.string.details_retry else R.string.details_confirm),
@@ -301,62 +308,89 @@ internal fun DetailsActionDialog(state: DetailsUiState, onChange: (String, Strin
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun DetailsReload(state: DetailsUiState, onRefresh: () -> Unit) {
+    if (state.conflicted || state.frozen) {
+        TextButton(onClick = onRefresh, enabled = state.phase != DetailsPhase.OperationInProgress,
+            modifier = Modifier.heightIn(min = TrackerDimensions.minimumTouchTarget).testTag("details_reload")) {
+            Text(stringResource(R.string.editor_reload))
+        }
+    }
+}
+
 @Composable
 private fun DetailsForm(state: DetailsUiState, title: String, busy: Boolean, onChange: (String, String) -> Unit,
     onSubmit: () -> Unit, onDismiss: () -> Unit, onRefresh: () -> Unit,
     onFrequency: (String, String) -> Unit, onFrequencyMode: (Boolean) -> Unit) {
     val action = requireNotNull(state.action)
     var picker by rememberSaveable { mutableStateOf<String?>(null) }
-    BackHandler(enabled = picker != null) { picker = null }
     val locked = busy || state.frozen
-    Box(Modifier.fillMaxSize().testTag("details_dialog").semantics { paneTitle = title; dialog() }) {
-        Box(Modifier.matchParentSize().background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.32f))
-            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onDismiss)
-            .clearAndSetSemantics {})
-        Surface(Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight(0.92f).imePadding(),
-            color = TrackerDesign.colors.surfaceRaised, contentColor = TrackerDesign.colors.textPrimary,
-            shape = TrackerShapes.card, tonalElevation = 0.dp) {
-            Column(Modifier.fillMaxSize()) {
-                Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(TrackerDimensions.modalPadding)
-                    .testTag("details_action_form"), verticalArrangement = Arrangement.spacedBy(TrackerDimensions.itemSpacing)) {
-                    Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
-                    state.error?.let { Text(stringResource(it), color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
-                    if (state.frozen) Text(stringResource(R.string.details_retry_same))
-                    if (state.conflicted || state.frozen) TextButton(onClick = onRefresh, modifier = Modifier.heightIn(min = TrackerDimensions.minimumTouchTarget)) {
-                        Text(stringResource(R.string.editor_reload))
-                    }
-                    when (action) {
-                        DetailsAction.Disable -> {
-                            Text(stringResource(R.string.details_disable_explanation))
-                            DateField("end", R.string.editor_end, state, locked, onChange) { picker = "end" }
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(
+        dismissOnBackPress = !locked, dismissOnClickOutside = false,
+        usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        val focus = LocalFocusManager.current
+        val scroll = rememberScrollState()
+        val openPicker: (String) -> Unit = { key ->
+            focus.clearFocus()
+            picker = key
+        }
+        Box(Modifier.fillMaxSize().testTag("details_dialog").semantics { paneTitle = title }) {
+            Box(Modifier.matchParentSize().background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.32f))
+                .clickable(enabled = !locked, interactionSource = remember { MutableInteractionSource() },
+                    indication = null, onClick = onDismiss)
+                .clearAndSetSemantics {})
+            Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).imePadding()) {
+                Surface(Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight(0.92f),
+                    color = TrackerDesign.colors.surfaceRaised, contentColor = TrackerDesign.colors.textPrimary,
+                    shape = TrackerShapes.card, tonalElevation = 0.dp) {
+                    BoxWithConstraints(Modifier.fillMaxSize()) {
+                        // Leave the footer pinned where there is room. In a short IME viewport
+                        // the fields and both actions share the same scroll container.
+                        val compact = maxHeight < 220.dp
+                        Column(Modifier.fillMaxSize().then(if (compact) Modifier.verticalScroll(scroll) else Modifier)) {
+                            val form = if (compact) Modifier else Modifier.weight(1f).verticalScroll(scroll)
+                            Column(form.fillMaxWidth().padding(TrackerDimensions.modalPadding).testTag("details_action_form"),
+                                verticalArrangement = Arrangement.spacedBy(TrackerDimensions.itemSpacing)) {
+                                Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
+                                state.error?.takeUnless { it == R.string.details_anchor_invalid }?.let {
+                                    Text(stringResource(it), color = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                                }
+                                if (state.frozen && state.error != R.string.details_retry_same) Text(stringResource(R.string.details_retry_same))
+                                DetailsReload(state, onRefresh)
+                                when (action) {
+                                    DetailsAction.Disable -> {
+                                        Text(stringResource(R.string.details_disable_explanation))
+                                        DateField("end", R.string.editor_end, state, locked, onChange) { openPicker("end") }
+                                    }
+                                    DetailsAction.EditEnd -> DateField("end", R.string.editor_end, state, locked, onChange) { openPicker("end") }
+                                    DetailsAction.Reactivate -> ReactivateFields(state, locked, onChange, onFrequency, onFrequencyMode, openPicker)
+                                    else -> Unit
+                                }
+                                if (busy) CircularProgressIndicator()
+                            }
+                            Column(Modifier.fillMaxWidth().padding(horizontal = TrackerDimensions.modalPadding)
+                                .padding(top = TrackerDimensions.itemSpacing, bottom = TrackerDimensions.modalPadding),
+                                verticalArrangement = Arrangement.spacedBy(TrackerDimensions.itemSpacing)) {
+                                val confirm = when {
+                                    state.frozen -> R.string.details_retry
+                                    action == DetailsAction.Reactivate -> R.string.editor_save
+                                    else -> R.string.details_confirm
+                                }
+                                TrackerPrimaryButton(stringResource(confirm), onSubmit, Modifier.fillMaxWidth().testTag("details_submit"),
+                                    enabled = !busy && !state.conflicted)
+                                TrackerSecondaryButton(stringResource(R.string.details_cancel), onDismiss, Modifier.fillMaxWidth(),
+                                    enabled = !locked)
+                            }
                         }
-                        DetailsAction.EditEnd -> DateField("end", R.string.editor_end, state, locked, onChange) { picker = "end" }
-                        DetailsAction.Reactivate -> ReactivateFields(state, locked, onChange, onFrequency, onFrequencyMode) { picker = it }
-                        else -> Unit
                     }
-                    if (busy) CircularProgressIndicator()
-                }
-                Column(Modifier.fillMaxWidth().padding(horizontal = TrackerDimensions.modalPadding)
-                    .padding(top = TrackerDimensions.itemSpacing, bottom = TrackerDimensions.modalPadding),
-                    verticalArrangement = Arrangement.spacedBy(TrackerDimensions.itemSpacing)) {
-                    val confirm = when {
-                        state.frozen -> R.string.details_retry
-                        action == DetailsAction.Reactivate -> R.string.editor_save
-                        else -> R.string.details_confirm
-                    }
-                    TrackerPrimaryButton(stringResource(confirm), onSubmit, Modifier.fillMaxWidth().testTag("details_submit"),
-                        enabled = !busy && !state.conflicted)
-                    TrackerSecondaryButton(stringResource(R.string.details_cancel), onDismiss, Modifier.fillMaxWidth(),
-                        enabled = !busy && !state.frozen)
                 }
             }
         }
-    }
-    picker?.let { key ->
-        EditorDateSheet(initialDateMillis(state.fields[key]), { picker = null }) { millis ->
-            onChange(key, epochDayDate(millis).toString())
+        picker?.let { key ->
+            EditorDateSheet(initialDateMillis(state.fields[key]), { picker = null }) { millis ->
+                onChange(key, epochDayDate(millis).toString())
+            }
         }
     }
 }
@@ -419,10 +453,23 @@ private fun ReactivateFields(state: DetailsUiState, locked: Boolean, onChange: (
     DateField("date", R.string.details_next_renewal, state, locked, onChange, { onPick("date") })
     Text(stringResource(R.string.editor_series), color = TrackerDesign.colors.textSecondary)
     var expanded by rememberSaveable { mutableStateOf(false) }
-    val expandedState = stringResource(if (expanded) R.string.ui_expanded else R.string.ui_collapsed)
-    TrackerSecondaryButton(stringResource(R.string.editor_extra), { expanded = !expanded },
-        Modifier.testTag("details_extra").semantics { stateDescription = expandedState }, enabled = !locked)
-    if (expanded) TrackerTextField(state.fields["anchorDay"].orEmpty(), { onChange("anchorDay", it) },
-        stringResource(R.string.editor_anchor_day), enabled = !locked, inputModifier = Modifier.testTag("details_field_anchorDay"),
-        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number))
+    val anchorError = state.error == R.string.details_anchor_invalid
+    val showAnchor = expanded || anchorError
+    val expandedState = stringResource(if (showAnchor) R.string.ui_expanded else R.string.ui_collapsed)
+    TrackerSecondaryButton(stringResource(R.string.editor_extra), { expanded = !showAnchor },
+        Modifier.testTag("details_extra").semantics { stateDescription = expandedState }, enabled = !locked && !anchorError)
+    if (showAnchor) {
+        val requester = remember { BringIntoViewRequester() }
+        LaunchedEffect(anchorError) {
+            if (anchorError) {
+                expanded = true
+                requester.bringIntoView()
+            }
+        }
+        TrackerTextField(state.fields["anchorDay"].orEmpty(), { onChange("anchorDay", it) },
+            stringResource(R.string.editor_anchor_day), modifier = Modifier.bringIntoViewRequester(requester),
+            errorMessage = if (anchorError) stringResource(R.string.details_anchor_invalid) else null,
+            enabled = !locked, inputModifier = Modifier.testTag("details_field_anchorDay"),
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number))
+    }
 }

@@ -66,6 +66,112 @@ class DetailsViewModelTest {
         vm.open(DetailsAction.Delete); vm.dismiss(); runCurrent()
         assertNull(vm.state.value.action); assertEquals(0,count)
     }
+    @Test fun conflictedDeleteRefreshesTheSnapshotBeforeAnotherConfirmation() = runTest(dispatcher) {
+        val rows = MutableStateFlow<SubscriptionDetails?>(detail)
+        val saved = SavedStateHandle()
+        var calls = 0
+        val vm = model(saved, rows, operation = {
+            calls++
+            throw com.glebskorobogatov.subscriptiontracker.data.lifecycle.LifecycleConflict()
+        })
+        runCurrent()
+        vm.open(DetailsAction.Delete)
+        vm.submit()
+        runCurrent()
+        assertTrue(vm.state.value.conflicted)
+        assertFalse(vm.state.value.deleted)
+        vm.submit()
+        runCurrent()
+        assertEquals(1, calls)
+        val changed = detail.copy(subscription = detail.subscription.copy(name = "Новый снимок"))
+        rows.value = changed
+        vm.refresh()
+        runCurrent()
+        assertNull(vm.state.value.action)
+        assertFalse(vm.state.value.conflicted)
+        assertFalse(vm.state.value.deleted)
+        assertEquals(changed, vm.state.value.data)
+        assertEquals(1, calls)
+        vm.open(DetailsAction.Delete)
+        assertEquals(changed.subscription, SubscriptionSnapshot.row(requireNotNull(saved["snapshot"])))
+    }
+
+    @Test fun uncertainDeleteCanReloadEvenWhenTheRowIsAlreadyGone() = runTest(dispatcher) {
+        val gate = CompletableDeferred<Unit>()
+        val rows = MutableStateFlow<SubscriptionDetails?>(detail)
+        var calls = 0
+        val vm = model(values = rows, operation = {
+            calls++
+            gate.await()
+            rows.value = null
+            error("Ответ после записи не получен")
+        })
+        runCurrent()
+        vm.open(DetailsAction.Delete)
+        vm.submit()
+        runCurrent()
+        vm.refresh()
+        vm.dismiss()
+        vm.submit()
+        runCurrent()
+        assertEquals(DetailsPhase.OperationInProgress, vm.state.value.phase)
+        assertEquals(1, calls)
+        gate.complete(Unit)
+        runCurrent()
+        assertTrue(vm.state.value.frozen)
+        assertFalse(vm.state.value.deleted)
+        vm.refresh()
+        runCurrent()
+        assertEquals(DetailsPhase.NotFound, vm.state.value.phase)
+        assertNull(vm.state.value.action)
+        assertFalse(vm.state.value.frozen)
+        assertFalse(vm.state.value.deleted)
+        assertEquals(1, calls)
+    }
+
+    @Test fun readFailureDoesNotUnlockANonterminalDelete() = runTest(dispatcher) {
+        val write = CompletableDeferred<Unit>()
+        val failRead = CompletableDeferred<Unit>()
+        var calls = 0
+        val vm = model(values = flow {
+            emit(detail)
+            failRead.await()
+            error("Ошибка наблюдения")
+        }, operation = { calls++; write.await() })
+        runCurrent()
+        vm.open(DetailsAction.Delete)
+        vm.submit()
+        runCurrent()
+        failRead.complete(Unit)
+        runCurrent()
+        assertEquals(DetailsPhase.OperationInProgress, vm.state.value.phase)
+        vm.submit()
+        runCurrent()
+        assertEquals(1, calls)
+        write.complete(Unit)
+        runCurrent()
+        assertTrue(vm.state.value.frozen)
+    }
+
+    @Test fun incompatibleAnchorIsReportedBeforeMutationAndCorrectionCanSubmit() = runTest(dispatcher) {
+        var calls = 0
+        val archived = detail.copy(subscription = detail.subscription.copy(state = SubscriptionState.ARCHIVED))
+        val vm = model(values = flowOf(archived), operation = { calls++ })
+        runCurrent()
+        vm.open(DetailsAction.Reactivate)
+        vm.change("date", "2027-02-28")
+        vm.changeFrequency("DAY", "1")
+        vm.change("anchorDay", "31")
+        vm.submit()
+        runCurrent()
+        assertEquals(com.glebskorobogatov.subscriptiontracker.R.string.details_anchor_invalid, vm.state.value.error)
+        assertEquals(0, calls)
+        vm.changeFrequency("MONTH", "1")
+        vm.submit()
+        runCurrent()
+        assertEquals(1, calls)
+    }
+
     @Test fun removedAndUnknownSavedActionsAreDiscardedWithoutExecutionOrClearingOtherState() = runTest(dispatcher) {
         var calls = 0
         for (action in listOf("Payment","MarkIssue","AddPayment","AddRefund","ResolveDate","Unknown")) {
@@ -149,6 +255,8 @@ class DetailsViewModelTest {
         val vm = model(operation = { calls++; throw CancellationException("Synthetic cancellation") }); runCurrent()
         vm.open(DetailsAction.Archive); vm.submit(); runCurrent()
         assertEquals(1,calls); assertNull(vm.state.value.error)
+        assertTrue(vm.state.value.frozen)
+        assertEquals(DetailsPhase.Content, vm.state.value.phase)
     }
 
 

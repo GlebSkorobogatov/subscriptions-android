@@ -2,7 +2,12 @@ package com.glebskorobogatov.subscriptiontracker.app
 
 import android.os.Bundle
 import com.glebskorobogatov.subscriptiontracker.ui.subscriptions.SubscriptionsSource
+import com.glebskorobogatov.subscriptiontracker.notifications.NotificationEnvironment
+import com.glebskorobogatov.subscriptiontracker.notifications.NotificationRoute
 import java.io.File
+import java.io.IOException
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.CompletableDeferred
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.emitAll
@@ -25,8 +30,14 @@ class IsolatedMainActivity : MainActivity() {
     }
     override fun createNotificationEnvironment(): com.glebskorobogatov.subscriptiontracker.notifications.NotificationEnvironment {
         val id = dataset
-        return com.glebskorobogatov.subscriptiontracker.notifications.AndroidNotificationEnvironment(applicationContext,
+        val environment = com.glebskorobogatov.subscriptiontracker.notifications.AndroidNotificationEnvironment(applicationContext,
             active = { id }, request = {}, preferenceName = "test-notification-offer-$id")
+        return object : NotificationEnvironment by environment {
+            override fun dismiss(route: NotificationRoute) {
+                environment.dismiss(route)
+                DetailsOperationPause.current?.takeIf { it.dataset == id }?.notificationRead?.complete(route.subscription)
+            }
+        }
     }
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putString("test_dataset", dataset.toString())
@@ -48,7 +59,14 @@ class IsolatedMainActivity : MainActivity() {
                 NavigationLookupPause.awaitTurn()
                 emitAll(source.details(id))
             }
-            override suspend fun <T> perform(block: suspend (com.glebskorobogatov.subscriptiontracker.data.integration.SubscriptionUseCases) -> T): T = source.perform(block)
+            override suspend fun <T> perform(block: suspend (com.glebskorobogatov.subscriptiontracker.data.integration.SubscriptionUseCases) -> T): T {
+                val pause = DetailsOperationPause.current?.takeIf { it.dataset == id && it.claimed.compareAndSet(false, true) }
+                pause?.entered?.complete(Unit)
+                pause?.release?.await()
+                val result = source.perform(block)
+                if (pause?.loseResponse == true) throw IOException("Synthetic response lost after commit")
+                return result
+            }
             override fun observe(refreshes: kotlinx.coroutines.flow.Flow<Unit>) =
             source.observe(refreshes).onCompletion {
                 // Upstream has already joined readers and closed both stores.
@@ -62,5 +80,18 @@ class IsolatedMainActivity : MainActivity() {
                 }
             }
         }
+    }
+}
+
+
+// Arm after opening details, immediately before pressing the confirmation button.
+internal class DetailsOperationPause(val dataset: UUID, val loseResponse: Boolean = false) {
+    val claimed = AtomicBoolean()
+    val entered = CompletableDeferred<Unit>()
+    val release = CompletableDeferred<Unit>()
+    val notificationRead = CompletableDeferred<UUID>()
+
+    companion object {
+        @Volatile var current: DetailsOperationPause? = null
     }
 }

@@ -182,6 +182,50 @@ class R5bLifecycleUiTest {
         compose.onNodeWithText("Активна").assertIsDisplayed()
     }
 
+    @Test fun collapsedIncompatibleAnchorIsRevealedAndCanBeCorrected() {
+        create("Календарная опора", "175")
+        openDetails("Календарная опора")
+        compose.openDetailsManagement()
+        compose.onNodeWithText("Отметить отмену").performClick()
+        confirm()
+        compose.onNodeWithText("Возобновить").performClick()
+        val nextMonth = LocalDate.now().plusMonths(1).withDayOfMonth(15)
+        compose.onNodeWithTag("details_field_date").performScrollTo().performTextReplacement(nextMonth.toString())
+        compose.onNodeWithTag("details_extra").performScrollTo().performClick()
+        compose.onNodeWithTag("details_field_anchorDay").performScrollTo().performTextReplacement("31")
+        compose.onNodeWithTag("details_extra").performScrollTo().performClick()
+        compose.onNodeWithTag("details_field_anchorDay").assertDoesNotExist()
+        compose.onNodeWithTag("details_submit").performClick()
+        compose.onNodeWithTag("details_field_anchorDay").performScrollTo().assertTextContains("31")
+        compose.onNodeWithText("Опорный день должен соответствовать выбранной дате и периодичности. Исправьте его или оставьте поле пустым.")
+            .assertExists()
+        compose.onNodeWithTag("details_field_anchorDay").performTextReplacement("")
+        compose.onNodeWithTag("details_submit").performClick()
+        compose.waitUntil(8_000) { compose.onAllNodesWithTag("details_dialog").fetchSemanticsNodes().isEmpty() }
+        compose.onNodeWithText("Активна").assertIsDisplayed()
+    }
+
+    @Test fun modalFormBlocksTheBackgroundBackButtonAndNativeBackClosesOnlyTheForm() {
+        create("Модальная отмена", "180")
+        val id = openDetails("Модальная отмена")
+        val back = compose.onNodeWithContentDescription("Назад").fetchSemanticsNode().boundsInWindow.center
+        compose.openDetailsManagement()
+        compose.onNodeWithText("Отметить отмену").performClick()
+        compose.onNode(isDialog()).assertExists()
+        compose.onNodeWithContentDescription("Назад").assertIsNotEnabled()
+        // A direct touch where the background action was must never navigate behind the window.
+        device.click(back.x.toInt(), back.y.toInt())
+        compose.onNodeWithTag("details_$id").assertExists()
+        if (compose.onAllNodesWithTag("details_dialog").fetchSemanticsNodes().isEmpty()) {
+            compose.openDetailsManagement()
+            compose.onNodeWithText("Отметить отмену").performClick()
+        }
+        device.pressBack()
+        compose.onNodeWithTag("details_dialog").assertDoesNotExist()
+        compose.onNodeWithTag("details_$id").assertExists()
+        compose.onNodeWithText("Активна").assertExists()
+    }
+
     @Test fun largeLandscapeMenuAndPrimaryStayReachable() {
         create("Крупно R5b", "90")
         openDetails("Крупно R5b")
@@ -466,6 +510,38 @@ class R5bFontScaleUiTest {
         compose.onNodeWithText("Отмена").assertIsDisplayed()
         compose.onNodeWithTag("details_date_picker_end").performScrollTo().assertIsDisplayed()
         compose.waitForIdle(); shot("cancel-landscape-font-2")
+    }
+
+    @Test fun landscapeFontTwoCanFocusAFieldAndReachBothActionsWithTheKeyboard() {
+        compose.activityRule.scenario.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE }
+        compose.waitUntil(10_000) {
+            var landscape = false
+            compose.activityRule.scenario.onActivity {
+                landscape = it.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
+                    it.resources.configuration.fontScale >= 1.9f
+            }
+            landscape
+        }
+        var cancelled = false
+        compose.setContent {
+            val end = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf("2027-03-31") }
+            com.glebskorobogatov.subscriptiontracker.ui.design.TrackerTheme {
+                com.glebskorobogatov.subscriptiontracker.ui.details.DetailsActionDialog(
+                    com.glebskorobogatov.subscriptiontracker.ui.preview.DetailsEditorPreviewData.details.copy(
+                        action = com.glebskorobogatov.subscriptiontracker.ui.details.DetailsAction.Disable,
+                        fields = mapOf("end" to end.value)),
+                    { _, value -> end.value = value }, {}, { cancelled = true }, {})
+            }
+        }
+        val end = compose.onNodeWithTag("details_field_end")
+        end.performScrollTo().performTouchInput { click() }
+        end.assertIsFocused().performTextInput("1")
+        for (action in listOf(compose.onNodeWithTag("details_submit"), compose.onNodeWithText("Отмена"))) {
+            if (!action.isDisplayed()) action.performScrollTo()
+            action.assertIsDisplayed().assertIsEnabled()
+        }
+        compose.onNodeWithText("Отмена").performClick()
+        compose.runOnIdle { assertTrue(cancelled) }
     }
 
     private fun shot(name: String) {

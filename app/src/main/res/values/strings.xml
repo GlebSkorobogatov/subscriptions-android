@@ -86,6 +86,7 @@
     <string name="details_confirm">Подтвердить</string>
     <string name="details_cancel">Отмена</string>
     <string name="details_invalid">Проверьте даты, стоимость и периодичность подписки.</string>
+    <string name="details_anchor_invalid">Опорный день должен соответствовать выбранной дате и периодичности. Исправьте его или оставьте поле пустым.</string>
     <string name="details_retry_same">Результат действия не подтверждён. Повторите его с сохранёнными параметрами или обновите данные.</string>
     <string name="details_retry">Повторить ту же операцию</string>
     <string name="details_load_error">Не удалось загрузить детали. Обновите данные.</string>
