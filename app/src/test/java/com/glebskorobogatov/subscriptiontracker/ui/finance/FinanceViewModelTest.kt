@@ -1,6 +1,13 @@
 package com.glebskorobogatov.subscriptiontracker.ui.finance
 
 import androidx.lifecycle.*
+import com.glebskorobogatov.subscriptiontracker.data.integration.ForecastState
+import com.glebskorobogatov.subscriptiontracker.data.integration.NormalizedCostState
+import com.glebskorobogatov.subscriptiontracker.data.integration.forecastSnapshot
+import com.glebskorobogatov.subscriptiontracker.data.mapping.toEntity
+import com.glebskorobogatov.subscriptiontracker.ui.subscriptions.SubscriptionsSource
+import com.glebskorobogatov.subscriptiontracker.ui.subscriptions.SubscriptionsUiState
+import com.glebskorobogatov.subscriptiontracker.ui.subscriptions.SubscriptionsViewModel
 import com.glebskorobogatov.subscriptiontracker.domain.calendar.*
 import com.glebskorobogatov.subscriptiontracker.domain.forecast.*
 import com.glebskorobogatov.subscriptiontracker.domain.subscription.*
@@ -24,7 +31,7 @@ class FinanceViewModelTest {
     @Before fun start() { Dispatchers.setMain(dispatcher) }
     @After fun end() { store.clear(); dispatcher.scheduler.advanceUntilIdle(); Dispatchers.resetMain() }
     private fun snapshot(subscriptions: List<SubscriptionRecord> = listOf(sub(rub))): FinanceSnapshot =
-        FinanceSnapshot(ForecastEngine().calculate(subscriptions,day),emptyList())
+        FinanceSnapshot(ForecastEngine().calculate(subscriptions,day), subscriptions.map { it.toEntity(Instant.EPOCH) })
     private fun sub(currency: CurrencyCode) = SubscriptionRecord(SubscriptionId(UUID.nameUUIDFromBytes(currency.value.toByteArray())),
         "Сервис",RubPrice(12345),RecurringSchedule(RenewalAnchor.from(day),Frequency(FrequencyUnit.MONTH,1)))
     private fun model(source: FinanceSource,saved: SavedStateHandle = SavedStateHandle()) = FinanceViewModel(saved,source).also { store.put("vm${index++}",it) }
@@ -61,9 +68,9 @@ class FinanceViewModelTest {
         val vm = model(source,saved); runCurrent(); vm.selectMonth(YearMonth.of(2027,11))
         val next = model(source,SavedStateHandle(saved.keys().associateWith { saved.get<Any>(it) })); runCurrent()
         assertEquals(YearMonth.of(2027,11),next.state.value.month)
-        source.values.value = FinanceSnapshot(ForecastEngine().calculate(listOf(sub(rub)),day.plusMonths(1)),emptyList())
+        source.values.value = forecastSnapshot(listOf(sub(rub).toEntity(Instant.EPOCH)), day.plusMonths(1))
         runCurrent(); assertEquals(YearMonth.of(2027,11),next.state.value.month)
-        source.values.value = FinanceSnapshot(ForecastEngine().calculate(listOf(sub(rub)),day.plusMonths(11)),emptyList())
+        source.values.value = forecastSnapshot(listOf(sub(rub).toEntity(Instant.EPOCH)), day.plusMonths(11))
         runCurrent(); assertEquals(YearMonth.of(2027,12),next.state.value.month)
     }
 
@@ -91,6 +98,7 @@ class FinanceViewModelTest {
         vm.selectMonth(YearMonth.of(2027,3))
         assertSame(original,vm.state.value.snapshot)
         assertEquals(12345L,vm.state.value.snapshot!!.forecast!!.next30Days.totalMinor)
+        assertEquals(148140L,vm.state.value.snapshot!!.normalizedCosts!!.total.annualMinor)
         vm.selectMonth(YearMonth.of(1999,1))
         assertEquals(YearMonth.of(2027,3),vm.state.value.month)
     }
@@ -137,7 +145,7 @@ class FinanceViewModelTest {
         val good = snapshot()
         val source = Source(MutableStateFlow(good)); val saved = SavedStateHandle()
         val vm = model(source,saved); runCurrent(); vm.selectMonth(YearMonth.of(2027,5))
-        source.values.value = FinanceSnapshot(com.glebskorobogatov.subscriptiontracker.data.integration.ForecastState.Error,emptyList(),day)
+        source.values.value = snapshot(emptyList()).copy(state = ForecastState.Error)
         runCurrent()
         assertEquals(FinancePhase.Error,vm.state.value.phase); assertNull(vm.state.value.snapshot!!.forecast)
         assertEquals(YearMonth.of(2027,5),vm.state.value.month)
@@ -151,12 +159,71 @@ class FinanceViewModelTest {
         assertEquals(12345L,restored.state.value.snapshot!!.forecast!!.next30Days.totalMinor)
     }
     @Test fun failedSnapshotUsesItsOwnTodayToKeepOrClampMonthWithoutInventingTotals() = runTest(dispatcher) {
-        val error = com.glebskorobogatov.subscriptiontracker.data.integration.ForecastState.Error
-        val source = Source(MutableStateFlow(FinanceSnapshot(error,emptyList(),day)))
+        val error = snapshot(emptyList()).copy(state = ForecastState.Error)
+        val source = Source(MutableStateFlow(error))
         val vm = model(source,SavedStateHandle(mapOf("month" to "2027-05"))); runCurrent()
         assertEquals(YearMonth.of(2027,5),vm.state.value.month)
-        source.values.value = FinanceSnapshot(error,emptyList(),day.plusYears(1)); runCurrent()
+        source.values.value = error.copy(today = day.plusYears(1)); runCurrent()
         assertEquals(YearMonth.of(2028,1),vm.state.value.month)
         assertNull(vm.state.value.snapshot!!.forecast); assertEquals(FinancePhase.Error,vm.state.value.phase)
     }
+
+    @Test fun normalizationOverflowShowsErrorAndRecoversOnTheSameFinanceObserver() = runTest(dispatcher) {
+        val entry = sub(rub).copy(
+            price = RubPrice(Long.MAX_VALUE),
+            schedule = RecurringSchedule.starting(LocalDate.of(2027, 12, 31), Frequency(FrequencyUnit.MONTH, 1))
+        )
+        val input = MutableStateFlow(forecastSnapshot(listOf(entry.toEntity(Instant.EPOCH)), day))
+        val vm = model(Source(input), SavedStateHandle(mapOf("month" to "2027-05")))
+        runCurrent()
+        val failed = vm.state.value
+        assertEquals(FinancePhase.Error, failed.phase)
+        assertEquals(Long.MAX_VALUE, failed.snapshot!!.forecast!!.totalMinor)
+        assertEquals(NormalizedCostState.Overflow, failed.snapshot.normalization)
+        assertNull(failed.snapshot.normalizedCosts)
+        input.value = forecastSnapshot(listOf(entry.copy(price = RubPrice(123)).toEntity(Instant.EPOCH)), day)
+        runCurrent()
+        val recovered = vm.state.value
+        assertEquals(FinancePhase.Content, recovered.phase)
+        assertEquals(123L, recovered.snapshot!!.forecast!!.totalMinor)
+        assertEquals(1476L, recovered.snapshot.normalizedCosts!!.total.annualMinor)
+        assertEquals(YearMonth.of(2027, 5), recovered.month)
+    }
+
+    @Test fun sessionReopenCancelsOldFinanceInputAndPublishesOnlyNewGeneration() = runTest(dispatcher) {
+        val previous = snapshot()
+        val nextRecord = sub(rub).copy(id = SubscriptionId(UUID(0, 2)), price = RubPrice(500), accountLabel = "Новая сессия")
+        val replacement = snapshot(listOf(nextRecord))
+        val old = MutableStateFlow(previous)
+        val new = MutableStateFlow(replacement)
+        val reopen = CompletableDeferred<Unit>()
+        var generation = UUID(0, 1)
+        val owner = SubscriptionsViewModel(object : SubscriptionsSource {
+            override fun activeDatasetId() = generation
+            override fun observe(refreshes: Flow<Unit>) = flow {
+                if (generation == UUID(0, 2)) reopen.await()
+                emit(SubscriptionsUiState.Empty())
+                awaitCancellation()
+            }
+            override fun finance() = if (generation == UUID(0, 1)) old else new
+        }).also { store.put("owner", it) }
+        val vm = FinanceViewModel(SavedStateHandle(), owner).also { store.put("session-finance", it) }
+        runCurrent()
+        assertEquals(previous, vm.state.value.snapshot)
+        generation = UUID(0, 2)
+        owner.retry()
+        runCurrent()
+        old.value = previous.copy(normalization = NormalizedCostState.Overflow)
+        runCurrent()
+        assertEquals(previous, vm.state.value.snapshot) // The prior input is detached while the session opens.
+        reopen.complete(Unit)
+        runCurrent()
+        assertEquals(replacement, vm.state.value.snapshot)
+        assertEquals("Новая сессия", vm.state.value.snapshot!!.rows.single().accountLabel)
+        assertEquals(6000L, vm.state.value.snapshot!!.normalizedCosts!!.total.annualMinor)
+        old.value = previous
+        runCurrent()
+        assertEquals(replacement, vm.state.value.snapshot)
+    }
+
 }
