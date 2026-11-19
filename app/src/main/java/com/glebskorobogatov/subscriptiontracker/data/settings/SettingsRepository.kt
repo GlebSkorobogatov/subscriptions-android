@@ -19,6 +19,7 @@ internal object SettingsCodec {
     private val theme = stringPreferencesKey("theme")
     private val payment = stringSetPreferencesKey("payment_offsets")
     private val animations = booleanPreferencesKey("animations_enabled")
+    private val costRankingPeriod = stringPreferencesKey("cost_ranking_period")
     private val version = intPreferencesKey("settings_version")
     fun read(p: Preferences) = Settings(
         theme = p[theme]?.let { raw -> Theme.entries.firstOrNull { it.name == raw } } ?: Theme.SYSTEM,
@@ -28,12 +29,16 @@ internal object SettingsCodec {
             ?.filter { it in setOf(7, 3, 1, 0) }?.toSet() ?: setOf(3, 1),
         animationsEnabled = p[animations] ?: true,
         version = p[version] ?: 1,
+        costRankingPeriod = p[costRankingPeriod]?.let { raw ->
+            CostRankingPeriod.entries.firstOrNull { it.name == raw }
+        } ?: CostRankingPeriod.MONTH,
     )
     fun write(p: MutablePreferences, value: Settings) {
         p[theme] = value.theme.name
         p[payment] = value.renewalOffsets.map(Int::toString).toSet()
         p[animations] = value.animationsEnabled
         p[version] = value.version
+        p[costRankingPeriod] = value.costRankingPeriod.name
         // Retired and unknown keys are preserved as inert legacy data, never read or executed.
     }
 }

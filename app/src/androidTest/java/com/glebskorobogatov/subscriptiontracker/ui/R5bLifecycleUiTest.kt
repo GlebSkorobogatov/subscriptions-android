@@ -88,7 +88,7 @@ class R5bLifecycleUiTest {
         compose.onNodeWithText("Активна").assertDoesNotExist()
         device.pressBack()
         compose.onNodeWithTag("tab_finance").performClick()
-        compose.waitUntil(8_000) { compose.onAllNodesWithText("Ожидаемых списаний пока нет").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(8_000) { compose.onAllNodesWithText("Активных подписок пока нет").fetchSemanticsNodes().isNotEmpty() }
     }
 
     @Test fun archiveReturnsHomeAndCustomRestoreKeepsUuidAppearanceAndPeriod() {
@@ -144,7 +144,7 @@ class R5bLifecycleUiTest {
         compose.onNodeWithTag("tab_finance").performClick()
         compose.waitUntil(8_000) { compose.onAllNodesWithTag("finance_30_total").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag("finance_30_total"))
-        compose.onNodeWithTag("finance_30_total").assertTextEquals("640,00 RUB")
+        compose.onNodeWithTag("finance_30_total").assertTextEquals("640 ₽")
     }
 
     @Test fun deletingOneSubscriptionLeavesTheOtherUntouched() {

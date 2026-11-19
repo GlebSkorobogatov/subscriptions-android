@@ -33,3 +33,15 @@ internal object FinancePreviewData {
 @Composable private fun FinanceLight() { TrackerTheme(Theme.LIGHT) { FinancePane(FinancePreviewData.chartState()) } }
 @Preview(name = "Прогноз · тёмная",showBackground = true,widthDp = 320,heightDp = 700,uiMode = Configuration.UI_MODE_NIGHT_YES,fontScale = 2f)
 @Composable private fun FinanceDark() { TrackerTheme(Theme.DARK) { FinancePane(FinancePreviewData.chartState().copy(month = YearMonth.of(2026,12))) } }
+
+@Preview(name = "Статистика · пустая", showBackground = true, widthDp = 360, heightDp = 800)
+@Composable private fun FinanceEmpty() {
+    val today = FinancePreviewData.day
+    val empty = FinanceSnapshot(ForecastEngine().calculate(emptyList(), today), emptyList())
+    TrackerTheme(Theme.LIGHT) { FinancePane(FinanceUiState(FinancePhase.Empty, empty, YearMonth.from(today))) }
+}
+
+@Preview(name = "Статистика · ошибка", showBackground = true, widthDp = 320, fontScale = 2f)
+@Composable private fun FinanceError() {
+    TrackerTheme(Theme.DARK) { FinancePane(FinanceUiState(phase = FinancePhase.Error)) }
+}

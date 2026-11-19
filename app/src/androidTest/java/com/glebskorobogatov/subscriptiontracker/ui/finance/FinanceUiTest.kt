@@ -25,11 +25,13 @@ class FinanceUiTest {
     @Test fun monthsSelectExactExpectedEventsWithoutCurrencyOrHorizonControls() {
         var ui by mutableStateOf(FinancePreviewData.state())
         compose.setContent { TrackerTheme { FinancePane(ui,onMonth = { ui = ui.copy(month = it) }) } }
-        compose.onNodeWithTag("finance_total").assertTextEquals("6587,00 RUB")
+        compose.onNodeWithTag("finance_total").assertTextEquals("6 587 ₽")
         compose.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag("finance_month_2027-02"))
         compose.onNodeWithTag("finance_month_2027-02").performClick().assertIsSelected()
-        compose.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag("finance_charge_00000000-0000-0000-0000-000000000321_2027-02-28"))
-        compose.onNodeWithText("Личный").assertIsDisplayed(); compose.onNodeWithText("Семейный").assertDoesNotExist()
+        val event = "finance_charge_00000000-0000-0000-0000-000000000321_2027-02-28"
+        compose.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag(event))
+        compose.onNode(hasText("Личный") and hasAnyAncestor(hasTestTag(event))).assertIsDisplayed()
+        compose.onNodeWithTag("finance_charge_00000000-0000-0000-0000-000000000322_2027-02-28").assertDoesNotExist()
         compose.onNodeWithTag("finance_currency_KWD").assertDoesNotExist()
         compose.onNodeWithTag("finance_currency_RUB").assertDoesNotExist()
         for (months in listOf(3,6,12)) compose.onNodeWithTag("finance_horizon_$months").assertDoesNotExist()
@@ -61,7 +63,7 @@ class FinanceUiTest {
         for(value in listOf(Theme.LIGHT,Theme.DARK)) {
             compose.runOnIdle { theme = value; ui = ui.copy(month = YearMonth.of(2027,1)) }
             compose.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag("finance_total"))
-            val total = compose.onNodeWithTag("finance_total").assertIsDisplayed().assertTextEquals("92233720368547758,07 RUB")
+            val total = compose.onNodeWithTag("finance_total").assertIsDisplayed().assertTextEquals("92 233 720 368 547 758,07 ₽")
             val layouts = mutableListOf<TextLayoutResult>()
             total.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
             assertTrue(layouts.isNotEmpty()); layouts.forEach { assertFalse(it.hasVisualOverflow) }
@@ -76,23 +78,24 @@ class FinanceUiTest {
         val f = com.glebskorobogatov.subscriptiontracker.domain.forecast.ForecastEngine().calculate(emptyList(),FinancePreviewData.day)
         val ui = FinanceUiState(FinancePhase.Empty,FinanceSnapshot(f,emptyList()),YearMonth.from(FinancePreviewData.day))
         compose.setContent { TrackerTheme { FinancePane(ui) } }
+        compose.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag("finance_empty"))
         compose.onNodeWithTag("finance_empty").assertIsDisplayed()
         compose.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag("finance_30_total"))
-        compose.onNodeWithTag("finance_30_total").assertTextEquals("0,00 RUB")
-        compose.onNodeWithTag("finance_total").assertTextEquals("0,00 RUB")
+        compose.onNodeWithTag("finance_30_total").assertTextEquals("0 ₽")
+        compose.onNodeWithTag("finance_total").assertTextEquals("0 ₽")
         compose.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag("finance_month_chart"))
         for (month in f.months.keys) compose.onNodeWithTag("finance_month_$month").assertExists()
     }
     @Test fun monthSelectionChangesDetailsButNeverThirtyDayTotal() {
         var ui by mutableStateOf(FinancePreviewData.state())
         compose.setContent { TrackerTheme { FinancePane(ui,onMonth = { ui = ui.copy(month = it) }) } }
-        compose.onNodeWithTag("finance_30_total").assertTextEquals("1597,00 RUB")
+        compose.onNodeWithTag("finance_30_total").assertTextEquals("1 597 ₽")
         compose.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag("finance_month_2027-02"))
         compose.onNodeWithTag("finance_month_2027-02").performClick()
         compose.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag("finance_selected_total"))
-        compose.onNodeWithTag("finance_selected_total").assertTextEquals("499,00 RUB")
+        compose.onNodeWithTag("finance_selected_total").assertTextEquals("499 ₽")
         compose.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag("finance_30_total"))
-        compose.onNodeWithTag("finance_30_total").assertTextEquals("1597,00 RUB")
-        compose.onNodeWithTag("finance_total").assertTextEquals("6587,00 RUB")
+        compose.onNodeWithTag("finance_30_total").assertTextEquals("1 597 ₽")
+        compose.onNodeWithTag("finance_total").assertTextEquals("6 587 ₽")
     }
 }

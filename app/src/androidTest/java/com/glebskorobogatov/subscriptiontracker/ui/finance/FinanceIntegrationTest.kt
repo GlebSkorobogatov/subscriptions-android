@@ -281,6 +281,7 @@ class FinanceIntegrationTest {
 
     @Test fun changingGenerationReplacesBothCalculationsAndMetadataTogether(): Unit = runBlocking {
         val first = create("Первая база")
+        lease.repository.update { it.copy(costRankingPeriod = CostRankingPeriod.YEAR) }
         val replacement = UUID.randomUUID()
         val generation = AtomicReference(dataset)
         authorizeFreshFixture(context, replacement)
@@ -302,6 +303,7 @@ class FinanceIntegrationTest {
             }
             val before = withTimeout(5000) { model.state.first { it.snapshot?.rows?.singleOrNull()?.id == first.id } }
             assertEquals(1200L, before.snapshot!!.normalizedCosts!!.total.annualMinor)
+            assertEquals(CostRankingPeriod.YEAR, withTimeout(5000) { owner.settings().first() }.costRankingPeriod)
             generation.set(replacement)
             try {
                 owner.perform { fail("Stale generation must reject mutations") }
@@ -313,6 +315,7 @@ class FinanceIntegrationTest {
             val after = withTimeout(5000) { model.state.first { it.snapshot?.rows?.singleOrNull()?.id == second.id } }
             val value = requireNotNull(after.snapshot)
             assertEquals(replacement, owner.activeDatasetId())
+            assertEquals(CostRankingPeriod.MONTH, withTimeout(5000) { owner.settings().first() }.costRankingPeriod)
             assertEquals(second, value.rows.single())
             val monthsWithCharges = if (value.today.dayOfMonth == 1) 12 else 11
             assertEquals(350L * monthsWithCharges, value.forecast!!.totalMinor)

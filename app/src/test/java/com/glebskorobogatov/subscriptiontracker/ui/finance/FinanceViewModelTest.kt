@@ -106,8 +106,10 @@ class FinanceViewModelTest {
         val value = sub(rub).copy(schedule = RecurringSchedule.starting(day.plusYears(2),Frequency(FrequencyUnit.MONTH,1)))
         val vm = model(Source(MutableStateFlow(snapshot(listOf(value)))),SavedStateHandle(mapOf("month" to "2027-05")))
         runCurrent()
-        assertEquals(FinancePhase.Empty,vm.state.value.phase)
+        assertEquals(FinancePhase.Content,vm.state.value.phase)
         assertEquals(YearMonth.of(2027,5),vm.state.value.month)
+        assertEquals(148140L, vm.state.value.snapshot!!.normalizedCosts!!.total.annualMinor)
+        assertEquals(1, vm.state.value.snapshot!!.normalizedCosts!!.ranked.size)
         assertEquals(12,vm.state.value.snapshot!!.forecast!!.months.size)
         assertTrue(vm.state.value.snapshot!!.forecast!!.months.values.all { it.totalMinor == 0L && it.charges.isEmpty() })
     }
@@ -215,7 +217,8 @@ class FinanceViewModelTest {
         runCurrent()
         old.value = previous.copy(normalization = NormalizedCostState.Overflow)
         runCurrent()
-        assertEquals(previous, vm.state.value.snapshot) // The prior input is detached while the session opens.
+        assertEquals(FinancePhase.Loading, vm.state.value.phase)
+        assertNull(vm.state.value.snapshot) // The prior input is detached while the session opens.
         reopen.complete(Unit)
         runCurrent()
         assertEquals(replacement, vm.state.value.snapshot)

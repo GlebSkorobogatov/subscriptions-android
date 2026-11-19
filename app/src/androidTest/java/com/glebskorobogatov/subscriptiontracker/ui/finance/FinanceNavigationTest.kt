@@ -38,17 +38,32 @@ class FinanceNavigationTest {
         val month = YearMonth.now().plusMonths(1)
         compose.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag("finance_month_$month"))
         compose.onNodeWithTag("finance_month_$month").performClick().assertIsSelected()
-        compose.onNodeWithTag("finance_screen").performScrollToNode(hasText("Учебная подписка"))
-        compose.onNodeWithText("Учебная подписка").assertIsDisplayed()
+        val eventName = hasText("Учебная подписка") and hasAnyAncestor(SemanticsMatcher("forecast event") {
+            it.config.getOrElse(SemanticsProperties.TestTag) { "" }.startsWith("finance_charge_")
+        })
+        compose.onNodeWithTag("finance_screen").performScrollToNode(eventName)
+        compose.onNode(eventName).assertIsDisplayed()
+        val annual = "finance_ranking_period_YEAR"
+        scrollTo(annual)
+        compose.onNodeWithTag(annual).assertIsNotSelected().performClick()
+        compose.waitUntil(5000) {
+            compose.onAllNodesWithTag(annual).fetchSemanticsNodes().any {
+                it.config.getOrElse(SemanticsProperties.Selected) { false }
+            }
+        }
         compose.activityRule.scenario.recreate()
         compose.onNodeWithTag("tab_finance").assertIsSelected()
         forecastReady(); compose.onNodeWithTag("finance_horizon_6").assertDoesNotExist()
+        scrollTo(annual)
+        compose.onNodeWithTag(annual).assertIsSelected()
         compose.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag("finance_month_$month"))
         compose.onNodeWithTag("finance_month_$month").assertIsSelected()
         compose.onNodeWithTag("tab_settings").performClick()
         compose.onNodeWithTag("tab_finance").performClick()
         compose.onNodeWithTag("tab_finance").assertIsSelected()
-        forecastReady(); scrollTo("finance_month_$month")
+        forecastReady(); scrollTo(annual)
+        compose.onNodeWithTag(annual).assertIsSelected()
+        scrollTo("finance_month_$month")
         compose.onNodeWithTag("finance_month_$month").assertIsSelected()
     }
     @Test fun lastChartMonthSurvivesThemeTabReturnRecreationAndActualRotation() {

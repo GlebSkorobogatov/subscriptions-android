@@ -69,4 +69,20 @@ class SettingsTest {
         assertEquals(1,SettingsCodec.read(legacy).version)
     }
 
+
+    @Test fun rankingDefaultsToMonthAndPreservesLegacyKeysAtVersionOne() {
+        val ranking = stringPreferencesKey("cost_ranking_period")
+        val legacy = stringPreferencesKey("comparison_mode")
+        assertEquals(CostRankingPeriod.MONTH, SettingsCodec.read(emptyPreferences()).costRankingPeriod)
+        val prefs = mutablePreferencesOf(ranking to "retired", legacy to "keep")
+        assertEquals(CostRankingPeriod.MONTH, SettingsCodec.read(prefs).costRankingPeriod)
+        val chosen = Settings(theme = Theme.DARK, animationsEnabled = false, renewalOffsets = setOf(0),
+            costRankingPeriod = CostRankingPeriod.YEAR)
+        SettingsCodec.write(prefs, chosen)
+        assertEquals("YEAR", prefs[ranking])
+        assertEquals("keep", prefs[legacy])
+        assertEquals(chosen, SettingsCodec.read(prefs))
+        assertEquals(1, SettingsCodec.read(prefs).version)
+    }
+
 }
