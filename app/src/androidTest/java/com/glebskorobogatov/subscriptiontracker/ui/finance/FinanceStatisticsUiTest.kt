@@ -84,8 +84,9 @@ class FinanceStatisticsUiTest {
         scroll("finance_calendar_empty").assertIsDisplayed()
         compose.onNodeWithTag("finance_empty").assertDoesNotExist()
         scroll("finance_30_total").assertTextEquals("0 ₽")
-        scroll("finance_total").assertTextEquals("1 ₽")
+        scroll("finance_total").assertTextEquals("0,01 ₽")
         scroll("finance_ranking_amount_${high.id}").assertTextEquals("0 ₽")
+        scroll("finance_ranking_amount_${low.id}").assertTextEquals("0 ₽")
         val highTag = "finance_ranking_${high.id}"
         val lowTag = "finance_ranking_${low.id}"
         scroll(lowTag).assert(!hasClickAction())
