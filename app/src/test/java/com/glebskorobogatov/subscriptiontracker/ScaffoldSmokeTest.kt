@@ -39,7 +39,7 @@ class ScaffoldSmokeTest {
         }
         val application = manifest.getElementsByTagName("application").item(0) as Element
         val label = application.getAttributeNS(android, "label").removePrefix("@string/")
-        assertEquals("Менеджер подписок", strings[label])
+        assertEquals("Подписки", strings[label])
         assertTrue(checkNotNull(strings["welcome_message"]).contains("Добро пожаловать"))
     }
 }
