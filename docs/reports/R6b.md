@@ -69,3 +69,39 @@ git diff --check
 Первоначальный обязательный прогон прошёл за 2m 41s, падений Gradle и JVM-тестов в R6b не было. Повтор выполнен после выравнивания сумм по макету и расширения landscape-проверки на рейтинг. В отчёте lint шесть предупреждений NewerVersionAvailable, одно ObsoleteSdkInt и одно UnusedResources.
 
 Инструментальное выполнение R6a/R6b, поворот и реальная навигация, TalkBack, системный шрифт, reduced motion и системный animator scale 0, работа на реальном устройстве и просмотр Compose Preview — **NOT RUN**. Матрица 320/360/390/412 dp и 1/1,5/2 с обеими темами подготовлена в Compose-тесте, landscape — в существующих тестах. Проверки семантики не заменяют физический TalkBack. Прежнее единичное падение `presetsCustomCalendarAndValidation` относится к R5b-verify, оно не воспроизводилось в Codex, где Android-прогон недоступен. R6b готов к независимой статической приёмке.
+
+## R6-verify — совместная приёмка
+
+Исходный SHA `dcad9ead6e00082364b54b7ff7d7a2b795e75fd6`, ветка `codex/r6b-statistics-ui`, база `codex/r6a-normalized-cost`, Draft PR #15. PR #14 и более ранние PR не менялись. Merge, force push и ручной запуск Actions не выполнялись. R7 и R8 не начаты. PERSONAL-READY не объявляется.
+
+Среда ENV-01: OpenJDK 21.0.13, Android SDK `/opt/android-sdk` платформа 36, Build Tools 35.0.0, Gradle Wrapper 8.13. На старте дерево было чистым, HEAD совпал с указанным SHA. `/dev/kvm` существовал, но принадлежал группе 103, тогда как группа `kvm` имеет gid 996 и в неё входит пользователь. Права узла возвращены группе `kvm`. `emulator -accel-check` сообщил, что KVM version 12 установлен. Гостевая система API 31 при этом не стартует.
+
+### Исправление теста
+
+В `FinanceStatisticsUiTest.rankingKeepsSameNamedEntriesAndExactOrderWhenTheirDisplayedAmountsRoundToZero` годовые доли 1/3 и 1/4 копейки дают точную сумму 7/12 копейки. HALF_UP округляет её до 1 копейки, то есть «0,01 ₽». Ожидание общего итога заменено с «1 ₽» на «0,01 ₽». Для обеих строк рейтинга сохранено ожидание «0 ₽». Сортировка, присутствие дробных позиций и сравнение ширины полос не менялись. `NormalizedCostEngine` и денежный форматтер не менялись.
+
+### Команды
+
+`git diff --check`: **PASS**.
+
+```sh
+./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug :app:compileDebugAndroidTestKotlin --no-daemon --max-workers=2 --console=plain
+```
+
+| Проверка | Результат |
+|---|---|
+| :app:testDebugUnitTest | PASS, 427 выполнено, 0 failures/errors/skipped |
+| :app:assembleDebug | PASS |
+| :app:lintDebug | PASS, 0 ошибок, 19 предупреждений ENV-01 |
+| :app:compileDebugAndroidTestKotlin | PASS |
+| Итоговая Gradle-команда | BUILD SUCCESSFUL, 1 мин 43 с |
+
+19 предупреждений те же, что у прежних прогонов Cursor: GradleDependency 9, NewerVersionAvailable 6, AndroidGradlePluginVersion 2, ObsoleteSdkInt 1, UnusedResources 1. Восемь предупреждений из отчёта Codex относятся к другой среде. Gradle и зависимости не менялись.
+
+### Android
+
+**BLOCKED.** Два запуска `emulator -avd api31 -accel on -gpu swiftshader_indirect` открыли порты 5554/5555, но гость не исполнялся: потоки vCPU оставались в ожидании, консоль эмулятора не отвечала, `adb` видел `127.0.0.1:5555` как offline. `dmesg` содержит `kernel BUG at arch/x86/kvm/x86.c:689` в `kvm_arch_vcpu_create` / `kvm_spurious_fault` при создании vCPU. Повторная установка SDK и эмулятора не выполнялась.
+
+Поэтому не выполнены финансовые классы, проверки DataStore на устройстве, кадры эмулятора, системный font scale 2, animator scale 0 и полный Android-набор. `presetsCustomCalendarAndValidation` в этом проходе не запускался: эмулятор не дошёл до Android. API 33+, физический TalkBack, Photo Picker и process death — **NOT RUN**.
+
+Остановиться до независимой приёмки. Следующий этап не начат.
