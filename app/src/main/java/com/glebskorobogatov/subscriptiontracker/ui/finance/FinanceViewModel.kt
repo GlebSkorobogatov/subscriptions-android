@@ -1,13 +1,14 @@
 package com.glebskorobogatov.subscriptiontracker.ui.finance
 
 import androidx.lifecycle.*
+import com.glebskorobogatov.subscriptiontracker.data.integration.NormalizedCostState
 import com.glebskorobogatov.subscriptiontracker.data.integration.SubscriptionUseCases
 import com.glebskorobogatov.subscriptiontracker.ui.subscriptions.*
 import java.time.YearMonth
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 
-/** Presentation name for the one authoritative forecast/metadata projection. */
+/** Presentation name for the authoritative calendar, normalization and metadata projection. */
 typealias FinanceSnapshot = com.glebskorobogatov.subscriptiontracker.data.integration.SubscriptionForecastSnapshot
 internal fun financeSnapshots(use: SubscriptionUseCases): Flow<FinanceSnapshot> = use.forecasts
 
@@ -50,7 +51,7 @@ class FinanceViewModel(private val saved: SavedStateHandle,private val source: F
                         saved["month"] = selected.toString()
                         val forecast = snapshot.forecast
                         mutable.value = FinanceUiState(when {
-                            forecast == null -> FinancePhase.Error
+                            forecast == null || snapshot.normalization == NormalizedCostState.Overflow -> FinancePhase.Error
                             forecast.charges.isEmpty() -> FinancePhase.Empty
                             else -> FinancePhase.Content
                         },snapshot,selected)

@@ -36,6 +36,8 @@ class ForecastIsolationTest {
         assertNull(main.active.single { it.id == bad.id }.eventDate)
         assertEquals(good.name,main.active.single { it.id == good.id }.name)
         assertEquals(ForecastState.Error,snapshot.state)
+        assertEquals(1200L, snapshot.normalizedCosts!!.total.annualMinor)
+        assertEquals(2, snapshot.normalizedCosts!!.ranked.size)
     }
     @Test fun actualEventBudgetFailureKeepsAllRowsManageable() = runTest {
         val rows = (1L..300L).map { row(it,unit = FrequencyUnit.DAY) }
@@ -86,6 +88,36 @@ class ForecastIsolationTest {
             assertEquals(rows,recovered.rows)
         } finally { reader.cancelAndJoin(); updates.close() }
     }
+    @Test fun oneProjectionKeepsRowsNormalizationAndCalendarCoherentAcrossUpdates() = runBlocking {
+        val original = row()
+        val rows = MutableStateFlow(listOf(original))
+        val dates = MutableStateFlow(today)
+        val updates = Channel<SubscriptionForecastSnapshot>(Channel.UNLIMITED)
+        val reader = launch { forecastSnapshots(rows, dates).collect { updates.send(it) } }
+        suspend fun next() = withTimeout(5000) { updates.receive() }
+        try {
+            assertEquals(1200L, next().normalizedCosts!!.total.annualMinor)
+            val edited = original.copy(priceMinor = 29950, accountLabel = "Новая подпись", anchorDay = 3)
+            rows.value = listOf(edited)
+            val updated = next()
+            assertEquals(edited, updated.rows.single())
+            assertEquals(359400L, updated.normalizedCosts!!.total.annualMinor)
+            assertEquals(29950L, updated.normalizedCosts!!.ranked.single().amounts.monthlyMinor)
+            assertTrue(updated.forecast!!.charges.all { it.amountMinor == edited.priceMinor })
+            dates.value = today.plusDays(3)
+            val nextDay = next()
+            assertEquals(dates.value, nextDay.today)
+            assertEquals(updated.normalization, nextDay.normalization)
+            assertNotEquals(updated.forecast!!.charges, nextDay.forecast!!.charges)
+            rows.value = listOf(edited.copy(state = SubscriptionState.CANCELLED))
+            val inactive = next()
+            assertEquals(0L, inactive.normalizedCosts!!.total.annualMinor)
+            assertTrue(inactive.normalizedCosts!!.ranked.isEmpty())
+            assertEquals(12, inactive.forecast!!.months.size)
+            assertTrue(inactive.forecast!!.charges.isEmpty())
+        } finally { reader.cancelAndJoin(); updates.close() }
+    }
+
     @Test fun cancellationIsNeverConvertedToFinancialError() {
         assertThrows(CancellationException::class.java) {
             calculationOrNull<String> { throw CancellationException("Synthetic cancellation") }

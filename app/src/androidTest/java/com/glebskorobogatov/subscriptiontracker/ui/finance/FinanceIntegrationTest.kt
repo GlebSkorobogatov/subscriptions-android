@@ -2,7 +2,12 @@ package com.glebskorobogatov.subscriptiontracker.ui.finance
 
 import com.glebskorobogatov.subscriptiontracker.fixtures.*
 import android.content.Context
+import androidx.lifecycle.viewModelScope
 import androidx.test.core.app.ApplicationProvider
+import com.glebskorobogatov.subscriptiontracker.app.SubscriptionsComposition
+import com.glebskorobogatov.subscriptiontracker.data.lifecycle.LifecycleConflict
+import com.glebskorobogatov.subscriptiontracker.ui.subscriptions.SubscriptionsUiState
+import com.glebskorobogatov.subscriptiontracker.ui.subscriptions.SubscriptionsViewModel
 import com.glebskorobogatov.subscriptiontracker.data.integration.*
 import com.glebskorobogatov.subscriptiontracker.data.mapping.toDomain
 import com.glebskorobogatov.subscriptiontracker.data.room.*
@@ -16,6 +21,7 @@ import com.glebskorobogatov.subscriptiontracker.domain.model.*
 import java.io.File
 import java.time.*
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
@@ -51,6 +57,8 @@ class FinanceIntegrationTest {
         assertEquals(ForecastEngine().calculate(listOf(a,b).map { it.toDomain() },day),actual.forecast)
         assertEquals(setOf(a.id,b.id),actual.forecast!!.charges.map { it.subscriptionId.value }.toSet())
         assertEquals(12,actual.forecast!!.charges.count { it.subscriptionId.value==b.id })
+        assertEquals(2400L, actual.normalizedCosts!!.total.annualMinor)
+        assertEquals(listOf(a.id, b.id).sortedBy(UUID::toString), actual.normalizedCosts!!.ranked.map { it.subscriptionId.value })
         db.close(); lease.close(); reopen()
         assertEquals(actual,withTimeout(5000) { financeSnapshots(use).first() })
     }
@@ -60,13 +68,20 @@ class FinanceIntegrationTest {
         val reader=launch { financeSnapshots(use).collect { updates.send(it) } }
         suspend fun await(predicate: (FinanceSnapshot)->Boolean) = withTimeout(5000) { updates.receiveAsFlow().first(predicate) }
         try {
-            await { it.forecast!!.charges.size==24 }
+            assertEquals(2400L, await { it.forecast!!.charges.size==24 }.normalizedCosts!!.total.annualMinor)
             val edited=use.editSubscription(a,SubscriptionEdit(a.name,"Обновлённый",RubPrice(200)),now.plusSeconds(1))
-            await { it.forecast!!.totalMinor==3600L }
+            val changed = await { it.forecast!!.totalMinor==3600L }
+            assertEquals(3600L, changed.normalizedCosts!!.total.annualMinor)
+            assertEquals("Обновлённый", changed.rows.single { it.id == a.id }.accountLabel)
+            assertEquals(a.id, changed.normalizedCosts!!.ranked.first().subscriptionId.value)
             use.changeLifecycle(edited,LifecycleCommand.Cancel(),now.plusSeconds(2))
-            await { it.forecast!!.charges.size==12 && it.forecast!!.charges.all { c -> c.subscriptionId.value==b.id } }
+            val cancelled = await { it.forecast!!.charges.size==12 && it.forecast!!.charges.all { c -> c.subscriptionId.value==b.id } }
+            assertEquals(b.id, cancelled.normalizedCosts!!.ranked.single().subscriptionId.value)
+            assertEquals(1200L, cancelled.normalizedCosts!!.total.annualMinor)
             use.changeLifecycle(b,LifecycleCommand.Archive,now.plusSeconds(3))
-            await { it.forecast!!.charges.isEmpty() }
+            val archived = await { it.forecast!!.charges.isEmpty() }
+            assertEquals(0L, archived.normalizedCosts!!.total.annualMinor)
+            assertTrue(archived.normalizedCosts!!.ranked.isEmpty())
         } finally { reader.cancelAndJoin(); updates.close() }
         Unit
     }
@@ -85,7 +100,11 @@ class FinanceIntegrationTest {
             for (snapshot in snapshots) {
                 val stored=snapshot.rows.single()
                 assertTrue(snapshot.forecast!!.charges.all { it.amountMinor==stored.priceMinor && it.subscriptionId.value==stored.id })
-                assertEquals(stored.state==SubscriptionState.ACTIVE,snapshot.forecast!!.charges.isNotEmpty())
+                val active = stored.state == SubscriptionState.ACTIVE
+                assertEquals(active, snapshot.forecast!!.charges.isNotEmpty())
+                assertEquals(if (active) stored.priceMinor * 12 else 0L, snapshot.normalizedCosts!!.total.annualMinor)
+                if (active) assertEquals(stored.id, snapshot.normalizedCosts!!.ranked.single().subscriptionId.value)
+                else assertTrue(snapshot.normalizedCosts!!.ranked.isEmpty())
             }
         } finally { reader.cancelAndJoin() }
     }
@@ -113,25 +132,32 @@ class FinanceIntegrationTest {
         var value = snapshot(); coherent(value)
         assertEquals(246L,value.forecast!!.next30Days.totalMinor); assertEquals(1476L,value.forecast!!.totalMinor)
         assertEquals(31,row.anchorDay)
+        val unchangedTariff = value.normalization
         row = use.editSubscription(row,SubscriptionEdit(row.name,row.accountLabel,RubPrice(123),
             ScheduleEdit(day.plusDays(3),Frequency(FrequencyUnit.MONTH,1))),now)
         value = snapshot(); coherent(value)
         assertEquals(123L,value.forecast!!.next30Days.totalMinor)
         assertTrue(value.forecast!!.charges.all { it.dueDate.dayOfMonth == 3 })
+        assertEquals(unchangedTariff, value.normalization)
         row = use.editSubscription(row,SubscriptionEdit(row.name,row.accountLabel,RubPrice(123),
             ScheduleEdit(day.plusDays(3),Frequency(FrequencyUnit.WEEK,1))),now)
         value = snapshot(); coherent(value)
         assertEquals(4,value.forecast!!.next30Days.charges.size)
+        assertEquals(6414L, value.normalizedCosts!!.total.annualMinor)
         row = use.changeLifecycle(row,LifecycleCommand.Cancel(),now)
         assertEquals(0L,snapshot().forecast!!.totalMinor)
         row = use.changeLifecycle(row,LifecycleCommand.Reactivate(RubPrice(123),ScheduleEdit(day,Frequency(FrequencyUnit.DAY,2))),now)
         value = snapshot(); coherent(value); assertEquals(16,value.forecast!!.next30Days.charges.size)
+        assertEquals(22448L, value.normalizedCosts!!.total.annualMinor)
         row = use.changeLifecycle(row,LifecycleCommand.Archive,now)
         assertEquals(0L,snapshot().forecast!!.next30Days.totalMinor)
         row = use.changeLifecycle(row,LifecycleCommand.Reactivate(RubPrice(29950),ScheduleEdit(day,Frequency(FrequencyUnit.MONTH,1))),now)
         value = snapshot(); coherent(value); assertEquals(59900L,value.forecast!!.next30Days.totalMinor)
+        assertEquals(359400L, value.normalizedCosts!!.total.annualMinor)
         use.deleteSubscription(row,true)
         value = snapshot(); coherent(value); assertEquals(0L,value.forecast!!.totalMinor); assertTrue(value.rows.isEmpty())
+        assertEquals(0L, value.normalizedCosts!!.total.annualMinor)
+        assertTrue(value.normalizedCosts!!.ranked.isEmpty())
     }
     @Test fun currentDateRefreshRebuildsBothWindowsAndMainProjectionWithoutRoomWrite() = runBlocking {
         val row = create("Сохранённая опора")
@@ -146,6 +172,7 @@ class FinanceIntegrationTest {
         assertEquals(row.id,main.active.single().id)
         assertEquals(LocalDate.of(2027,2,28),main.active.single().eventDate)
         assertEquals(row,after.rows.single())
+        assertEquals(before.normalization, after.normalization)
     }
     @Test fun emptyAndFutureOnlySnapshotsKeepTwelveZeroBuckets() = runBlocking {
         for (future in listOf(false,true)) {
@@ -154,6 +181,7 @@ class FinanceIntegrationTest {
             val value = snapshot(); coherent(value)
             assertEquals(0L,value.forecast!!.next30Days.totalMinor); assertEquals(0L,value.forecast!!.totalMinor)
             assertTrue(value.forecast!!.months.values.all { it.totalMinor == 0L && it.charges.isEmpty() })
+            assertEquals(if (future) 359400L else 0L, value.normalizedCosts!!.total.annualMinor)
         }
     }
     @Test fun concurrentEditsKeepMetadataBothWindowsAndDetailsInSameSnapshot() = runBlocking {
@@ -171,6 +199,8 @@ class FinanceIntegrationTest {
                 assertEquals("Метка $price",value.rows.single().accountLabel)
                 assertEquals(price*2,value.forecast!!.next30Days.totalMinor)
                 assertEquals(price*12,value.forecast!!.totalMinor)
+                assertEquals(price*12, value.normalizedCosts!!.total.annualMinor)
+                assertEquals(price, value.normalizedCosts!!.ranked.single().amounts.monthlyMinor)
             }
         } finally { reader.cancelAndJoin(); values.close() }
     }
@@ -210,4 +240,92 @@ class FinanceIntegrationTest {
             assertEquals(59900L,current.forecast!!.next30Days.totalMinor)
         } finally { withContext(Dispatchers.Main) { store.clear() } }
     }
+
+    @Test fun competingEditsPublishOnlyTheWinningPriceAndLabelInBothCalculations(): Unit = runBlocking {
+        val original = create("Исходная подпись")
+        val gate = CompletableDeferred<Unit>()
+        suspend fun edit(label: String, price: Long): SubscriptionEntity? = try {
+            gate.await()
+            use.editSubscription(original, SubscriptionEdit(original.name, label, RubPrice(price)), now)
+        } catch (_: LifecycleConflict) { null }
+        val a = async(Dispatchers.Default) { edit("Первое изменение", 150) }
+        val b = async(Dispatchers.Default) { edit("Второе изменение", 250) }
+        gate.complete(Unit)
+        val winner = listOfNotNull(a.await(), b.await()).single()
+        val value = snapshot()
+        coherent(value)
+        assertEquals(winner, value.rows.single())
+        assertEquals(winner.priceMinor * 12, value.forecast!!.totalMinor)
+        assertEquals(winner.priceMinor * 12, value.normalizedCosts!!.total.annualMinor)
+        assertEquals(winner.id, value.normalizedCosts!!.ranked.single().subscriptionId.value)
+    }
+
+    @Test fun normalizationOnlyOverflowRecoversAfterPriceEditWithoutRestartingRoomObserver(): Unit = runBlocking {
+        val row = use.createSubscription(SubscriptionDraft(UUID.randomUUID(), "Пограничный тариф", "Первая подпись",
+            RubPrice(Long.MAX_VALUE), ScheduleEdit(day.withMonth(12), Frequency(FrequencyUnit.MONTH, 1))), now)
+        val snapshots = Channel<FinanceSnapshot>(Channel.UNLIMITED)
+        val collector = launch { financeSnapshots(use).collect { snapshots.send(it) } }
+        try {
+            val failed = withTimeout(5000) { snapshots.receive() }
+            assertEquals(row, failed.rows.single())
+            assertEquals(Long.MAX_VALUE, failed.forecast!!.totalMinor)
+            assertEquals(NormalizedCostState.Overflow, failed.normalization)
+            assertNull(failed.normalizedCosts)
+            val repaired = use.editSubscription(row, SubscriptionEdit(row.name, "После исправления", RubPrice(29950)), now)
+            val recovered = withTimeout(5000) { snapshots.receiveAsFlow().first { it.rows.single() == repaired } }
+            assertEquals(29950L, recovered.forecast!!.totalMinor)
+            assertEquals(359400L, recovered.normalizedCosts!!.total.annualMinor)
+            assertEquals("После исправления", recovered.rows.single().accountLabel)
+        } finally { collector.cancelAndJoin(); snapshots.close() }
+    }
+
+    @Test fun changingGenerationReplacesBothCalculationsAndMetadataTogether(): Unit = runBlocking {
+        val first = create("Первая база")
+        val replacement = UUID.randomUUID()
+        val generation = AtomicReference(dataset)
+        authorizeFreshFixture(context, replacement)
+        val other = TrackerDatabaseFactory.open(context, replacement)
+        val thisMonth = LocalDate.now().withDayOfMonth(1)
+        val second = first.copy(id = UUID.randomUUID(), priceMinor = 350, accountLabel = "Вторая база",
+            anchorYear = thisMonth.year, anchorMonth = thisMonth.monthValue, anchorDay = 1)
+        try { withContext(Dispatchers.IO) { other.subscriptions().insert(second) } } finally { other.close() }
+        val store = androidx.lifecycle.ViewModelStore()
+        val jobs = mutableListOf<Job>()
+        try {
+            val (owner, model) = withContext(Dispatchers.Main) {
+                val source = SubscriptionsComposition(context, activeDataset = generation::get)
+                val owner = SubscriptionsViewModel(source).also { store.put("owner", it) }
+                val finance = FinanceViewModel(androidx.lifecycle.SavedStateHandle(), owner).also { store.put("finance", it) }
+                jobs += requireNotNull(owner.viewModelScope.coroutineContext[Job])
+                jobs += requireNotNull(finance.viewModelScope.coroutineContext[Job])
+                owner to finance
+            }
+            val before = withTimeout(5000) { model.state.first { it.snapshot?.rows?.singleOrNull()?.id == first.id } }
+            assertEquals(1200L, before.snapshot!!.normalizedCosts!!.total.annualMinor)
+            generation.set(replacement)
+            try {
+                owner.perform { fail("Stale generation must reject mutations") }
+                fail("Expected stale generation")
+            } catch (error: StorageUnavailable) {
+                assertEquals(StorageFailure.STALE_GENERATION, error.failure)
+            }
+            withContext(Dispatchers.Main) { owner.retry() }
+            val after = withTimeout(5000) { model.state.first { it.snapshot?.rows?.singleOrNull()?.id == second.id } }
+            val value = requireNotNull(after.snapshot)
+            assertEquals(replacement, owner.activeDatasetId())
+            assertEquals(second, value.rows.single())
+            val monthsWithCharges = if (value.today.dayOfMonth == 1) 12 else 11
+            assertEquals(350L * monthsWithCharges, value.forecast!!.totalMinor)
+            assertTrue(value.forecast!!.charges.all { it.subscriptionId.value == second.id })
+            assertEquals(4200L, value.normalizedCosts!!.total.annualMinor)
+            assertEquals(second.id, value.normalizedCosts!!.ranked.single().subscriptionId.value)
+        } finally {
+            withContext(Dispatchers.Main) { store.clear() }
+            jobs.joinAll()
+            context.deleteDatabase("subscriptions-$replacement.db")
+            forgetFixtureInitialization(context, "subscriptions-$replacement.db")
+            File(context.filesDir,"datastore/settings-$replacement.preferences_pb").delete()
+        }
+    }
+
 }

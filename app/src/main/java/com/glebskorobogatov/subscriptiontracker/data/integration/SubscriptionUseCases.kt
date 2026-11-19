@@ -8,6 +8,7 @@ import com.glebskorobogatov.subscriptiontracker.domain.integration.*
 import com.glebskorobogatov.subscriptiontracker.domain.lifecycle.*
 import com.glebskorobogatov.subscriptiontracker.domain.model.*
 import com.glebskorobogatov.subscriptiontracker.domain.forecast.*
+import com.glebskorobogatov.subscriptiontracker.domain.subscription.SubscriptionRecord
 import java.time.*
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
@@ -19,10 +20,31 @@ sealed interface ForecastState {
     data class Success(val result: ForecastResult) : ForecastState
     data object Error : ForecastState
 }
-data class SubscriptionForecastSnapshot(val state: ForecastState, val rows: List<SubscriptionEntity>, val today: LocalDate) {
-    constructor(forecast: ForecastResult, rows: List<SubscriptionEntity>) : this(ForecastState.Success(forecast),rows,forecast.fromInclusive)
+sealed interface NormalizedCostState {
+    data class Success(val result: NormalizedCostResult) : NormalizedCostState
+    data object Overflow : NormalizedCostState
+}
+
+/** Both calculations and their metadata belong to the same set of rows and date. */
+data class SubscriptionForecastSnapshot(
+    val state: ForecastState,
+    val rows: List<SubscriptionEntity>,
+    val today: LocalDate,
+    val normalization: NormalizedCostState,
+) {
+    constructor(forecast: ForecastResult, rows: List<SubscriptionEntity>) : this(
+        ForecastState.Success(forecast), rows, forecast.fromInclusive, normalize(rows.map { it.toDomain() })
+    )
+
     val forecast: ForecastResult? get() = (state as? ForecastState.Success)?.result
+    val normalizedCosts: NormalizedCostResult? get() = (normalization as? NormalizedCostState.Success)?.result
     init { require(state !is ForecastState.Success || state.result.fromInclusive == today) }
+}
+
+private fun normalize(records: List<SubscriptionRecord>): NormalizedCostState = try {
+    NormalizedCostState.Success(NormalizedCostEngine.calculate(records))
+} catch (_: ArithmeticException) {
+    NormalizedCostState.Overflow
 }
 
 /** Only called around calculations; reading and mapping are deliberately outside this boundary. */
@@ -35,7 +57,15 @@ internal fun forecastSnapshot(rows: List<SubscriptionEntity>, today: LocalDate,
     forecast: ForecastEngine = ForecastEngine()): SubscriptionForecastSnapshot {
     val records = rows.map { it.toDomain() }
     val result = calculationOrNull { forecast.calculate(records,today) }
-    return SubscriptionForecastSnapshot(result?.let(ForecastState::Success) ?: ForecastState.Error,rows,today)
+    return SubscriptionForecastSnapshot(
+        result?.let(ForecastState::Success) ?: ForecastState.Error, rows, today, normalize(records)
+    )
+}
+
+internal fun forecastSnapshots(rows: Flow<List<SubscriptionEntity>>, today: Flow<LocalDate>): Flow<SubscriptionForecastSnapshot> {
+    val forecast = ForecastEngine()
+    return combine(rows, today) { snapshot, date -> forecastSnapshot(snapshot, date, forecast) }
+        .distinctUntilChanged().flowOn(Dispatchers.Default)
 }
 
 data class SubscriptionDetails(val subscription: SubscriptionEntity,
@@ -58,7 +88,6 @@ class SubscriptionUseCases(
 ) {
     private val editor = SubscriptionEditor(database)
     private val source = RoomLocalDataSource(database, settingsRepository)
-    private val forecast = ForecastEngine()
     val subscriptions = source.subscriptions.distinctUntilChanged()
     val settings = source.settings
     private val domainSubscriptions = subscriptions.map { rows -> rows.map { it.toDomain() } }.distinctUntilChanged()
@@ -66,9 +95,7 @@ class SubscriptionUseCases(
     val active = groups.map { it.active }.distinctUntilChanged()
     val cancelled = groups.map { it.cancelled }.distinctUntilChanged()
     val archive = groups.map { it.archived }.distinctUntilChanged()
-    val forecasts: Flow<SubscriptionForecastSnapshot> = combine(subscriptions, date.today) { rows, today ->
-        forecastSnapshot(rows, today, forecast)
-    }.distinctUntilChanged().flowOn(Dispatchers.Default)
+    val forecasts: Flow<SubscriptionForecastSnapshot> = forecastSnapshots(subscriptions, date.today)
 
     fun details(id: UUID): Flow<SubscriptionDetails?> = combine(database.subscriptions().observeDetails(id), date.today) { row, today ->
         row?.let { detailsSnapshot(it,today) }
