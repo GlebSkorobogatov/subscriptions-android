@@ -1,7 +1,6 @@
 package com.glebskorobogatov.subscriptiontracker.ui.finance
 
 import androidx.lifecycle.*
-import com.glebskorobogatov.subscriptiontracker.data.integration.NormalizedCostState
 import com.glebskorobogatov.subscriptiontracker.data.integration.SubscriptionUseCases
 import com.glebskorobogatov.subscriptiontracker.ui.subscriptions.*
 import java.time.YearMonth
@@ -13,13 +12,14 @@ typealias FinanceSnapshot = com.glebskorobogatov.subscriptiontracker.data.integr
 internal fun financeSnapshots(use: SubscriptionUseCases): Flow<FinanceSnapshot> = use.forecasts
 
 interface FinanceSource {
-    fun observe(): Flow<FinanceSnapshot>
+    fun observe(): Flow<FinanceSnapshot?>
     fun retry() {}
 }
 @OptIn(ExperimentalCoroutinesApi::class)
 private class SessionFinanceSource(private val owner: SubscriptionsViewModel): FinanceSource {
     override fun observe() = owner.generation.flatMapLatest {
         flow {
+            emit(null) // A prior generation's prices must not remain visible during a reopen.
             check(owner.state.first { it !is SubscriptionsUiState.Loading }.let {
                 it !is SubscriptionsUiState.Error && it !is SubscriptionsUiState.StorageBlocked
             })
@@ -45,16 +45,21 @@ class FinanceViewModel(private val saved: SavedStateHandle,private val source: F
                 mutable.value = FinanceUiState()
                 try {
                     source.observe().collect { snapshot ->
+                        if (snapshot == null) {
+                            mutable.value = FinanceUiState()
+                            return@collect
+                        }
                         val first = YearMonth.from(snapshot.today)
                         val selected = saved.get<String>("month")?.let { runCatching { YearMonth.parse(it) }.getOrNull() }
                             ?.takeIf { java.time.temporal.ChronoUnit.MONTHS.between(first,it) in 0L..11L } ?: first
                         saved["month"] = selected.toString()
-                        val forecast = snapshot.forecast
-                        mutable.value = FinanceUiState(when {
-                            forecast == null || snapshot.normalization == NormalizedCostState.Overflow -> FinancePhase.Error
-                            forecast.charges.isEmpty() -> FinancePhase.Empty
+                        val ranking = snapshot.normalizedCosts?.ranked
+                        val phase = when {
+                            snapshot.forecast == null || ranking == null -> FinancePhase.Error
+                            ranking.isEmpty() -> FinancePhase.Empty
                             else -> FinancePhase.Content
-                        },snapshot,selected)
+                        }
+                        mutable.value = FinanceUiState(phase, snapshot, selected)
                     }
                 } catch(e: CancellationException) { throw e }
                 catch(_: Exception) { mutable.value = FinanceUiState(phase = FinancePhase.Error) }

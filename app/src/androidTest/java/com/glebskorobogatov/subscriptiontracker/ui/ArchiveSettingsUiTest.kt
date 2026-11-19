@@ -96,7 +96,7 @@ class ArchiveSettingsUiTest {
         compose.onNodeWithTag("tab_finance").performClick()
         compose.waitUntil(5000) { compose.onAllNodesWithTag("finance_30_total").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag("finance_30_total"))
-        compose.onNodeWithTag("finance_30_total").assertTextEquals("599,00 RUB")
+        compose.onNodeWithTag("finance_30_total").assertTextEquals("599 ₽")
     }
     @Test fun duplicateArchiveNamesKeepAccountLabelsAndIndependentCards() {
         createAndOpen("Личный тест"); archiveAndReturn()

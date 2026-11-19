@@ -246,7 +246,7 @@ class SubscriptionsUiTest {
         compose.onNodeWithTag("tab_finance").performClick()
         compose.waitUntil(5000) { compose.onAllNodesWithTag("finance_30_total").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag("finance_30_total"))
-        compose.onNodeWithTag("finance_30_total").assertTextEquals("2,46 RUB")
+        compose.onNodeWithTag("finance_30_total").assertTextEquals("2,46 ₽")
         val saved = runBlocking { withContext(Dispatchers.IO) { db.subscriptions().find(row.id) } }!!
         assertEquals(123L,saved.priceMinor)
         assertEquals(row.id,saved.id); assertEquals(row.anchorDay,saved.anchorDay)

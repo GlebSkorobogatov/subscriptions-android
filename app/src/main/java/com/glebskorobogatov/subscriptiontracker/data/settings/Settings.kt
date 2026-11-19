@@ -3,6 +3,7 @@ package com.glebskorobogatov.subscriptiontracker.data.settings
 import java.time.LocalTime
 
 enum class Theme { SYSTEM, LIGHT, DARK }
+enum class CostRankingPeriod { MONTH, YEAR }
 data class Settings(
     val theme: Theme = Theme.SYSTEM,
     // Keep the persisted v1 key; these are renewal offsets, not actual payment facts.
@@ -10,6 +11,7 @@ data class Settings(
     /** Missing preference reads as enabled. The settings version stays 1. */
     val animationsEnabled: Boolean = true,
     val version: Int = 1,
+    val costRankingPeriod: CostRankingPeriod = CostRankingPeriod.MONTH,
 ) {
     val reminderLocalTime: LocalTime get() = LocalTime.of(9, 0)
     init {

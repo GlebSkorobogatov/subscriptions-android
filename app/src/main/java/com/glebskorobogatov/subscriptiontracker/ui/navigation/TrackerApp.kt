@@ -250,7 +250,7 @@ fun TrackerApp(state: SubscriptionsUiState,onRetry: () -> Unit,owner: Subscripti
                             viewModelStoreOwner = backEntry,factory = viewModelFactory { initializer {
                                 com.glebskorobogatov.subscriptiontracker.ui.finance.FinanceViewModel(createSavedStateHandle(),owner)
                             } })
-                        FinanceScreen(model)
+                        FinanceScreen(model, settingsModel)
                     }
                     composable<Archive> { backEntry ->
                         val model: com.glebskorobogatov.subscriptiontracker.ui.archive.ArchiveViewModel = androidx.lifecycle.viewmodel.compose.viewModel(

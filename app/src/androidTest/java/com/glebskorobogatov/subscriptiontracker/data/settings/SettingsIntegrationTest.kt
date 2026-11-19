@@ -28,8 +28,10 @@ class SettingsIntegrationTest {
         try {
             assertSame(first.repository, shared.repository)
             assertEquals(Settings(), first.repository.settings.first())
-            first.repository.update { it.copy(theme = Theme.DARK, renewalOffsets = setOf(7,0)) }
+            first.repository.update { it.copy(theme = Theme.DARK, renewalOffsets = setOf(7,0),
+                costRankingPeriod = CostRankingPeriod.YEAR) }
             assertEquals(Theme.DARK, shared.repository.settings.first().theme)
+            assertEquals(CostRankingPeriod.YEAR, shared.repository.settings.first().costRankingPeriod)
             assertEquals(Settings(), isolated.repository.settings.first())
         } finally { first.close(); shared.close(); isolated.close() }
         val reopened = DatasetSettingsFactory.acquire(context, id)
@@ -37,6 +39,7 @@ class SettingsIntegrationTest {
             assertEquals(Theme.DARK, reopened.repository.settings.first().theme)
             assertEquals(LocalTime.of(9,0), reopened.repository.settings.first().reminderLocalTime)
             assertEquals(setOf(7,0),reopened.repository.settings.first().renewalOffsets)
+            assertEquals(CostRankingPeriod.YEAR, reopened.repository.settings.first().costRankingPeriod)
         } finally { reopened.close() }
     }
     @Test fun reactiveFlowAndInvalidUpdateIsAtomic(): Unit = runBlocking {

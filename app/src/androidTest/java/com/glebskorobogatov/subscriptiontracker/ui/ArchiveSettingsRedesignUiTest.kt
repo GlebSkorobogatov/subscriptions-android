@@ -65,7 +65,7 @@ class ArchiveSettingsRedesignUiTest {
         compose.onNodeWithText("В архиве с 2027-02-28").assertExists()
         compose.onNodeWithText("Дата архивирования неизвестна").assertDoesNotExist()
         compose.onNodeWithText("Восстановить").assertDoesNotExist()
-        compose.onNodeWithText("Прогноз на 30 дней").assertDoesNotExist()
+        compose.onNodeWithText("Ближайшие 30 дней").assertDoesNotExist()
         compose.onNodeWithTag("subscription_progress").assertDoesNotExist()
     }
     @Test fun largeFontLongArchiveEntryAndNavigationStayAccessible() {

@@ -5,6 +5,7 @@ import com.glebskorobogatov.subscriptiontracker.data.integration.SubscriptionUse
 import com.glebskorobogatov.subscriptiontracker.data.settings.*
 import com.glebskorobogatov.subscriptiontracker.ui.subscriptions.*
 import java.time.LocalTime
+import java.util.UUID
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.test.*
@@ -16,10 +17,12 @@ class SettingsViewModelTest {
     private val dispatcher = StandardTestDispatcher(); private val store = ViewModelStore(); private var number = 0
     @Before fun start() { Dispatchers.setMain(dispatcher) }
     @After fun stop() { store.clear(); dispatcher.scheduler.advanceUntilIdle(); Dispatchers.resetMain() }
-    private fun model(saved: SavedStateHandle = SavedStateHandle(),values: Flow<Settings> = flowOf(Settings()),operation: suspend () -> Unit = {}): SettingsViewModel {
+    private fun model(saved: SavedStateHandle = SavedStateHandle(),values: Flow<Settings> = flowOf(Settings()),
+        dataset: () -> UUID? = { null }, operation: suspend () -> Unit = {}): SettingsViewModel {
         val owner = SubscriptionsViewModel(object: SubscriptionsSource {
             override fun observe(refreshes: Flow<Unit>) = flowOf(SubscriptionsUiState.Empty())
             override fun settings() = values
+            override fun activeDatasetId() = dataset()
             override suspend fun <T> perform(block: suspend (SubscriptionUseCases) -> T): T { operation(); error("Unknown outcome") }
         }); store.put("owner${number++}",owner)
         return SettingsViewModel(saved,owner).also { store.put("settings${number++}",it) }
@@ -143,4 +146,40 @@ class SettingsViewModelTest {
         val vm = model(saved,operation = { writes++ }); runCurrent(); vm.retryWrite(); runCurrent()
         assertEquals(0,writes); assertFalse(vm.state.value.pending); assertFalse(saved.contains("intent"))
     }
+
+    @Test fun rankingWriteFailureRetriesTheSameAssignmentAndCannotCrossDataset() = runTest(dispatcher) {
+        val saved = SavedStateHandle()
+        var writes = 0
+        var dataset = UUID(0, 1)
+        val existing = Settings(theme = Theme.DARK, animationsEnabled = false, renewalOffsets = setOf(0))
+        val vm = model(saved, flowOf(existing), dataset = { dataset }, operation = { writes++ })
+        runCurrent()
+        vm.setCostRankingPeriod(CostRankingPeriod.YEAR)
+        runCurrent()
+        assertEquals(existing, vm.state.value.data)
+        assertTrue(vm.state.value.rankingPending)
+        val pending = requireNotNull(saved.get<HashMap<String,String>>("intent"))
+        assertEquals("YEAR", pending["value"])
+        assertEquals(dataset.toString(), pending["dataset"])
+        vm.retryWrite()
+        runCurrent()
+        assertEquals(2, writes)
+        assertEquals(pending, saved.get<HashMap<String,String>>("intent"))
+        val assigned = applySetting(existing, pending)
+        assertEquals(existing.copy(costRankingPeriod = CostRankingPeriod.YEAR), assigned)
+        assertEquals(assigned, applySetting(assigned, pending))
+
+        dataset = UUID(0, 2)
+        val restored = model(SavedStateHandle(mapOf("intent" to pending)), flowOf(existing),
+            dataset = { dataset }, operation = { writes++ })
+        runCurrent()
+        restored.retryWrite()
+        vm.retryWrite()
+        runCurrent()
+        assertEquals(2, writes)
+        assertFalse(restored.state.value.pending)
+        assertFalse(vm.state.value.rankingPending)
+        assertEquals(CostRankingPeriod.MONTH, restored.state.value.data?.costRankingPeriod)
+    }
+
 }

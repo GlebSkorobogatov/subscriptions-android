@@ -14,9 +14,9 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.unit.dp
 import com.glebskorobogatov.subscriptiontracker.app.LargeFontReviewActivity
 import com.glebskorobogatov.subscriptiontracker.data.mapping.toDomain
+import com.glebskorobogatov.subscriptiontracker.data.settings.CostRankingPeriod
 import com.glebskorobogatov.subscriptiontracker.data.settings.Theme
 import com.glebskorobogatov.subscriptiontracker.domain.forecast.ForecastEngine
-import com.glebskorobogatov.subscriptiontracker.domain.model.CurrencyCode
 import com.glebskorobogatov.subscriptiontracker.ui.design.*
 import com.glebskorobogatov.subscriptiontracker.ui.preview.FinancePreviewData
 import java.time.YearMonth
@@ -40,7 +40,6 @@ class LargeFontChartUiTest {
         }
         orientation(request,expected)
 
-        val currency = CurrencyCode.of("RUB")
         val row = FinancePreviewData.rows.first().copy(priceMinor = Long.MAX_VALUE,intervalUnit = com.glebskorobogatov.subscriptiontracker.domain.model.FrequencyUnit.YEAR)
         val forecast = ForecastEngine().calculate(listOf(row.toDomain()),FinancePreviewData.day)
         var state by mutableStateOf(FinanceUiState(FinancePhase.Content,FinanceSnapshot(forecast,listOf(row)),YearMonth.of(2027,1)))
@@ -49,7 +48,7 @@ class LargeFontChartUiTest {
         compose.setContent { density = LocalDensity.current.density
             TrackerTheme(theme) { Scaffold(bottomBar = { TrackerBottomNavigation(TrackerTab.Finance,{}) }) { padding ->
                 Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
-                    Box(Modifier.widthIn(max = 320.dp).fillMaxHeight()) { FinancePane(state,onMonth = { state = state.copy(month = it) }) }
+                    Box(Modifier.widthIn(max = 320.dp).fillMaxHeight()) { FinancePane(state, onMonth = { state = state.copy(month = it) }, period = CostRankingPeriod.YEAR) }
                 }
             } }
         }
@@ -58,7 +57,7 @@ class LargeFontChartUiTest {
                     compose.runOnIdle { theme = value }
                     compose.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag("finance_total"))
                     val layouts = mutableListOf<TextLayoutResult>()
-                    compose.onNodeWithTag("finance_total").assertTextEquals("92233720368547758,07 RUB")
+                    compose.onNodeWithTag("finance_total").assertTextEquals("92 233 720 368 547 758,07 ₽")
                         .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
                     assertTrue(layouts.isNotEmpty())
                     layouts.forEach { assertEquals(2f,it.layoutInput.density.fontScale,0.01f); assertFalse(it.hasVisualOverflow) }
@@ -70,6 +69,12 @@ class LargeFontChartUiTest {
                         assertTrue("Visible touch height $month: $bounds",bounds.height >= 48*density-1)
                         node.performClick().assertIsSelected()
                     }
+                    val rank = "finance_ranking_amount_${row.id}"
+                    compose.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag(rank))
+                    val amountLayouts = mutableListOf<TextLayoutResult>()
+                    compose.onNodeWithTag(rank).assertIsDisplayed().assertTextEquals("92 233 720 368 547 758,07 ₽")
+                        .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(amountLayouts) }
+                    assertTrue(amountLayouts.isNotEmpty() && amountLayouts.none { it.hasVisualOverflow })
                     val content = compose.onNodeWithTag("finance_screen").fetchSemanticsNode().boundsInRoot
                     val island = compose.onNodeWithTag("bottom_navigation").fetchSemanticsNode().boundsInRoot
                     assertTrue(content.bottom <= island.top)

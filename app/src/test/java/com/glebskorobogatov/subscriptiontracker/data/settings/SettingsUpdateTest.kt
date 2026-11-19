@@ -30,6 +30,9 @@ class SettingsUpdateTest {
         assertTrue(after.renewalOffsets.isEmpty())
         assertEquals(Theme.SYSTEM,after.theme)
         assertTrue(after.animationsEnabled)
+        updateStoredSettings(repository,changes) { it.copy(costRankingPeriod = CostRankingPeriod.YEAR) }
+        assertEquals(1, signals)
+        assertEquals(after.copy(costRankingPeriod = CostRankingPeriod.YEAR), repository.settings.first())
         assertFalse(settingsChangeReconcilesReminders(kept,kept.copy(theme = Theme.DARK,animationsEnabled = false)))
         assertTrue(settingsChangeReconcilesReminders(kept,kept.copy(renewalOffsets = setOf(0))))
     }

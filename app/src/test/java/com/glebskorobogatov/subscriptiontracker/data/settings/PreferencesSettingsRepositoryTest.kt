@@ -75,11 +75,13 @@ class PreferencesSettingsRepositoryTest {
         launch { repository.update { it.copy(theme = Theme.DARK) } }
         launch { repository.update { it.copy(animationsEnabled = false) } }
         launch { repository.update { it.copy(renewalOffsets = setOf(0)) } }
+        launch { repository.update { it.copy(costRankingPeriod = CostRankingPeriod.YEAR) } }
         testScheduler.advanceUntilIdle()
         val value = repository.settings.first()
         assertEquals(Theme.DARK, value.theme)
         assertFalse(value.animationsEnabled)
         assertEquals(setOf(0), value.renewalOffsets)
+        assertEquals(CostRankingPeriod.YEAR, value.costRankingPeriod)
     }
 
     @Test fun cancellationAfterCommitLeavesTheStoredValueReadable() = runTest {
@@ -157,10 +159,33 @@ class PreferencesSettingsRepositoryTest {
         assertEquals(Theme.DARK, repository.settings.first().theme)
     }
 
+    @Test fun failedRankingWriteKeepsOldValueAndRetryAssignsExactPeriod() = runTest {
+        val store = GateStore()
+        val repository = PreferencesSettingsRepository(store)
+        repository.update { it.copy(theme = Theme.DARK, animationsEnabled = false, renewalOffsets = setOf(0)) }
+        val before = repository.settings.first()
+        store.failWrites = true
+        try {
+            repository.update { it.copy(costRankingPeriod = CostRankingPeriod.YEAR) }
+            fail("Expected write failure")
+        } catch (_: IOException) { }
+        assertEquals(before, repository.settings.first())
+        store.failWrites = false
+        repeat(2) { repository.update { it.copy(costRankingPeriod = CostRankingPeriod.YEAR) } }
+        store.failReads = true
+        try {
+            repository.settings.first()
+            fail("Expected read failure")
+        } catch (_: IOException) { }
+        store.failReads = false
+        assertEquals(before.copy(costRankingPeriod = CostRankingPeriod.YEAR), repository.settings.first())
+    }
+
     private class GateStore : DataStore<Preferences> {
         val latest = MutableStateFlow(emptyPreferences())
         var dropUpdates = false
         var failReads = false
+        var failWrites = false
         override val data: Flow<Preferences> = flow {
             if (failReads) throw IOException("settings unreadable")
             val start = latest.value
@@ -172,6 +197,7 @@ class PreferencesSettingsRepositoryTest {
         }
         override suspend fun updateData(transform: suspend (Preferences) -> Preferences): Preferences {
             val next = transform(latest.value)
+            if (failWrites) throw IOException("preferences not committed")
             latest.value = next
             return next
         }
