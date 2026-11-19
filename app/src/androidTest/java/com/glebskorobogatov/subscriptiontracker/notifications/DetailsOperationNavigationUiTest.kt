@@ -140,6 +140,46 @@ class DetailsOperationNavigationUiTest {
         compose.onNodeWithText("Отменена").assertExists()
     }
 
+    @Test fun popBackStackToExistingRouteKeepsUnresolvedFrozenDraft() = openA { scenario ->
+        val pause = submit("archive", loseResponse = true)
+        pause.release.complete(Unit)
+        compose.waitUntil(15_000) {
+            compose.onAllNodes(hasTestTag("details_reload") and isEnabled()).fetchSemanticsNodes().isNotEmpty()
+        }
+        assertTrue(unresolvedNodes().isNotEmpty())
+        openNotification(scenario, b.id)
+        compose.waitUntil(15_000) {
+            compose.onAllNodesWithTag("details_${b.id}").fetchSemanticsNodes().isNotEmpty() &&
+                compose.onAllNodesWithTag("details_dialog").fetchSemanticsNodes().isEmpty()
+        }
+        openNotification(scenario, a.id)
+        compose.waitUntil(15_000) {
+            compose.onAllNodesWithTag("details_${a.id}").fetchSemanticsNodes().isNotEmpty() &&
+                compose.onAllNodesWithTag("details_dialog").fetchSemanticsNodes().isNotEmpty() &&
+                compose.onAllNodes(hasTestTag("details_reload") and isEnabled()).fetchSemanticsNodes().isNotEmpty()
+        }
+        assertTrue(unresolvedNodes().isNotEmpty())
+        compose.onNodeWithTag("details_${b.id}").assertDoesNotExist()
+        compose.onNodeWithTag("details_reload").performScrollTo().performClick()
+        compose.waitUntil(15_000) { compose.onAllNodesWithTag("details_dialog").fetchSemanticsNodes().isEmpty() }
+        scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        awaitTag("subscriptions_screen")
+        compose.onNodeWithTag("details_${a.id}").assertDoesNotExist()
+        compose.onNodeWithTag("details_${b.id}").assertDoesNotExist()
+        assertEquals(SubscriptionState.ARCHIVED, database { it.subscriptions().find(a.id)?.state })
+    }
+
+    private fun unresolvedNodes() = compose.onAllNodesWithText(
+        "Результат действия не подтверждён. Повторите его с сохранёнными параметрами или обновите данные.",
+    ).fetchSemanticsNodes()
+
+    private fun openNotification(scenario: ActivityScenario<IsolatedMainActivity>, id: UUID) {
+        val incoming = intent().setAction(NotificationRoute.OPEN).setData(Uri.parse(NotificationRoute(dataset, id).identity))
+            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        scenario.onActivity { it.startActivity(incoming) }
+        scenario.followActivityIntent()
+    }
+
     private fun openA(block: (ActivityScenario<IsolatedMainActivity>) -> Unit) {
         ActivityScenario.launch<IsolatedMainActivity>(intent()).whileAlive { scenario ->
             try {

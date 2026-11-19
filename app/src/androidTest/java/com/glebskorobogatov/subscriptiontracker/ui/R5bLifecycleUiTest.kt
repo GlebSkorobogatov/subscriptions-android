@@ -215,12 +215,15 @@ class R5bLifecycleUiTest {
         compose.onNodeWithContentDescription("Назад").assertIsNotEnabled()
         // A direct touch where the background action was must never navigate behind the window.
         device.click(back.x.toInt(), back.y.toInt())
+        compose.waitForIdle()
         compose.onNodeWithTag("details_$id").assertExists()
         if (compose.onAllNodesWithTag("details_dialog").fetchSemanticsNodes().isEmpty()) {
             compose.openDetailsManagement()
             compose.onNodeWithText("Отметить отмену").performClick()
+            compose.waitForIdle()
         }
         device.pressBack()
+        compose.waitForIdle()
         compose.onNodeWithTag("details_dialog").assertDoesNotExist()
         compose.onNodeWithTag("details_$id").assertExists()
         compose.onNodeWithText("Активна").assertExists()

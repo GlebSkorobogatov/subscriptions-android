@@ -34,10 +34,12 @@ import com.glebskorobogatov.subscriptiontracker.ui.archive.ArchiveScreen
 import com.glebskorobogatov.subscriptiontracker.ui.settings.SettingsScreen
 import java.util.UUID
 import kotlinx.serialization.Serializable
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
 
 // Keep serializer names/arguments stable, including the old Finance and Archive routes.
@@ -107,62 +109,67 @@ fun TrackerApp(state: SubscriptionsUiState,onRetry: () -> Unit,owner: Subscripti
             hostLifecycle.awaitAtLeastStarted()
             snapshotFlow { navEntry.value }.first { it != null }
             while (model.state.value.navigation?.sequence == request.sequence) {
-                val before = nav.currentBackStackEntry
-                val currentDetails = before?.takeIf { it.destination.hasRoute<SubscriptionDetails>() }?.let(::detailsModel)
-                if (currentDetails?.state?.value?.phase == DetailsPhase.OperationInProgress) {
-                    currentDetails.state.first { it.phase != DetailsPhase.OperationInProgress }
-                    hostLifecycle.awaitAtLeastStarted()
-                    continue
-                }
-                val settled = currentDetails?.state?.value
-                if (before != null && settled?.requiresDetailsExit == true) {
-                    leaveDetails(before)
-                    continue
-                }
+                // details() is collected with flowOn(Default). A lost response can resume there.
+                // NavController updates the entry lifecycle and must run on the main thread.
+                val finished = withContext(Dispatchers.Main.immediate) {
+                    val before = nav.currentBackStackEntry
+                    val currentDetails = before?.takeIf { it.destination.hasRoute<SubscriptionDetails>() }?.let(::detailsModel)
+                    if (currentDetails?.state?.value?.phase == DetailsPhase.OperationInProgress) {
+                        currentDetails.state.first { it.phase != DetailsPhase.OperationInProgress }
+                        hostLifecycle.awaitAtLeastStarted()
+                        return@withContext false
+                    }
+                    val settled = currentDetails?.state?.value
+                    if (before != null && settled?.requiresDetailsExit == true) {
+                        leaveDetails(before)
+                        return@withContext false
+                    }
 
-                val decision = NotificationNavigationResolver.decide(
-                    request = request,
-                    editor = before?.destination?.hasRoute<SubscriptionEditor>() == true,
-                    visibleDetailsId = { null },
-                    activeGeneration = { owner.activeDatasetId() },
-                    latestSequence = { model.state.value.navigation?.sequence },
-                    exists = { id -> owner.details(id).first() != null },
-                )
-                hostLifecycle.awaitAtLeastStarted()
-                currentCoroutineContext().ensureActive()
-                val after = nav.currentBackStackEntry
-                val editorAfter = after?.destination?.hasRoute<SubscriptionEditor>() == true
-                // An operation may have started or finished while the existence read was suspended.
-                // Resolve again from the current entry once its operation has settled.
-                if (!editorAfter && (before !== after ||
-                        currentDetails?.state?.value?.let {
-                            it.phase == DetailsPhase.OperationInProgress || it.requiresDetailsExit
-                        } == true)) continue
-                val visible = visibleNotificationTarget(nav)
-                val onMain = when {
-                    editorAfter && decision !is NotificationNavigationDecision.Superseded -> NotificationNavigationDecision.AwaitEditor
-                    decision is NotificationNavigationDecision.OpenDetails && request.generation != owner.activeDatasetId() ->
-                        NotificationNavigationDecision.Home
-                    decision is NotificationNavigationDecision.OpenDetails && visible == decision.subscriptionId ->
-                        NotificationNavigationDecision.AlreadyVisible
-                    else -> decision
+                    val decision = NotificationNavigationResolver.decide(
+                        request = request,
+                        editor = before?.destination?.hasRoute<SubscriptionEditor>() == true,
+                        visibleDetailsId = { null },
+                        activeGeneration = { owner.activeDatasetId() },
+                        latestSequence = { model.state.value.navigation?.sequence },
+                        exists = { id -> owner.details(id).first() != null },
+                    )
+                    hostLifecycle.awaitAtLeastStarted()
+                    currentCoroutineContext().ensureActive()
+                    val after = nav.currentBackStackEntry
+                    val editorAfter = after?.destination?.hasRoute<SubscriptionEditor>() == true
+                    // An operation may have started or finished while the existence read was suspended.
+                    // Resolve again from the current entry once its operation has settled.
+                    if (!editorAfter && (before !== after ||
+                            currentDetails?.state?.value?.let {
+                                it.phase == DetailsPhase.OperationInProgress || it.requiresDetailsExit
+                            } == true)) return@withContext false
+                    val visible = visibleNotificationTarget(nav)
+                    val onMain = when {
+                        editorAfter && decision !is NotificationNavigationDecision.Superseded -> NotificationNavigationDecision.AwaitEditor
+                        decision is NotificationNavigationDecision.OpenDetails && request.generation != owner.activeDatasetId() ->
+                            NotificationNavigationDecision.Home
+                        decision is NotificationNavigationDecision.OpenDetails && visible == decision.subscriptionId ->
+                            NotificationNavigationDecision.AlreadyVisible
+                        else -> decision
+                    }
+                    applyNotificationNavigation(
+                        request = request,
+                        decision = onMain,
+                        latestSequence = { model.state.value.navigation?.sequence },
+                        navigateHome = { openRoot(Subscriptions) },
+                        navigateDetails = { id ->
+                            val route = SubscriptionDetails(id.toString())
+                            if (!nav.popBackStack(route, inclusive = false)) nav.navigate(route)
+                        },
+                        confirmExit = {
+                            exitBinding = exitBinding.confirmExit(request.sequence)
+                            exitRequest++
+                        },
+                        consume = { model.consumed(it) },
+                    )
+                    true
                 }
-                applyNotificationNavigation(
-                    request = request,
-                    decision = onMain,
-                    latestSequence = { model.state.value.navigation?.sequence },
-                    navigateHome = { openRoot(Subscriptions) },
-                    navigateDetails = { id ->
-                        val route = SubscriptionDetails(id.toString())
-                        if (!nav.popBackStack(route, inclusive = false)) nav.navigate(route)
-                    },
-                    confirmExit = {
-                        exitBinding = exitBinding.confirmExit(request.sequence)
-                        exitRequest++
-                    },
-                    consume = { model.consumed(it) },
-                )
-                break
+                if (finished) break
             }
         }
     }
